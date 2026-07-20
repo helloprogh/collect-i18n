@@ -46,7 +46,11 @@ describe("local service capability boundary", () => {
 
     const authenticated = await fetch(`${origin}/api/health`, { headers: { cookie: cookie.split(";", 1)[0]! } });
     expect(authenticated.status).toBe(200);
-    await expect(authenticated.json()).resolves.toMatchObject({ ok: true, sessionId: "session_test" });
+    await expect(authenticated.json()).resolves.toMatchObject({
+      ok: true,
+      sessionId: "session_test",
+      data: { sessionId: "session_test" },
+    });
     const crossOrigin = await fetch(`${origin}/api/health`, {
       headers: { cookie: cookie.split(";", 1)[0]!, origin: "http://127.0.0.1:5173", "sec-fetch-site": "same-site" },
     });

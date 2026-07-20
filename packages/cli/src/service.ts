@@ -467,7 +467,11 @@ export class LocalService {
       return;
     }
     const store = this.store!;
-    if (url.pathname === "/api/health") { sendJson(response, 200, { ok: true, sessionId: this.options.sessionId }); return; }
+    if (url.pathname === "/api/health") {
+      const data = { sessionId: this.options.sessionId };
+      sendJson(response, 200, { ok: true, ...data, data });
+      return;
+    }
     if (url.pathname === "/api/shutdown" && request.method === "POST") {
       sendJson(response, 202, { ok: true, data: { stopping: true, sessionId: this.options.sessionId } });
       setImmediate(() => {
