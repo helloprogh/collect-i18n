@@ -9,7 +9,7 @@ import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
 import { BrowserCollector, parseTriggerPlan, type MockRule, type TriggerPlan } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
-import { StateStore } from "./store.js";
+import { StateStore, type TaskStatus } from "./store.js";
 
 interface ServiceOptions {
   config: ProjectConfig;
@@ -21,6 +21,37 @@ interface ServiceOptions {
 }
 
 const CAPABILITY_COOKIE_PREFIX = "collect_i18n_cap_";
+const MAX_PAGE_SIZE = 500;
+const taskStatuses = new Set<TaskStatus>(["pending", "running", "captured", "needs_agent", "needs_manual", "failed", "skipped"]);
+
+class InvalidQueryParameterError extends Error {
+  readonly code = "invalid_query_parameter";
+}
+
+function nonNegativeCursor(value: string | null, fallback: number): number {
+  if (value === null) return fallback;
+  if (!/^\d+$/.test(value)) throw new InvalidQueryParameterError("after must be a non-negative integer");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new InvalidQueryParameterError("after is outside the supported integer range");
+  return parsed;
+}
+
+function pageLimit(value: string | null, fallback: number): number {
+  if (value === null) return fallback;
+  if (!/^\d+$/.test(value)) throw new InvalidQueryParameterError("limit must be a positive integer");
+  const parsed = BigInt(value);
+  if (parsed < 1n) throw new InvalidQueryParameterError("limit must be a positive integer");
+  return parsed > BigInt(MAX_PAGE_SIZE) ? MAX_PAGE_SIZE : Number(parsed);
+}
+
+function statusFilter(value: string | null): TaskStatus[] | undefined {
+  if (value === null || value === "") return undefined;
+  const values = [...new Set(value.split(",").filter(Boolean))];
+  if (!values.length || values.some((status) => !taskStatuses.has(status as TaskStatus))) {
+    throw new InvalidQueryParameterError("status contains an unsupported task status");
+  }
+  return values as TaskStatus[];
+}
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, {
@@ -485,10 +516,28 @@ export class LocalService {
       return;
     }
     if (url.pathname === "/api/status") { sendJson(response, 200, { ok: true, data: store.status(url.searchParams.get("session") ?? this.options.sessionId) }); return; }
-    if (url.pathname === "/api/events") { sendJson(response, 200, { ok: true, data: store.events(url.searchParams.get("session") ?? this.options.sessionId, Number(url.searchParams.get("after") ?? 0)) }); return; }
+    if (url.pathname === "/api/events") {
+      try {
+        const after = nonNegativeCursor(url.searchParams.get("after"), 0);
+        const limit = pageLimit(url.searchParams.get("limit"), 200);
+        sendJson(response, 200, { ok: true, data: store.eventPage(url.searchParams.get("session") ?? this.options.sessionId, after, limit) });
+      } catch (error) {
+        if (!(error instanceof InvalidQueryParameterError)) throw error;
+        sendJson(response, 400, { ok: false, error: { code: error.code, message: error.message } });
+      }
+      return;
+    }
     if (url.pathname === "/api/tasks") {
-      const rawStatuses = url.searchParams.get("status")?.split(",").filter(Boolean) as import("./store.js").TaskStatus[] | undefined;
-      sendJson(response, 200, { ok: true, data: store.listTasks(url.searchParams.get("session") ?? this.options.sessionId, rawStatuses, Number(url.searchParams.get("limit") ?? 500)) }); return;
+      try {
+        const statuses = statusFilter(url.searchParams.get("status"));
+        const limit = pageLimit(url.searchParams.get("limit"), 500);
+        const afterKey = url.searchParams.get("afterKey") || undefined;
+        sendJson(response, 200, { ok: true, data: store.taskPage(url.searchParams.get("session") ?? this.options.sessionId, statuses, afterKey, limit) });
+      } catch (error) {
+        if (!(error instanceof InvalidQueryParameterError)) throw error;
+        sendJson(response, 400, { ok: false, error: { code: error.code, message: error.message } });
+      }
+      return;
     }
     if (url.pathname === "/api/evidence") { sendJson(response, 200, { ok: true, data: store.listEvidence(url.searchParams.get("session") ?? this.options.sessionId, Number(url.searchParams.get("limit") ?? 500)) }); return; }
     if (url.pathname === "/api/runtime") {

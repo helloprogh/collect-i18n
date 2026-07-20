@@ -6,6 +6,7 @@ import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
 
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
+export type EventOrigin = "system" | "deterministic" | "agent" | "manual" | "unknown";
 
 export interface StoredTask {
   id: string;
@@ -23,6 +24,27 @@ export interface StoredTask {
   plan?: unknown;
 }
 
+export interface TaskPage {
+  items: StoredTask[];
+  nextAfterKey: string | null;
+  hasMore: boolean;
+}
+
+export interface StoredEvent {
+  id: number;
+  type: string;
+  created_at: string;
+  origin: EventOrigin;
+  data: Record<string, unknown>;
+  data_json: string;
+}
+
+export interface EventPage {
+  items: StoredEvent[];
+  nextAfter: number;
+  hasMore: boolean;
+}
+
 function stableId(prefix: string, value: string): string {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 20)}`;
 }
@@ -30,6 +52,33 @@ function stableId(prefix: string, value: string): string {
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string" || !value) return fallback;
   try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
+const eventOrigins = new Set<EventOrigin>(["system", "deterministic", "agent", "manual", "unknown"]);
+
+function legacyEventOrigin(type: string): EventOrigin {
+  const namespace = type.split(".", 1)[0];
+  if (namespace === "agent" || namespace === "manual" || namespace === "deterministic") return namespace;
+  if (namespace === "session" || namespace === "system") return "system";
+  // A historical task.* event does not reliably identify which executor
+  // caused the transition. In particular, stage/source fields were not
+  // consistently present, so do not guess an origin for those rows.
+  return "unknown";
+}
+
+function hydrateEvent(row: Record<string, unknown>): StoredEvent {
+  const data = parseJson<Record<string, unknown>>(row.data_json, {});
+  const explicitOrigin = typeof data.origin === "string" && eventOrigins.has(data.origin as EventOrigin)
+    ? data.origin as EventOrigin
+    : undefined;
+  return {
+    id: Number(row.id),
+    type: String(row.type),
+    created_at: String(row.created_at),
+    origin: explicitOrigin ?? legacyEventOrigin(String(row.type)),
+    data,
+    data_json: String(row.data_json),
+  };
 }
 
 export class StateStore {
@@ -136,7 +185,10 @@ export class StateStore {
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_tasks_session_status ON tasks(session_id, status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_session_key_path ON tasks(session_id, key_path);
+      CREATE INDEX IF NOT EXISTS idx_tasks_session_status_key_path ON tasks(session_id, status, key_path);
       CREATE INDEX IF NOT EXISTS idx_evidence_session_key ON evidence(session_id, key_path);
+      CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
     `);
   }
 
@@ -193,7 +245,7 @@ export class StateStore {
         );
         insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", now);
       }
-      this.addEvent(id, "session.created", { projectId, keyCount: keys.length });
+      this.addEvent(id, "session.created", { projectId, keyCount: keys.length, origin: "system" });
     });
     return id;
   }
@@ -213,7 +265,7 @@ export class StateStore {
       if (!session || session.status !== "running") return;
       const now = new Date().toISOString();
       this.db.prepare("UPDATE sessions SET status=?,updated_at=? WHERE id=?").run(status, now, sessionId);
-      this.addEvent(sessionId, `session.${status}`, {});
+      this.addEvent(sessionId, `session.${status}`, { origin: "system" });
     });
   }
 
@@ -225,7 +277,7 @@ export class StateStore {
       const update = this.db.prepare("UPDATE sessions SET status='interrupted',updated_at=? WHERE id=? AND status='running'");
       for (const session of sessions) {
         update.run(now, session.id);
-        this.addEvent(session.id, "session.interrupted", { reason: "stale_service_recovery" });
+        this.addEvent(session.id, "session.interrupted", { reason: "stale_service_recovery", origin: "system" });
       }
       return sessions.map((session) => session.id);
     });
@@ -297,21 +349,21 @@ export class StateStore {
     this.db.prepare("UPDATE tasks SET plan_json=?,status='running',stage='agent',attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?")
       .run(JSON.stringify(plan), now, taskId);
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath });
+    if (task) this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
   }
 
   savePlan(taskId: string, plan: unknown): void {
     this.db.prepare("UPDATE tasks SET plan_json=?,updated_at=? WHERE id=?")
       .run(JSON.stringify(plan), new Date().toISOString(), taskId);
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, "agent.plan_saved", { taskId, keyPath: task.keyPath });
+    if (task) this.addEvent(task.sessionId, "agent.plan_saved", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
   }
 
   markTask(taskId: string, status: TaskStatus, error?: string): void {
     this.db.prepare("UPDATE tasks SET status=?,last_error=?,updated_at=? WHERE id=?")
       .run(status, error ?? null, new Date().toISOString(), taskId);
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, `task.${status}`, { taskId, keyPath: task.keyPath, error });
+    if (task) this.addEvent(task.sessionId, `task.${status}`, { taskId, keyPath: task.keyPath, error, stage: task.stage, origin: task.stage });
   }
 
   addEvidence(taskId: string, evidence: CollectedEvidence): string {
@@ -325,7 +377,14 @@ export class StateStore {
         .run(id, task.sessionId, taskId, task.keyPath, evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt);
       const now = new Date().toISOString();
       this.db.prepare("UPDATE tasks SET status='captured',last_error=NULL,updated_at=? WHERE id=?").run(now, taskId);
-      this.addEvent(task.sessionId, "task.captured", { taskId, keyPath: task.keyPath });
+      this.addEvent(task.sessionId, "task.captured", {
+        taskId,
+        evidenceId: id,
+        keyPath: task.keyPath,
+        stage: task.stage,
+        source: evidence.source,
+        origin: evidence.source,
+      });
     });
     return id;
   }
@@ -333,7 +392,7 @@ export class StateStore {
   startManual(taskId: string): void {
     this.db.prepare("UPDATE tasks SET status='needs_manual',stage='manual',last_error=NULL,updated_at=? WHERE id=?").run(new Date().toISOString(), taskId);
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath });
+    if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
   localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string }> {
@@ -365,6 +424,30 @@ export class StateStore {
     return (rows as Array<{ id: string }>).map((row) => this.task(row.id)).filter((task): task is StoredTask => Boolean(task));
   }
 
+  taskPage(sessionId: string, statuses?: TaskStatus[], afterKey?: string, limit = 500): TaskPage {
+    const bounded = Math.max(1, Math.min(Math.trunc(limit), 500));
+    const statusClause = statuses?.length ? ` AND t.status IN (${statuses.map(() => "?").join(",")})` : "";
+    const cursorClause = afterKey ? " AND t.key_path>?" : "";
+    const parameters: Array<string | number> = [sessionId, ...(statuses ?? [])];
+    if (afterKey) parameters.push(afterKey);
+    parameters.push(bounded + 1);
+    const rows = this.db.prepare(`
+      SELECT t.id,t.key_path
+      FROM tasks t
+      WHERE t.session_id=?${statusClause}${cursorClause}
+      ORDER BY t.key_path
+      LIMIT ?
+    `).all(...parameters) as Array<{ id: string; key_path: string }>;
+    const hasMore = rows.length > bounded;
+    const pageRows = hasMore ? rows.slice(0, bounded) : rows;
+    const items = pageRows.map((row) => this.task(row.id)).filter((task): task is StoredTask => Boolean(task));
+    return {
+      items,
+      nextAfterKey: hasMore ? pageRows.at(-1)?.key_path ?? null : null,
+      hasMore,
+    };
+  }
+
   listEvidence(sessionId: string, limit = 500): Array<Record<string, unknown>> {
     return (this.db.prepare("SELECT id,task_id,key_path,source,screenshot_path,route,data_json,captured_at FROM evidence WHERE session_id=? ORDER BY captured_at DESC LIMIT ?").all(sessionId, Math.max(1, Math.min(limit, 2_000))) as Array<Record<string, unknown>>)
       .map((row) => ({ ...row, data: parseJson(row.data_json, {}) }));
@@ -374,7 +457,21 @@ export class StateStore {
     return this.db.prepare("SELECT id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at FROM evidence WHERE id=?").get(evidenceId) as Record<string, unknown> | undefined;
   }
 
-  events(sessionId: string, after = 0): Array<Record<string, unknown>> {
-    return this.db.prepare("SELECT id,type,data_json,created_at FROM events WHERE session_id=? AND id>? ORDER BY id LIMIT 200").all(sessionId, after).map((row: Record<string, unknown>) => ({ ...row, data: parseJson(row.data_json, {}) }));
+  events(sessionId: string, after = 0): StoredEvent[] {
+    return this.eventPage(sessionId, after, 200).items;
+  }
+
+  eventPage(sessionId: string, after = 0, limit = 200): EventPage {
+    const bounded = Math.max(1, Math.min(Math.trunc(limit), 500));
+    const rows = this.db.prepare("SELECT id,type,data_json,created_at FROM events WHERE session_id=? AND id>? ORDER BY id LIMIT ?")
+      .all(sessionId, after, bounded + 1) as Array<Record<string, unknown>>;
+    const hasMore = rows.length > bounded;
+    const pageRows = hasMore ? rows.slice(0, bounded) : rows;
+    const items = pageRows.map(hydrateEvent);
+    return {
+      items,
+      nextAfter: items.at(-1)?.id ?? after,
+      hasMore,
+    };
   }
 }
