@@ -35,7 +35,7 @@ Skill 驱动 Agent 为剩余词条生成 TriggerPlan
 ## 从源码安装
 
 ```bash
-git clone <repository-url> collect-i18n
+git clone https://github.com/helloprogh/collect-i18n.git
 cd collect-i18n
 pnpm install --frozen-lockfile
 pnpm build
