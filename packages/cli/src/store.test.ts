@@ -124,6 +124,59 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("keeps a closed session catalog stable after the project is rescanned", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const original = analysis("旧文案");
+    original.catalog.keys[0]!.targetText = "Old translation";
+    const projectId = store.syncProject(projectRoot, {}, original);
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+    store.closeSession(sessionId);
+
+    const updated = analysis("新文案");
+    updated.catalog.keys[0]!.targetText = "New translation";
+    updated.catalog.keys[0]!.relativeFile = "renamed.json";
+    updated.catalog.keys[0]!.jsonPath = ["renamed"];
+    store.syncProject(projectRoot, {}, updated);
+
+    expect(store.task(task.id)).toMatchObject({ chinese: "旧文案", relativeFile: "form.json" });
+    expect(store.nextTask(sessionId, ["needs_agent"])).toMatchObject({ chinese: "旧文案", relativeFile: "form.json" });
+    expect(store.localeCatalog(sessionId, join(projectRoot, "en-us"))).toEqual([
+      expect.objectContaining({
+        keyPath: "form.save",
+        chinese: "旧文案",
+        english: "Old translation",
+        relativeFile: "form.json",
+        jsonPath: ["save"],
+      }),
+    ]);
+
+    const newSessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    expect(store.nextTask(newSessionId, ["needs_agent"])).toMatchObject({ chinese: "新文案", relativeFile: "renamed.json" });
+    store.close();
+  });
+
+  it("backfills session locale snapshots for a legacy database", async () => {
+    const projectRoot = root();
+    const legacyStore = await StateStore.open(projectRoot);
+    const projectId = legacyStore.syncProject(projectRoot, {}, analysis("历史文案"));
+    const sessionId = legacyStore.createSession(projectId, "http://127.0.0.1:5173");
+    const taskId = legacyStore.taskByKey(sessionId, "form.save")?.id;
+    if (!taskId) throw new Error("missing fixture task");
+    legacyStore.closeSession(sessionId);
+    database(legacyStore).exec("DROP TABLE session_locale_keys");
+    legacyStore.close();
+
+    const migratedStore = await StateStore.open(projectRoot);
+    expect(migratedStore.task(taskId)).toMatchObject({ chinese: "历史文案", relativeFile: "form.json" });
+    expect(migratedStore.localeCatalog(sessionId, join(projectRoot, "en-us"))).toEqual([
+      expect.objectContaining({ keyPath: "form.save", chinese: "历史文案" }),
+    ]);
+    migratedStore.close();
+  });
+
   it("rolls back the session row when task creation fails", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -145,6 +198,57 @@ describe("StateStore transactions", () => {
     expect(() => store.addEvidence(task.id, evidence())).toThrow("reject capture");
     expect(store.listEvidence(sessionId)).toHaveLength(0);
     expect(store.task(task.id)?.status).toBe("needs_agent");
+    store.close();
+  });
+
+  it("rejects evidence for a different key without changing task state", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+
+    expect(() => store.addEvidence(task.id, { ...evidence(), key: "form.other" }))
+      .toThrow("does not match task key");
+    expect(store.listEvidence(sessionId)).toHaveLength(0);
+    expect(store.task(task.id)?.status).toBe("needs_agent");
+    expect(store.events(sessionId).some((event) => event.type === "task.captured")).toBe(false);
+    store.close();
+  });
+
+  it("selects the newest evidence for the exact task and breaks timestamp ties by insertion order", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const firstSessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const firstTask = store.nextTask(firstSessionId, ["needs_agent"]);
+    if (!firstTask) throw new Error("missing fixture task");
+    const capturedAt = "2026-07-21T00:00:00.000Z";
+    store.addEvidence(firstTask.id, { ...evidence(), screenshotPath: "D:/evidence/first.png", capturedAt });
+    store.addEvidence(firstTask.id, { ...evidence(), screenshotPath: "D:/evidence/second.png", capturedAt });
+    store.closeSession(firstSessionId);
+
+    const secondSessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const secondTask = store.nextTask(secondSessionId, ["needs_agent"]);
+    if (!secondTask) throw new Error("missing second fixture task");
+    database(store).prepare(`
+      INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at)
+      VALUES(?,?,?,?,?,?,?,?,?)
+    `).run(
+      "evidence_cross_task",
+      firstSessionId,
+      secondTask.id,
+      firstTask.keyPath,
+      "agent",
+      "D:/evidence/wrong-task.png",
+      "http://127.0.0.1:5173/form",
+      JSON.stringify(evidence("agent")),
+      "2026-07-22T00:00:00.000Z",
+    );
+
+    expect(store.localeCatalog(firstSessionId, join(projectRoot, "en-us"))[0]?.screenshotPath)
+      .toBe("D:/evidence/second.png");
     store.close();
   });
 

@@ -98,11 +98,14 @@ export async function exportTranslationWorkbook(
       }
       const imageId = workbook.addImage({ base64: buffer.toString("base64"), extension });
       row.height = 88;
-      worksheet.addImage(imageId, {
+      // ExcelJS supports fractional two-cell anchors at runtime, although its
+      // declarations require concrete Anchor instances for this shape.
+      const imageRange = {
         tl: { col: 2.05, row: row.number - 0.95 },
-        ext: { width: 190, height: 108 },
-        editAs: "oneCell",
-      });
+        br: { col: 2.95, row: row.number - 0.05 },
+        editAs: "twoCell",
+      } as unknown as Parameters<typeof worksheet.addImage>[1];
+      worksheet.addImage(imageId, imageRange);
       imageCount += 1;
     }
   }

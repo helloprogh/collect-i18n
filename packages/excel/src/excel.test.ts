@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,6 +12,15 @@ const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
+const RED_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGAAAAAASUVORK5CYII=",
+  "base64",
+);
+
+function sha256(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "collect-i18n-excel-"));
@@ -68,6 +78,48 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getImages()).toHaveLength(1);
     expect((workbook as unknown as { model: { media: unknown[] } }).model.media).toHaveLength(1);
     expect(sheet.getCell(2, 3).text).toBe("");
+  });
+
+  it("keeps two-cell screenshot anchors paired with their keys after sorting and leaves missing screenshots blank", async () => {
+    const item = await fixture();
+    const middleScreenshot = join(item.root, "middle.png");
+    const lastScreenshot = join(item.root, "last.png");
+    await Promise.all([
+      writeFile(middleScreenshot, ONE_PIXEL_PNG),
+      writeFile(lastScreenshot, RED_PIXEL_PNG),
+    ]);
+
+    await exportTranslationWorkbook([
+      { keyPath: "z.last", chinese: "Last", targetFile: item.targetFile, jsonPath: ["last"], screenshotPath: lastScreenshot },
+      { keyPath: "a.empty", chinese: "No screenshot", targetFile: item.targetFile, jsonPath: ["empty"] },
+      { keyPath: "m.middle", chinese: "Middle", targetFile: item.targetFile, jsonPath: ["middle"], screenshotPath: middleScreenshot },
+    ], item.workbookPath);
+
+    const { workbook, sheet, rows } = await workbookRows(item.workbookPath);
+    const anchoredHashes = new Map<string, string>();
+    expect(sheet.getImages()).toHaveLength(2);
+
+    for (const drawing of sheet.getImages()) {
+      const rowNumber = drawing.range.tl.nativeRow + 1;
+      const keyPath = sheet.getCell(rowNumber, 4).text;
+      const image = workbook.getImage(Number(drawing.imageId));
+      if (!image.buffer) throw new Error(`Missing embedded image bytes for ${keyPath}`);
+
+      anchoredHashes.set(keyPath, sha256(Buffer.from(image.buffer)));
+      expect(drawing.range.tl.col).toBeGreaterThan(2);
+      expect(drawing.range.br.col).toBeLessThan(3);
+      expect(drawing.range.br.col).toBeGreaterThan(drawing.range.tl.col);
+      expect(drawing.range.tl.row).toBeGreaterThan(rowNumber - 1);
+      expect(drawing.range.br.row).toBeLessThan(rowNumber);
+      expect(drawing.range.br.row).toBeGreaterThan(drawing.range.tl.row);
+      expect((drawing.range as typeof drawing.range & { editAs?: string }).editAs).toBe("twoCell");
+    }
+
+    expect([...anchoredHashes.keys()].sort()).toEqual(["m.middle", "z.last"]);
+    expect(anchoredHashes.get("m.middle")).toBe(sha256(ONE_PIXEL_PNG));
+    expect(anchoredHashes.get("z.last")).toBe(sha256(RED_PIXEL_PNG));
+    expect(anchoredHashes.has("a.empty")).toBe(false);
+    expect(sheet.getCell(rows.get("a.empty")!, 3).text).toBe("");
   });
 
   it("rejects duplicate keys and screenshots whose bytes do not match the extension", async () => {

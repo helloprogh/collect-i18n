@@ -150,6 +150,16 @@ export class StateStore {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS session_locale_keys (
+        session_id TEXT NOT NULL,
+        key_path TEXT NOT NULL,
+        chinese TEXT NOT NULL,
+        english TEXT,
+        relative_file TEXT NOT NULL,
+        json_path TEXT NOT NULL,
+        PRIMARY KEY (session_id, key_path),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -189,6 +199,12 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_tasks_session_status_key_path ON tasks(session_id, status, key_path);
       CREATE INDEX IF NOT EXISTS idx_evidence_session_key ON evidence(session_id, key_path);
       CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
+
+      INSERT OR IGNORE INTO session_locale_keys(session_id,key_path,chinese,english,relative_file,json_path)
+      SELECT t.session_id,t.key_path,k.chinese,k.english,k.relative_file,k.json_path
+      FROM tasks t
+      JOIN sessions s ON s.id=t.session_id
+      JOIN locale_keys k ON k.project_id=s.project_id AND k.key_path=t.key_path;
     `);
   }
 
@@ -227,7 +243,13 @@ export class StateStore {
       this.db.prepare("INSERT INTO sessions(id,project_id,status,service_url,base_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
         .run(id, projectId, "running", serviceUrl ?? null, baseUrl, now, now);
 
-      const keys = this.db.prepare("SELECT key_path FROM locale_keys WHERE project_id=? ORDER BY key_path").all(projectId) as Array<{ key_path: string }>;
+      this.db.prepare(`
+        INSERT INTO session_locale_keys(session_id,key_path,chinese,english,relative_file,json_path)
+        SELECT ?,key_path,chinese,english,relative_file,json_path
+        FROM locale_keys
+        WHERE project_id=?
+      `).run(id, projectId);
+      const keys = this.db.prepare("SELECT key_path FROM session_locale_keys WHERE session_id=? ORDER BY key_path").all(id) as Array<{ key_path: string }>;
       const occurrenceQuery = this.db.prepare("SELECT data_json FROM occurrences WHERE project_id=? AND key_path=?");
       const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,updated_at) VALUES(?,?,?,?,?,?)");
       for (const key of keys) {
@@ -306,7 +328,7 @@ export class StateStore {
     const row = this.db.prepare(`
       SELECT t.*, k.chinese, k.relative_file, s.project_id
       FROM tasks t JOIN sessions s ON s.id=t.session_id
-      JOIN locale_keys k ON k.project_id=s.project_id AND k.key_path=t.key_path
+      JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
       WHERE t.id=?
     `).get(taskId) as Record<string, unknown> | undefined;
     return row ? this.hydrateTask(row) : undefined;
@@ -317,7 +339,7 @@ export class StateStore {
     const row = this.db.prepare(`
       SELECT t.*, k.chinese, k.relative_file, s.project_id
       FROM tasks t JOIN sessions s ON s.id=t.session_id
-      JOIN locale_keys k ON k.project_id=s.project_id AND k.key_path=t.key_path
+      JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
       WHERE t.session_id=? AND t.status IN (${placeholders}) ORDER BY t.updated_at,t.key_path LIMIT 1
     `).get(sessionId, ...statuses) as Record<string, unknown> | undefined;
     return row ? this.hydrateTask(row) : undefined;
@@ -371,6 +393,9 @@ export class StateStore {
     this.transaction(() => {
       const task = this.task(taskId);
       if (!task) throw new Error(`任务不存在：${taskId}`);
+      if (evidence.key !== task.keyPath) {
+        throw new Error(`Evidence key ${evidence.key} does not match task key ${task.keyPath}`);
+      }
       const session = this.session(task.sessionId);
       if (!session || session.status !== "running") throw new Error(`会话已结束，不能写入截图证据：${task.sessionId}`);
       this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?)")
@@ -397,8 +422,17 @@ export class StateStore {
 
   localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string }> {
     const rows = this.db.prepare(`
-      SELECT k.*, (SELECT e.screenshot_path FROM evidence e WHERE e.session_id=s.id AND e.key_path=k.key_path ORDER BY e.captured_at DESC LIMIT 1) screenshot_path
-      FROM sessions s JOIN locale_keys k ON k.project_id=s.project_id WHERE s.id=? ORDER BY k.key_path
+      SELECT k.*, (
+        SELECT e.screenshot_path
+        FROM evidence e
+        WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
+        ORDER BY e.captured_at DESC,e.rowid DESC
+        LIMIT 1
+      ) screenshot_path
+      FROM session_locale_keys k
+      JOIN tasks t ON t.session_id=k.session_id AND t.key_path=k.key_path
+      WHERE k.session_id=?
+      ORDER BY k.key_path
     `).all(sessionId) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       keyPath: row.key_path as string,

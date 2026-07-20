@@ -182,6 +182,96 @@ describe('CollectorRegistry', () => {
     })
   })
 
+  it('keeps native text ranges inside their registered owner when page text is duplicated', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'jobs-title',
+        key: 'jobs.title',
+        kind: 'text',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const navigation = document.createElement('a')
+    navigation.textContent = '同步任务'
+    const heading = document.createElement('h1')
+    heading.textContent = '同步任务'
+    const navigationScroll = vi.fn()
+    const headingScroll = vi.fn()
+    Object.defineProperty(navigation, 'scrollIntoView', {
+      configurable: true,
+      value: navigationScroll,
+    })
+    Object.defineProperty(heading, 'scrollIntoView', {
+      configurable: true,
+      value: headingScroll,
+    })
+    document.body.append(navigation, heading)
+
+    registry.recordRenderedValue('jobs-title', '同步任务')
+    await mutationsSettled()
+
+    // Descriptor-only text cannot choose between identical global candidates.
+    expect(registry.getOccurrence('jobs-title')).toMatchObject({
+      anchorType: 'virtual',
+      connected: false,
+    })
+    expect(registry.focus({ occurrenceId: 'jobs-title' })).toBeUndefined()
+    expect(navigationScroll).not.toHaveBeenCalled()
+
+    registry.registerElement(
+      { occurrenceId: 'jobs-title', key: 'jobs.title', kind: 'text' },
+      heading,
+    )
+    await mutationsSettled()
+
+    const focused = registry.focus({ occurrenceId: 'jobs-title' })
+
+    expect(focused).toMatchObject({ anchorType: 'range', text: '同步任务' })
+    expect(headingScroll).toHaveBeenCalledOnce()
+    expect(navigationScroll).not.toHaveBeenCalled()
+  })
+
+  it('discards a stale global text range when its owner has not rendered a match yet', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'delayed-title',
+        key: 'jobs.delayedTitle',
+        kind: 'text',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const unrelated = document.createElement('a')
+    unrelated.textContent = '同步任务'
+    const heading = document.createElement('h1')
+    heading.textContent = '正在加载'
+    const unrelatedScroll = vi.fn()
+    const headingScroll = vi.fn()
+    Object.defineProperty(unrelated, 'scrollIntoView', {
+      configurable: true,
+      value: unrelatedScroll,
+    })
+    Object.defineProperty(heading, 'scrollIntoView', {
+      configurable: true,
+      value: headingScroll,
+    })
+    document.body.append(unrelated, heading)
+
+    registry.recordRenderedValue('delayed-title', '同步任务')
+    await mutationsSettled()
+    expect(registry.getOccurrence('delayed-title')?.anchorType).toBe('range')
+
+    registry.registerElement(
+      { occurrenceId: 'delayed-title', key: 'jobs.delayedTitle', kind: 'text' },
+      heading,
+    )
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('delayed-title')?.anchorType).toBe('element')
+    registry.focus({ occurrenceId: 'delayed-title' })
+    expect(headingScroll).toHaveBeenCalledOnce()
+    expect(unrelatedScroll).not.toHaveBeenCalled()
+  })
+
   it('resolves component props by their rendered DOM attributes', async () => {
     enqueueDescriptors([
       {

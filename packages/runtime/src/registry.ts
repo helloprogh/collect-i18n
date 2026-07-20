@@ -123,6 +123,17 @@ function selectAnchor(entry: StoredOccurrence): OccurrenceAnchor {
   )
 }
 
+function connectedElementOwner(entry: StoredOccurrence): Element | undefined {
+  return [...entry.anchors.values()].find(
+    (anchor): anchor is Extract<OccurrenceAnchor, { type: 'element' }> =>
+      anchor.type === 'element' && anchorIsConnected(anchor),
+  )?.element
+}
+
+function rangeIsWithinElement(range: Range, element: Element): boolean {
+  return element.contains(range.startContainer) && element.contains(range.endContainer)
+}
+
 function targetMatches(target: CollectorTarget, descriptor: OccurrenceDescriptor): boolean {
   if (target.occurrenceId && target.occurrenceId !== descriptor.occurrenceId) return false
   if (target.key && target.key !== descriptor.key) return false
@@ -721,7 +732,15 @@ export class CollectorRegistry implements CollectorRegistryApi {
       const text = normalizeText(descriptor.renderedText)
       if (!text || descriptor.kind === 'native' || descriptor.kind === 'imperative-service') continue
       const existing = selectAnchor(entry)
-      const needsTextRange = descriptor.kind === 'text' && existing.type !== 'range'
+      // A compiled native owner is stronger evidence than a text-identical node
+      // elsewhere in the page. Inspect every registered anchor instead of only
+      // `existing`: text ranges intentionally outrank elements in selectAnchor,
+      // so an older global fallback may otherwise hide the real owner forever.
+      const textOwner = descriptor.kind === 'text' ? connectedElementOwner(entry) : undefined
+      const needsTextRange =
+        descriptor.kind === 'text' &&
+        (existing.type !== 'range' ||
+          Boolean(textOwner && !rangeIsWithinElement(existing.range, textOwner)))
       const needsComponentElement =
         descriptor.kind === 'component-prop' && existing.type !== 'element'
       if (
@@ -736,8 +755,20 @@ export class CollectorRegistry implements CollectorRegistryApi {
       const match =
         descriptor.kind === 'component-prop'
           ? this.#findComponentPropAnchor(descriptor, text)
-          : this.#findTextRange(text)
+          : this.#findTextRange(text, textOwner)
       if (!match) {
+        if (
+          descriptor.kind === 'text' &&
+          textOwner &&
+          existing.type === 'range' &&
+          !rangeIsWithinElement(existing.range, textOwner)
+        ) {
+          // The compiled owner is authoritative. If it has not rendered the
+          // expected text yet, discard a stale global fallback instead of
+          // continuing to expose an unrelated same-text node as evidence.
+          this.#renderedDisposers.get(descriptor.occurrenceId)?.()
+          this.#renderedDisposers.delete(descriptor.occurrenceId)
+        }
         if (descriptor.kind === 'component-prop' && existing.type === 'range') {
           this.#renderedDisposers.get(descriptor.occurrenceId)?.()
           this.#renderedDisposers.delete(descriptor.occurrenceId)
@@ -791,8 +822,12 @@ export class CollectorRegistry implements CollectorRegistryApi {
     return textRanges.length === 1 ? textRanges[0] : undefined
   }
 
-  #findTextRange(text: string): Range | undefined {
-    return this.#findTextRanges(text)[0]
+  #findTextRange(text: string, root?: ParentNode): Range | undefined {
+    const ranges = this.#findTextRanges(text, root)
+    // A compiled owner already identifies the correct part of the component,
+    // so the first matching range inside it is sufficient. Descriptor-only
+    // slot text has no such provenance and must be globally unique.
+    return root ? ranges[0] : ranges.length === 1 ? ranges[0] : undefined
   }
 
   #findTextRanges(
