@@ -14,4 +14,4 @@
 
 Release 中的 `collect-i18n-skill-v0.1.0.zip` 是 Agent Skill 附件，不包含 CLI 或 Node.js 运行时。请先克隆本仓库，安装依赖并执行 `pnpm build`，再安装 Skill；也可以设置 `COLLECT_I18N_CLI`，指向已经构建好的 `packages/cli/dist/bin.js`。
 
-运行环境：Node.js 22.12 或更高版本、pnpm 11.9、本机 Google Chrome，以及 Vue 3 + Vite 目标项目。
+运行环境：Node.js 22.13 或更高版本、pnpm 11.9、本机 Google Chrome，以及 Vue 3 + Vite 目标项目。
