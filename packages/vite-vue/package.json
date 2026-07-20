@@ -1,0 +1,38 @@
+{
+  "name": "@collect-i18n/vite-vue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --root ../.. packages/vite-vue/src"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.0",
+    "@collect-i18n/core": "workspace:*",
+    "@collect-i18n/runtime": "workspace:*",
+    "@vue/compiler-dom": "^3.5.0",
+    "@vue/compiler-sfc": "^3.5.0",
+    "magic-string": "^0.30.0"
+  },
+  "devDependencies": {
+    "@collect-i18n/analyzer": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.0.0"
+  },
+  "peerDependencies": {
+    "vite": ">=5.0.0"
+  }
+}

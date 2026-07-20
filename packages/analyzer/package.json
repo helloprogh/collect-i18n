@@ -1,0 +1,28 @@
+{
+  "name": "@collect-i18n/analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean --platform node --target node22",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.0",
+    "@collect-i18n/core": "workspace:*",
+    "@vue/compiler-dom": "^3.5.0",
+    "@vue/compiler-sfc": "^3.5.0",
+    "fast-glob": "^3.3.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0"
+  }
+}
