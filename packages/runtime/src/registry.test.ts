@@ -226,11 +226,13 @@ describe('CollectorRegistry', () => {
     const registry = installCollectorRuntime({ overlay: false })
     const unique = document.createElement('span')
     unique.textContent = '唯一标签'
+    const containing = document.createElement('p')
+    containing.textContent = '说明文字中包含唯一标签但不是目标'
     const duplicateOne = document.createElement('span')
     duplicateOne.textContent = '重复标签'
     const duplicateTwo = document.createElement('span')
     duplicateTwo.textContent = '重复标签'
-    document.body.append(unique, duplicateOne, duplicateTwo)
+    document.body.append(unique, containing, duplicateOne, duplicateTwo)
 
     registry.recordRenderedValue('unique-component-label', '唯一标签')
     registry.recordRenderedValue('ambiguous-component-label', '重复标签')

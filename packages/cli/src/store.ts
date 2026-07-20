@@ -234,7 +234,7 @@ export class StateStore {
         const occurrences = occurrenceQuery.all(projectId, key.key_path) as Array<{ data_json: string }>;
         const parsed = occurrences.map((row) => parseJson<Record<string, unknown>>(row.data_json, {}));
         const deterministic = parsed.some((occurrence) =>
-          (occurrence.kind === "native_dom" || occurrence.kind === "text_range") && (
+          (occurrence.kind === "native_dom" || occurrence.kind === "text_range" || occurrence.kind === "component_prop") && (
             (typeof occurrence.location === "object" && occurrence.location !== null &&
               "file" in occurrence.location && /(?:^|\/)src\/App\.vue$/i.test(String((occurrence.location as { file?: unknown }).file))) ||
             (Array.isArray(occurrence.routeHints) && occurrence.routeHints.some((hint) =>

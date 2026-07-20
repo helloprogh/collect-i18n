@@ -779,6 +779,14 @@ export class CollectorRegistry implements CollectorRegistryApi {
         if (normalizeText(element.getAttribute(attribute)) === text) return element
       }
     }
+    // Component libraries often render a prop as text instead of forwarding it
+    // as a DOM attribute. Prefer one exact text node before considering
+    // substring matches: e.g. the table header "运行状态" must not become
+    // ambiguous merely because a page subtitle contains "…及其运行状态".
+    const exactTextRanges = this.#findTextRanges(text, undefined, true)
+    if (exactTextRanges.length > 0) {
+      return exactTextRanges.length === 1 ? exactTextRanges[0] : undefined
+    }
     const textRanges = this.#findTextRanges(text)
     return textRanges.length === 1 ? textRanges[0] : undefined
   }
@@ -790,6 +798,7 @@ export class CollectorRegistry implements CollectorRegistryApi {
   #findTextRanges(
     text: string,
     root: ParentNode = this.#document.body ?? this.#document.documentElement,
+    exactOnly = false,
   ): Range[] {
     const NodeFilterRef = this.#document.defaultView?.NodeFilter
     const walker = this.#document.createTreeWalker(
@@ -805,7 +814,10 @@ export class CollectorRegistry implements CollectorRegistryApi {
       const excluded =
         parent?.closest('[data-collect-i18n-overlay]') ||
         parent?.closest('script,style,noscript,template')
-      if (!excluded && (normalized === text || (normalized && normalized.includes(text)))) {
+      const matches = exactOnly
+        ? normalized === text
+        : normalized === text || Boolean(normalized?.includes(text))
+      if (!excluded && matches) {
         const start = raw.indexOf(text)
         const range = this.#document.createRange()
         if (start >= 0) range.setStart(current, start)

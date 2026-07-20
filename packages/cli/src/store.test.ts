@@ -57,6 +57,34 @@ function analysisForKeys(keyPaths: string[]): ProjectAnalysis {
   return { ...seed, catalog: { ...seed.catalog, keys }, unusedKeys: keys };
 }
 
+function analysisWithOccurrence(
+  kind: "native_dom" | "text_range" | "component_prop" | "imperative_service",
+  routeConfidence?: number,
+): ProjectAnalysis {
+  const seed = analysis()
+  const key = seed.catalog.keys[0]!
+  return {
+    ...seed,
+    source: {
+      ...seed.source,
+      occurrences: [{
+        id: "occ_fixture",
+        keyPath: key.keyPath,
+        kind,
+        location: { file: "src/views/JobsView.vue", line: 1, column: 0 },
+        expression: "t('form.save')",
+        component: kind === "component_prop" ? "el-table-column" : undefined,
+        property: kind === "component_prop" ? "label" : undefined,
+        teleported: kind === "imperative_service",
+        dynamic: false,
+        confidence: 0.99,
+        routeHints: routeConfidence === undefined ? [] : [{ path: "/jobs", source: "router_config", confidence: routeConfidence }],
+        actionHints: [],
+      }],
+    },
+  }
+}
+
 function evidence(source: CollectedEvidence["source"] = "deterministic"): CollectedEvidence {
   return {
     key: "form.save",
@@ -70,6 +98,20 @@ function evidence(source: CollectedEvidence["source"] = "deterministic"): Collec
 }
 
 describe("StateStore transactions", () => {
+  it("probes routed component props in the deterministic stage", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const routedProject = store.syncProject(projectRoot, {}, analysisWithOccurrence("component_prop", 0.99));
+    const routedSession = store.createSession(routedProject, "http://127.0.0.1:5173");
+    expect(store.taskByKey(routedSession, "form.save")).toMatchObject({ status: "pending", stage: "deterministic" });
+    store.closeSession(routedSession);
+
+    const unroutedProject = store.syncProject(projectRoot, {}, analysisWithOccurrence("component_prop"));
+    const unroutedSession = store.createSession(unroutedProject, "http://127.0.0.1:5173");
+    expect(store.taskByKey(unroutedSession, "form.save")).toMatchObject({ status: "needs_agent", stage: "agent" });
+    store.close();
+  });
+
   it("rolls back a catalog refresh and protects an active session snapshot", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
