@@ -50,7 +50,7 @@ function frontmatter(markdown) {
 
 async function validateSkill(files) {
   const relativeFiles = files.map((file) => portable(relative(skillDirectory, file)));
-  for (const required of ["SKILL.md", "agents/openai.yaml", "references/cli-protocol.md", "references/trigger-plan.md"]) {
+  for (const required of ["SKILL.md", "agents/openai.yaml", "references/cli-protocol.md", "references/trigger-plan.md", "cli/bootstrap.mjs"]) {
     if (!relativeFiles.includes(required)) throw new Error(`Missing required skill file: ${required}`);
   }
 
@@ -125,24 +125,59 @@ function endRecord(fileCount, centralSize, centralOffset) {
   return record;
 }
 
-async function createZip(files, output) {
+async function createZip(files, output, extraEntries = []) {
   const locals = [];
   const centrals = [];
   let offset = 0;
-  for (const file of files) {
-    const entryName = portable(join(basename(skillDirectory), relative(skillDirectory, file)));
+  const addEntry = (entryName, data) => {
     const name = Buffer.from(entryName, "utf8");
-    const data = await readFile(file);
     const crc = crc32(data);
     const header = localHeader(name, data, crc);
     locals.push(header, name, data);
     centrals.push(centralHeader(name, data, crc, offset), name);
     offset += header.length + name.length + data.length;
+  };
+  for (const file of files) {
+    const entryName = portable(join(basename(skillDirectory), relative(skillDirectory, file)));
+    addEntry(entryName, await readFile(file));
   }
+  for (const entry of extraEntries) {
+    addEntry(entry.entryName, entry.data);
+  }
+  const total = files.length + extraEntries.length;
   const central = Buffer.concat(centrals);
-  const archive = Buffer.concat([...locals, central, endRecord(files.length, central.length, offset)]);
+  const archive = Buffer.concat([...locals, central, endRecord(total, central.length, offset)]);
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, archive);
+}
+
+// Engine assets generated at package time and embedded in the skill zip. They
+// are not committed source files, so the bundled engine (bin.js), the runtime
+// asset (runtime/index.js) and the skill-cli package.json are added as extra
+// zip entries alongside the walked skill source (which includes cli/bootstrap.mjs).
+async function buildEngineEntries(version) {
+  const bundlePath = join(repositoryRoot, "packages", "cli", "bundle", "bin.js");
+  const runtimePath = join(repositoryRoot, "packages", "runtime", "dist", "index.js");
+  for (const [label, path] of [["bundled engine", bundlePath], ["runtime asset", runtimePath]]) {
+    try {
+      await readFile(path);
+    } catch {
+      throw new Error(`${label} not found at ${path}. Run "pnpm build" then "pnpm --filter @collect-i18n/cli build:bundle" before packaging the skill.`);
+    }
+  }
+  const skillPkg = {
+    name: "@collect-i18n/skill-cli",
+    version,
+    private: true,
+    type: "module",
+    dependencies: { "playwright-core": "^1.55.0" },
+  };
+  const prefix = portable(basename(skillDirectory));
+  return [
+    { entryName: `${prefix}/cli/bin.js`, data: await readFile(bundlePath) },
+    { entryName: `${prefix}/cli/package.json`, data: Buffer.from(JSON.stringify(skillPkg, null, 2) + "\n", "utf8") },
+    { entryName: `${prefix}/cli/runtime/index.js`, data: await readFile(runtimePath) },
+  ];
 }
 
 const options = parseArguments(process.argv.slice(2));
@@ -153,7 +188,9 @@ if (options.check) {
   process.stdout.write(`Skill validation passed (${relativeFiles.length} files).\n`);
 } else {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const extraEntries = await buildEngineEntries(manifest.version);
   const output = options.output ?? join(repositoryRoot, "release", `collect-i18n-skill-v${manifest.version}.zip`);
-  await createZip(files, output);
-  process.stdout.write(`${JSON.stringify({ output, files: relativeFiles.length, entries: relativeFiles }, null, 2)}\n`);
+  await createZip(files, output, extraEntries);
+  const entries = [...relativeFiles, ...extraEntries.map((entry) => entry.entryName)];
+  process.stdout.write(`${JSON.stringify({ output, files: relativeFiles.length, entries }, null, 2)}\n`);
 }

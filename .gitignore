@@ -9,3 +9,4 @@ coverage/
 .vscode/
 .tools/
 release/*.zip
+packages/cli/bundle/

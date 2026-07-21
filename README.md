@@ -165,7 +165,7 @@ pnpm package:skill
 
 `pnpm package:skill` 使用纯 Node 脚本生成可复现 ZIP：`release/collect-i18n-skill-v<version>.zip`。推送 `v*` 标签后，GitHub Actions 会用同一脚本创建 Release 附件。
 
-Skill ZIP 是 Agent 操作层，不重复捆绑 CLI 和 Node.js 运行时。使用 Release 中的 Skill 前，需要先按“从源码安装”构建 CLI，或通过 `COLLECT_I18N_CLI` 指向另一份已安装的 `packages/cli/dist/bin.js`；Skill 会在修改目标项目之前验证 CLI 版本。
+Skill ZIP 内置完整 CLI 引擎，安装后即可直接使用：`doctor`/`init`/`scan`/`export`/`import` 零配置运行；首次 `start` 自动安装 `playwright-core`，vite 从目标项目解析。如需自建 CLI，可设 `COLLECT_I18N_CLI` 指向已构建的 `packages/cli/dist/bin.js`。
 
 ## 仓库结构
 

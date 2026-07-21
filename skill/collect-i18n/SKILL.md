@@ -9,13 +9,14 @@ Use the stable `collect-i18n` CLI as the execution and truth layer. Let the loca
 
 ## Resolve the CLI first
 
-Resolve one command prefix once and reuse it for the whole run:
+Resolve one command prefix once and reuse it for the whole run. The Skill ships a fully bundled engine, so the bundled CLI below is the default and needs no separate install:
 
-1. If `COLLECT_I18N_CLI` names an absolute `dist/bin.js`, use `node <that-file>`.
-2. Otherwise, if `collect-i18n` is on `PATH`, use it directly.
-3. When this Skill is running from a source checkout, use the repository-relative `packages/cli/dist/bin.js` after confirming it exists.
+1. Use the Skill bundled engine: `node <skill-directory>/cli/bootstrap.mjs`. This is the default. `doctor`, `init`, `scan`, `export`, `import`, `status`, `agent` and `manual` run with zero setup. The first `start` (which drives Chrome) installs `playwright-core` once into `<skill-directory>/cli/node_modules`; vite is resolved from the target project at runtime.
+2. If `COLLECT_I18N_CLI` names an absolute `dist/bin.js`, use `node <that-file>` instead.
+3. Otherwise, if `collect-i18n` is on `PATH`, use it directly.
+4. When this Skill is running from a source checkout, the repository-relative `packages/cli/dist/bin.js` is also valid after confirming it exists.
 
-Run `--version` before touching the target project. If none of these choices is available, stop and ask for the installed CLI path; the Skill ZIP intentionally does not hide or duplicate the execution engine.
+Run `--version` before touching the target project. Treat `<skill-directory>` as the absolute path to the installed `collect-i18n` skill folder (the one containing `SKILL.md`).
 
 ## Operating rules
 

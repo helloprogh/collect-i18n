@@ -2,14 +2,27 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer as createViteServer, type ViteDevServer } from "vite";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { ViteDevServer } from "vite";
 import { discoverLocaleFiles } from "@collect-i18n/analyzer";
 import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
 import { BrowserCollector, parseTriggerPlan, type MockRule, type TriggerPlan } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
 import { StateStore, type TaskStatus } from "./store.js";
+
+function resolveProjectVite(projectRoot: string): string {
+  return createRequire(resolve(projectRoot, "package.json")).resolve("vite");
+}
+
+function resolveRuntimeAssetPath(): string {
+  try {
+    return createRequire(import.meta.url).resolve("@collect-i18n/runtime");
+  } catch {
+    return join(dirname(fileURLToPath(import.meta.url)), "runtime", "index.js");
+  }
+}
 
 interface ServiceOptions {
   config: ProjectConfig;
@@ -194,7 +207,8 @@ export class LocalService {
     process.env.COLLECT_I18N = "1";
     process.env.VITE_COLLECT_I18N = "1";
     const appUrl = new URL(config.app.baseUrl);
-    const runtimeImport = `/@fs/${fileURLToPath(import.meta.resolve("@collect-i18n/runtime")).replaceAll("\\", "/")}`;
+    const runtimeImport = `/@fs/${resolveRuntimeAssetPath().replaceAll("\\", "/")}`;
+    const { createServer: createViteServer } = (await import(pathToFileURL(resolveProjectVite(config.projectRoot)).href)) as typeof import("vite");
     this.vite = await createViteServer({
       root: config.projectRoot,
       logLevel: "info",

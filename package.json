@@ -15,7 +15,7 @@
     "dev": "pnpm --filter @collect-i18n/studio dev",
     "cli": "pnpm --filter @collect-i18n/cli dev",
     "lint:skill": "node scripts/package-skill.mjs --check",
-    "package:skill": "node scripts/package-skill.mjs"
+    "package:skill": "pnpm --filter @collect-i18n/cli build:bundle && node scripts/package-skill.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

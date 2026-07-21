@@ -1,12 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  chromium,
-  type BrowserContext,
-  type Locator,
-  type Page,
-  type Route,
-} from "playwright";
+import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
 
 export interface BrowserCollectorOptions {
@@ -151,6 +145,7 @@ export class BrowserCollector {
 
   async start(): Promise<void> {
     if (this.context) return;
+    const { chromium } = await import("playwright-core");
     await mkdir(this.options.userDataDir, { recursive: true });
     await mkdir(this.options.artifactDir, { recursive: true });
     this.context = await chromium.launchPersistentContext(this.options.userDataDir, {
