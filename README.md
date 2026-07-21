@@ -181,3 +181,6 @@ skill/collect-i18n      Agent Skill
 ```
 
 进一步阅读：[架构设计](docs/architecture.md) · [CLI 参考](docs/cli-reference.md) · [安全与局限](docs/security-and-limitations.md)
+
+
+扩充测试项目的界面，要求要处理的词条数达到600，然后使用 claude code 模拟用户使用工作流，完成工作，人工兜底可以有你操作电脑来执行或者不处理。然后改进工具，要求人工仅兜底5%，2小时内有可导出的excel。
