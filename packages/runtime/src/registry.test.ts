@@ -231,6 +231,34 @@ describe('CollectorRegistry', () => {
     expect(navigationScroll).not.toHaveBeenCalled()
   })
 
+  it('prefers an exact text match so a short label is not shadowed by a longer substring', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'confirm-button',
+        key: 'dialog.confirm',
+        kind: 'text',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    // A longer heading whose text merely CONTAINS the label must not make the
+    // label ambiguous (regression: substring matching shadowed confirm buttons
+    // such as "Confirm" beneath a dialog title "Confirm Submission").
+    const heading = document.createElement('h2')
+    heading.textContent = 'Confirm Submission'
+    const button = document.createElement('button')
+    button.textContent = 'Confirm'
+    document.body.append(heading, button)
+
+    registry.recordRenderedValue('confirm-button', 'Confirm')
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('confirm-button')).toMatchObject({
+      anchorType: 'range',
+      connected: true,
+      text: 'Confirm',
+    })
+  })
+
   it('discards a stale global text range when its owner has not rendered a match yet', async () => {
     enqueueDescriptors([
       {

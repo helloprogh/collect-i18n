@@ -823,11 +823,20 @@ export class CollectorRegistry implements CollectorRegistryApi {
   }
 
   #findTextRange(text: string, root?: ParentNode): Range | undefined {
-    const ranges = this.#findTextRanges(text, root)
-    // A compiled owner already identifies the correct part of the component,
-    // so the first matching range inside it is sufficient. Descriptor-only
-    // slot text has no such provenance and must be globally unique.
-    return root ? ranges[0] : ranges.length === 1 ? ranges[0] : undefined
+    if (root) return this.#findTextRanges(text, root)[0]
+    // Descriptor-only slot text has no compiled owner, so it must be globally
+    // unique. Prefer an EXACT text match: substring matching makes a short
+    // label ambiguous whenever another node merely contains it (for example a
+    // dialog title "确认创建同步任务" shadowing a confirm button "确认创建", or
+    // a section header "确认取消 6" shadowing a confirm button "确认取消").
+    // Fall back to substring uniqueness only when no exact text node exists.
+    const exact = this.#findTextRanges(text, undefined, true)
+    if (exact.length === 1) return exact[0]
+    if (exact.length === 0) {
+      const partial = this.#findTextRanges(text, undefined, false)
+      return partial.length === 1 ? partial[0] : undefined
+    }
+    return undefined
   }
 
   #findTextRanges(
