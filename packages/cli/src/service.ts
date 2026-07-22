@@ -179,6 +179,38 @@ function contentType(file: string): string {
   return "text/html; charset=utf-8";
 }
 
+function guidancePage(): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Collect I18n 工作台</title>
+<style>
+body{font-family:Inter,"Microsoft YaHei",sans-serif;margin:0;background:#f3f6fb;color:#172033}
+.shell{max-width:560px;margin:72px auto;padding:0 24px}
+.card{background:#fff;border:1px solid #dfe7f3;border-radius:16px;padding:32px;box-shadow:0 8px 30px #20365b12}
+h1{margin:0 0 6px;font-size:20px}
+p{margin:10px 0;line-height:1.6;color:#475467}
+kbd{background:#101828;color:#d1e9ff;padding:3px 10px;border-radius:6px;font:600 13px ui-monospace,monospace}
+.note{margin-top:20px;padding:14px 16px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412;font-size:13px;line-height:1.5}
+</style>
+</head>
+<body>
+<main class="shell">
+  <div class="card">
+    <h1>Collect I18n 工作台</h1>
+    <p>这是本地采集服务的可视化工作台。直接访问该地址缺少有效的本地服务令牌，无法加载工作台。</p>
+    <p>请通过 collect-i18n skill 或 CLI 启动时输出的 <b>studioUrl</b>（含令牌）打开，它会自动完成鉴权并跳转到工作台。</p>
+    <p>如需重新获取该地址，在项目目录运行：</p>
+    <p><kbd>collect-i18n start</kbd></p>
+    <div class="note">本地服务令牌是会话密钥，请勿复制到提交、日志或共享文档中。</div>
+  </div>
+</main>
+</body>
+</html>`;
+}
+
 function fallbackStudio(sessionId: string): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Collect I18n</title><style>body{font-family:Inter,"Microsoft YaHei",sans-serif;margin:0;background:#f3f6fb;color:#172033}.shell{max-width:1100px;margin:48px auto;padding:0 24px}.card{background:white;border:1px solid #dfe7f3;border-radius:16px;padding:28px;box-shadow:0 8px 30px #20365b12}button{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:10px 18px}pre{white-space:pre-wrap;background:#101828;color:#d1e9ff;padding:18px;border-radius:10px}</style></head><body><main class="shell"><h1>Collect I18n</h1><div class="card"><p>工作台资源尚未构建，核心服务已运行。</p><button onclick="load()">刷新会话</button><pre id="status">正在读取…</pre></div></main><script>const session=${JSON.stringify(sessionId)};async function load(){const r=await fetch('/api/status?session='+encodeURIComponent(session));document.getElementById('status').textContent=JSON.stringify(await r.json(),null,2)}load();setInterval(load,3000)</script></body></html>`;
 }
@@ -621,6 +653,14 @@ export class LocalService {
       sendJson(response, 200, { ok: true, data: result }); return;
     }
     if (url.pathname.startsWith("/api/")) { sendJson(response, 404, { ok: false, error: { code: "not_found", message: "接口不存在" } }); return; }
+    if (
+      !requestAuthorized(request, this.capabilityCookie, this.capability, this.serviceUrl ?? url.origin) &&
+      (url.pathname === "/" || !/\.[^/]+$/.test(url.pathname))
+    ) {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.end(guidancePage());
+      return;
+    }
     await this.serveStudio(url.pathname, response);
   }
 
