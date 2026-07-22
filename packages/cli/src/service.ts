@@ -18,10 +18,12 @@ function resolveProjectVite(projectRoot: string): string {
 
 function resolveRuntimeAssetPath(): string {
   try {
+    return fileURLToPath(import.meta.resolve("@collect-i18n/runtime"));
+  } catch {}
+  try {
     return createRequire(import.meta.url).resolve("@collect-i18n/runtime");
-  } catch {
-    return join(dirname(fileURLToPath(import.meta.url)), "runtime", "index.js");
-  }
+  } catch {}
+  return join(dirname(fileURLToPath(import.meta.url)), "runtime", "index.js");
 }
 
 interface ServiceOptions {

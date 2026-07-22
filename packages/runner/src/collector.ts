@@ -217,6 +217,53 @@ export class BrowserCollector {
     }
   }
 
+  private stepTimeout(timeoutMs?: number): number {
+    return timeoutMs ?? this.options.defaultTimeoutMs ?? 15_000;
+  }
+
+  // Component libraries (Element Plus, Ant Design, ...) wrap the native control
+  // in a container such as .el-input and attach data-testid to the wrapper.
+  // fill/press only operate on the editable control, so resolve to the inner
+  // input/textarea when the locator is not itself editable.
+  private async resolveEditable(locator: Locator, timeoutMs: number): Promise<Locator> {
+    const scope = locator.first();
+    await scope.waitFor({ state: "attached", timeout: timeoutMs }).catch(() => undefined);
+    const inner = scope.locator('input, textarea, select, [contenteditable="true"]').first();
+    if ((await inner.count().catch(() => 0)) > 0) {
+      await inner.waitFor({ state: "visible", timeout: timeoutMs }).catch(() => undefined);
+      return inner;
+    }
+    return scope;
+  }
+
+  private async fillInput(locator: Locator, value: string, timeoutMs?: number): Promise<void> {
+    const timeout = this.stepTimeout(timeoutMs);
+    await (await this.resolveEditable(locator, timeout)).fill(value, { timeout });
+  }
+
+  // Custom selects are not native SELECT elements, so selectOption cannot target
+  // them. Open the dropdown and click the option whose visible label matches the
+  // value (exact first, then substring). Native selects still use selectOption.
+  private async selectOption(locator: Locator, value: string, timeoutMs?: number): Promise<void> {
+    const timeout = this.stepTimeout(timeoutMs);
+    const scope = locator.first();
+    const tagName = await scope.evaluate((el) => el.tagName).catch(() => "");
+    if (tagName === "SELECT") {
+      await scope.selectOption(value, { timeout });
+      return;
+    }
+    await this.chooseCustomOption(scope, value, timeout);
+  }
+
+  private async chooseCustomOption(locator: Locator, value: string, timeoutMs: number): Promise<void> {
+    const page = this.activePage;
+    await locator.click({ timeout: timeoutMs });
+    const options = page.locator('.el-select-dropdown:visible .el-select-dropdown__item, [role="option"]:visible');
+    let match = options.getByText(value, { exact: true });
+    if ((await match.count().catch(() => 0)) === 0) match = options.filter({ hasText: value });
+    await match.first().click({ timeout: timeoutMs });
+  }
+
   private sameOriginUrl(path: string): string {
     const target = new URL(path, this.options.baseUrl);
     const base = new URL(this.options.baseUrl);
@@ -248,9 +295,9 @@ export class BrowserCollector {
         switch (step.type) {
           case "goto": await this.open(step.path); break;
           case "click": await this.locator(step.locator).click({ timeout: step.timeoutMs }); break;
-          case "fill": await this.locator(step.locator).fill(step.value, { timeout: step.timeoutMs }); break;
-          case "press": await this.locator(step.locator).press(step.key, { timeout: step.timeoutMs }); break;
-          case "select": await this.locator(step.locator).selectOption(step.value, { timeout: step.timeoutMs }); break;
+          case "fill": await this.fillInput(this.locator(step.locator), step.value, step.timeoutMs); break;
+          case "press": await (await this.resolveEditable(this.locator(step.locator), this.stepTimeout(step.timeoutMs))).press(step.key, { timeout: step.timeoutMs }); break;
+          case "select": await this.selectOption(this.locator(step.locator), step.value, step.timeoutMs); break;
           case "hover": await this.locator(step.locator).hover({ timeout: step.timeoutMs }); break;
           case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
           case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;

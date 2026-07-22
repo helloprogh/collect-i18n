@@ -41,9 +41,9 @@ Prefer role, label, and testId. Use CSS only when source evidence makes it stabl
 
 - `goto`: `{ "type": "goto", "path": "/users/create" }`; same project origin only.
 - `click`: locator plus optional `timeoutMs`.
-- `fill`: locator and a literal `value`. Never place credentials or secrets in a plan.
-- `press`: locator and `key`.
-- `select`: locator and `value`.
+- `fill`: locator and a literal `value`. Resolves to the inner editable control when the locator targets a component-library wrapper (for example an Element Plus `.el-input` whose `data-testid` sits on the wrapper div). Never place credentials or secrets in a plan.
+- `press`: locator and `key`; also resolves to the inner editable control for wrapped inputs.
+- `select`: locator and `value`, where `value` is the visible option label. Works with native `<select>` and with custom dropdowns (for example Element Plus `el-select`): it opens the dropdown and clicks the option whose label matches.
 - `hover`: locator.
 - `wait`: `milliseconds`, maximum 5000.
 - `waitForKey`: target key and optional timeout, maximum 60000.
@@ -76,6 +76,7 @@ Do not invent UI copy in the mock. Use response shape/value evidence from the pr
 - Required validation: navigate, click the source-identified submit control, wait for target key.
 - Character validation: fill the source-identified field with a boundary-invalid value supported by its rule, blur or submit, wait for target key.
 - Tab/drawer/dialog: navigate, click the semantic opener, wait for target key.
+- Dropdown option / custom select: open the source-identified select, then `select` the option by its visible label (or click the option by role/text) and wait for the target key.
 - Element Plus message/notification: perform the source-identified command; runtime service binding and document observer locate the Teleport node.
 - HTTP error: install the smallest matching mock, perform the request action, wait for the error key.
 
