@@ -48,22 +48,19 @@ export interface RuntimeInspection {
   }>;
 }
 
-export interface CaptureLabelPositionInput {
-  viewport: { width: number; height: number };
-  target: { x: number; y: number; width: number; height: number };
-  label: { width: number; height: number };
-  margin?: number;
+export interface CaptureMarkerSpec {
+  id: string;
+  style: string;
 }
 
-export function captureLabelPosition(input: CaptureLabelPositionInput): { left: number; top: number } {
-  const margin = input.margin ?? 4;
-  const maxLeft = Math.max(margin, input.viewport.width - input.label.width - margin);
-  const left = Math.min(Math.max(input.target.x - 4, margin), maxLeft);
-  const above = input.target.y - 4 - input.label.height;
-  const maxTop = Math.max(margin, input.viewport.height - input.label.height - margin);
-  const below = input.target.y + input.target.height + 4;
-  const top = above >= margin ? above : Math.min(Math.max(below, margin), maxTop);
-  return { left, top };
+export function captureMarkerSpec(
+  rect: { x: number; y: number; width: number; height: number },
+  id = `collect-i18n-marker-${Date.now()}`,
+): CaptureMarkerSpec {
+  return {
+    id,
+    style: `position:fixed;z-index:2147483647;pointer-events:none;left:${rect.x - 4}px;top:${rect.y - 4}px;width:${rect.width + 8}px;height:${rect.height + 8}px;border:4px solid #ef4444;border-radius:6px;box-sizing:border-box;box-shadow:0 0 0 9999px rgba(15,23,42,.12)`,
+  };
 }
 
 type RuntimeWindow = Window & {
@@ -486,36 +483,18 @@ export class BrowserCollector {
       rect.x + rect.width > 0 && rect.y + rect.height > 0,
     );
     if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
-    const marker = await bounded(page.evaluate(({ key, rect }) => {
+    const marker = captureMarkerSpec(resolvedTarget.rect);
+    await bounded(page.evaluate(({ id, style }) => {
       const runtimeWindow = window as RuntimeWindow;
       const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
       collector?.setTarget?.(null);
-      const id = `collect-i18n-marker-${Date.now()}`;
-      const marker = document.createElement("div");
-      marker.id = id;
-      marker.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;left:${rect.x - 4}px;top:${rect.y - 4}px;width:${rect.width + 8}px;height:${rect.height + 8}px;border:4px solid #ef4444;border-radius:6px;box-sizing:border-box;box-shadow:0 0 0 9999px rgba(15,23,42,.12)`;
-      const label = document.createElement("div");
-      label.id = `${id}-label`;
-      label.textContent = key;
-      label.style.cssText = "position:fixed;left:0;top:0;max-width:min(520px,calc(100vw - 8px));visibility:hidden;background:#ef4444;color:white;padding:4px 8px;font:600 13px/1.3 ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px;box-sizing:border-box";
-      marker.append(label);
-      document.documentElement.append(marker);
-      const labelRect = label.getBoundingClientRect();
-      return { id, labelWidth: labelRect.width, labelHeight: labelRect.height };
-    }, { key: resolvedTarget.key, rect: resolvedTarget.rect }), 3_000, `Timed out highlighting i18n key: ${resolvedTarget.key}`);
-
-    const labelPosition = captureLabelPosition({
-      viewport,
-      target: resolvedTarget.rect,
-      label: { width: marker.labelWidth, height: marker.labelHeight },
-    });
-    await bounded(page.evaluate(({ id, position }) => {
-      const label = document.getElementById(`${id}-label`);
-      if (!label) throw new Error("Capture label disappeared before positioning");
-      label.style.left = `${position.left}px`;
-      label.style.top = `${position.top}px`;
-      label.style.visibility = "visible";
-    }, { id: marker.id, position: labelPosition }), 2_000, `Timed out positioning i18n key label: ${resolvedTarget.key}`);
+      const markerElement = document.createElement("div");
+      markerElement.id = id;
+      markerElement.dataset.collectI18nCaptureMarker = "true";
+      markerElement.setAttribute("aria-hidden", "true");
+      markerElement.style.cssText = style;
+      document.documentElement.append(markerElement);
+    }, marker), 3_000, `Timed out highlighting i18n key: ${resolvedTarget.key}`);
 
     await page.waitForTimeout(50);
 
