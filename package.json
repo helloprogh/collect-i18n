@@ -1,6 +1,6 @@
 {
   "name": "collect-i18n",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -11,6 +11,7 @@
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest run",
+    "test:benchmark": "pnpm --dir examples/vue-i18n-translation-lab run verify:i18n && pnpm --dir examples/vue-i18n-translation-lab run build",
     "test:watch": "vitest",
     "dev": "pnpm --filter @collect-i18n/studio dev",
     "cli": "pnpm --filter @collect-i18n/cli dev",

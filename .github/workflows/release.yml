@@ -36,6 +36,7 @@ jobs:
         run: |
           pnpm typecheck
           pnpm test
+          pnpm test:benchmark
           pnpm build
 
       - name: Verify tag matches package version

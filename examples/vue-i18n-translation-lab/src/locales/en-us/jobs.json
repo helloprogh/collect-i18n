@@ -1,0 +1,22 @@
+{
+  "title": "Sync Jobs",
+  "subtitle": "View recently created data sync jobs and their runtime status",
+  "refresh": "Refresh",
+  "columns": {
+    "id": "Job ID",
+    "name": "Job Name",
+    "environment": "Environment",
+    "status": "Status"
+  },
+  "environment": {
+    "development": "Development",
+    "staging": "Staging",
+    "production": "Production"
+  },
+  "status": {
+    "running": "Running",
+    "completed": "Completed"
+  },
+  "empty": "No sync jobs yet",
+  "loadFailed": "Unable to load jobs. Please try again later."
+}

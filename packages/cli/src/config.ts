@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ProjectConfigSchema, type ProjectConfig } from "@collect-i18n/core";
 
@@ -33,6 +33,36 @@ async function detectDevCommand(projectRoot: string): Promise<string> {
   }
 }
 
+async function detectLocaleCookies(projectRoot: string): Promise<Array<{ name: string; value: string }>> {
+  const sourceRoot = join(projectRoot, "src");
+  const files: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch { return; }
+    for (const entry of entries) {
+      const file = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(file);
+      else if (/\.(?:vue|[cm]?[jt]sx?)$/iu.test(entry.name)) files.push(file);
+    }
+  };
+  await visit(sourceRoot);
+  let source = "";
+  for (const file of files) {
+    try {
+      const content = await readFile(file, "utf8");
+      if (source.length + content.length <= 2_000_000) source += `\n${content}`;
+    } catch { /* A transient unreadable source file is not a required prerequisite. */ }
+  }
+  const declaredName = source.match(/(?:LOCALE_COOKIE|localeCookie(?:Name)?)\s*=\s*['"]([^'"]+)['"]/u)?.[1];
+  const assigned = [...source.matchAll(/document\.cookie\s*=\s*`([^`]+)`/gu)]
+    .map((match) => match[1]?.match(/^([^=${};\s]+)=/u)?.[1])
+    .find(Boolean);
+  const name = declaredName ?? assigned;
+  const value = source.match(/['"](zh_CN)['"]/u)?.[1] ?? source.match(/['"](zh-CN)['"]/u)?.[1];
+  return name && value ? [{ name, value }] : [];
+}
+
 export async function createDefaultConfig(projectRootInput: string): Promise<ProjectConfig> {
   const projectRoot = resolve(projectRootInput);
   return ProjectConfigSchema.parse({
@@ -47,7 +77,7 @@ export async function createDefaultConfig(projectRootInput: string): Promise<Pro
       workingDirectory: projectRoot,
       healthPath: "/",
     },
-    browser: { headless: false, locale: "zh-CN" },
+    browser: { headless: false, locale: "zh-CN", cookies: await detectLocaleCookies(projectRoot) },
     instrumentation: { enabled: true, devOnly: true },
   });
 }

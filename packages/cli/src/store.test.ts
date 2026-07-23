@@ -299,6 +299,47 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("enforces the Agent retry budget and does not reopen manual tasks", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+
+    store.submitPlan(task.id, { version: 1 });
+    store.markTask(task.id, "needs_agent", "first failure");
+    store.submitPlan(task.id, { version: 1 });
+    store.markTask(task.id, "needs_manual", "second failure");
+
+    expect(() => store.savePlan(task.id, { version: 1 })).toThrow("needs_manual");
+    expect(() => store.submitPlan(task.id, { version: 1 })).toThrow("needs_manual");
+    expect(store.task(task.id)).toMatchObject({ status: "needs_manual", attempts: 2 });
+    store.close();
+  });
+
+  it("reports unique screenshots separately from duplicate evidence", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+
+    store.addEvidence(task.id, evidence("agent"));
+    store.addEvidence(task.id, { ...evidence("agent"), screenshotPath: "D:/evidence/form.save-latest.png" });
+
+    expect(store.status(sessionId)).toMatchObject({
+      screenshotCount: 2,
+      uniqueScreenshotCount: 1,
+      duplicateEvidenceCount: 1,
+      coveragePercent: 100,
+      manualPercent: 0,
+      exportReady: true,
+    });
+    store.close();
+  });
+
   it("pages tasks by a stable key cursor and applies status filters", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);

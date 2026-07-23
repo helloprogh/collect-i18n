@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -152,13 +152,13 @@ async function createZip(files, output, extraEntries = []) {
 }
 
 // Engine assets generated at package time and embedded in the skill zip. They
-// are not committed source files, so the bundled engine (bin.js), the runtime
-// asset (runtime/index.js) and the skill-cli package.json are added as extra
-// zip entries alongside the walked skill source (which includes cli/bootstrap.mjs).
+// are not committed source files, so the bundled engine, every executable
+// runtime module (plus source maps), and the skill-cli package.json are added
+// as extra zip entries alongside the walked skill source.
 async function buildEngineEntries(version) {
   const bundlePath = join(repositoryRoot, "packages", "cli", "bundle", "bin.js");
-  const runtimePath = join(repositoryRoot, "packages", "runtime", "dist", "index.js");
-  for (const [label, path] of [["bundled engine", bundlePath], ["runtime asset", runtimePath]]) {
+  const runtimeDirectory = join(repositoryRoot, "packages", "runtime", "dist");
+  for (const [label, path] of [["bundled engine", bundlePath], ["runtime entry", join(runtimeDirectory, "index.js")]]) {
     try {
       await readFile(path);
     } catch {
@@ -173,10 +173,24 @@ async function buildEngineEntries(version) {
     dependencies: { "playwright-core": "^1.55.0" },
   };
   const prefix = portable(basename(skillDirectory));
+  const runtimeFiles = (await walk(runtimeDirectory)).filter((path) => path.endsWith(".js") || path.endsWith(".js.map"));
+  const runtimeNames = new Set(runtimeFiles.map((path) => portable(relative(runtimeDirectory, path))));
+  for (const runtimeFile of runtimeFiles.filter((path) => extname(path) === ".js")) {
+    const source = await readFile(runtimeFile, "utf8");
+    for (const match of source.matchAll(/(?:from\s+|import\s*\()\s*["'](\.\.?\/[^"']+)["']/g)) {
+      const dependency = portable(relative(runtimeDirectory, resolve(dirname(runtimeFile), match[1])));
+      if (!runtimeNames.has(dependency)) {
+        throw new Error(`Runtime module ${portable(relative(runtimeDirectory, runtimeFile))} imports missing ${dependency}`);
+      }
+    }
+  }
   return [
     { entryName: `${prefix}/cli/bin.js`, data: await readFile(bundlePath) },
     { entryName: `${prefix}/cli/package.json`, data: Buffer.from(JSON.stringify(skillPkg, null, 2) + "\n", "utf8") },
-    { entryName: `${prefix}/cli/runtime/index.js`, data: await readFile(runtimePath) },
+    ...await Promise.all(runtimeFiles.map(async (runtimeFile) => ({
+      entryName: `${prefix}/cli/runtime/${portable(relative(runtimeDirectory, runtimeFile))}`,
+      data: await readFile(runtimeFile),
+    }))),
   ];
 }
 

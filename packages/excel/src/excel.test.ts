@@ -119,7 +119,9 @@ describe("four-column translation workbook export", () => {
     expect(anchoredHashes.get("m.middle")).toBe(sha256(ONE_PIXEL_PNG));
     expect(anchoredHashes.get("z.last")).toBe(sha256(RED_PIXEL_PNG));
     expect(anchoredHashes.has("a.empty")).toBe(false);
-    expect(sheet.getCell(rows.get("a.empty")!, 3).text).toBe("");
+    const emptyRowNumber = rows.get("a.empty")!;
+    expect(sheet.getCell(emptyRowNumber, 3).text).toBe("");
+    expect(sheet.getCell(emptyRowNumber, 3).value).toBeNull();
   });
 
   it("rejects duplicate keys and screenshots whose bytes do not match the extension", async () => {

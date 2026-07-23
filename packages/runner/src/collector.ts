@@ -145,7 +145,8 @@ export class BrowserCollector {
 
   async start(): Promise<void> {
     if (this.context) return;
-    const { chromium } = await import("playwright-core");
+    const playwrightModule = process.env.COLLECT_I18N_PLAYWRIGHT_MODULE || "playwright-core";
+    const { chromium } = await import(playwrightModule) as typeof import("playwright-core");
     await mkdir(this.options.userDataDir, { recursive: true });
     await mkdir(this.options.artifactDir, { recursive: true });
     this.context = await chromium.launchPersistentContext(this.options.userDataDir, {

@@ -72,6 +72,16 @@ collect-i18n scan
 
 扫描刷新项目目录，但不会替正在运行的会话创建新任务；需要完整反映新增词条时，停止旧服务并启动新会话。
 
+### `run`
+
+Skill 的默认入口：
+
+```text
+collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
+```
+
+命令自动检查环境，在缺少配置时初始化，否则刷新索引；随后启动或复用采集服务、等待确定性队列结束并导出首版四列 Excel。返回 `sessionId`、`studioUrl`、`appUrl`、`deadlineAt`、`nextAction`、状态和工作簿结果。人工项不会阻止导出，未取证词条的截图单元格保持为空。
+
 ### `start`
 
 ```text
@@ -107,6 +117,11 @@ collect-i18n status --session <session-id>
 | `failed` | 记录了终止错误 |
 | `skipped` | 明确跳过 |
 | `screenshotCount` | 已持久化证据数 |
+| `uniqueScreenshotCount` | 已有截图的唯一 Key 数，工作台默认使用此值 |
+| `duplicateEvidenceCount` | 同一 Key 的历史替换证据数 |
+| `coveragePercent` | 已截图词条占比 |
+| `manualPercent` | 当前人工队列占比 |
+| `exportReady` | 确定性队列是否已经结束，可以交付进度 Excel |
 
 在 `pending` 与 `running` 都归零后再消费 Agent 队列。
 

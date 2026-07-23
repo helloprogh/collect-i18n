@@ -1,0 +1,9 @@
+{
+  "product": "GDE 管理控制台",
+  "title": "数据同步中心",
+  "switchLocale": "切换为英文",
+  "nav": {
+    "createJob": "新建任务",
+    "jobs": "同步任务"
+  }
+}

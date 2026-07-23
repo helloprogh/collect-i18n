@@ -1,0 +1,22 @@
+{
+  "title": "同步任务",
+  "subtitle": "查看最近创建的数据同步任务及其运行状态",
+  "refresh": "刷新列表",
+  "columns": {
+    "id": "任务编号",
+    "name": "任务名称",
+    "environment": "运行环境",
+    "status": "运行状态"
+  },
+  "environment": {
+    "development": "开发环境",
+    "staging": "预发布环境",
+    "production": "生产环境"
+  },
+  "status": {
+    "running": "运行中",
+    "completed": "已完成"
+  },
+  "empty": "暂无同步任务",
+  "loadFailed": "任务列表加载失败，请稍后重试"
+}

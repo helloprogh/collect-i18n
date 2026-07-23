@@ -1,0 +1,50 @@
+{
+  "title": "新建数据同步任务",
+  "subtitle": "配置来源端点、运行环境和失败重试策略",
+  "status": {
+    "ready": "服务可用"
+  },
+  "form": {
+    "name": "任务名称",
+    "namePlaceholder": "请输入以字母开头的任务名称",
+    "email": "通知邮箱",
+    "emailPlaceholder": "例如：owner{'@'}example.com",
+    "endpoint": "服务地址",
+    "endpointPlaceholder": "例如：https://api.example.com/v1",
+    "retries": "重试次数",
+    "environment": "运行环境",
+    "environmentPlaceholder": "请选择一个运行环境",
+    "description": "任务说明",
+    "descriptionPlaceholder": "请描述数据来源、同步频率和失败处理方式",
+    "submit": "继续",
+    "reset": "重置表单"
+  },
+  "environment": {
+    "development": "开发环境",
+    "staging": "预发布环境",
+    "production": "生产环境"
+  },
+  "validation": {
+    "nameRequired": "请输入任务名称",
+    "nameLength": "任务名称长度必须为 4 到 24 个字符",
+    "namePattern": "任务名称必须以字母开头，且只能包含字母、数字和连字符",
+    "emailRequired": "请输入通知邮箱",
+    "emailInvalid": "请输入有效的邮箱地址",
+    "endpointRequired": "请输入服务地址",
+    "endpointInvalid": "服务地址必须是有效的 HTTPS URL",
+    "environmentRequired": "请选择运行环境",
+    "descriptionLength": "任务说明不能超过 120 个字符"
+  },
+  "confirmation": {
+    "title": "确认创建同步任务",
+    "message": "任务创建后将立即连接来源端点并开始同步，是否继续？",
+    "cancel": "返回修改",
+    "confirm": "确认创建"
+  },
+  "feedback": {
+    "success": "任务 {name} 已创建，编号为 {id}",
+    "requestFailed": "任务创建失败，请检查后重试",
+    "quotaExceeded": "当前工作区配额不足，请联系管理员扩容",
+    "requestId": "请求编号：{requestId}"
+  }
+}

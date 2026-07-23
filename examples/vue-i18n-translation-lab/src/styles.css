@@ -1,0 +1,18 @@
+:root { font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; color: #172033; background: #f3f6fb; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 1100px; min-height: 100vh; }
+.app-shell { min-height: 100vh; }
+.topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; background: #11233f; color: #fff; padding: 0 28px; }
+.topbar strong { font-size: 19px; }
+.eyebrow { margin: 0 0 3px; color: #8eb7f0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.topbar-actions { display: flex; gap: 12px; align-items: center; }
+.sidebar { background: #fff; border-right: 1px solid #e1e7f0; }
+.sidebar .el-menu { border-right: 0; padding-top: 12px; }
+.page { max-width: 1180px; margin: 0 auto; }
+.page-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.page-heading h1 { margin: 0 0 6px; font-size: 26px; }
+.page-heading p { margin: 0; color: #64748b; }
+.content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+.form-card { border: 0; box-shadow: 0 8px 28px rgba(35, 55, 80, .08); }
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.result-panel { margin-top: 18px; }

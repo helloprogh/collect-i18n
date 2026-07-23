@@ -39,6 +39,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Verify 601-key benchmark
+        run: pnpm test:benchmark
+
       - name: Build
         run: pnpm build
 

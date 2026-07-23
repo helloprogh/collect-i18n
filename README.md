@@ -163,9 +163,9 @@ pnpm build
 pnpm package:skill
 ```
 
-`pnpm package:skill` 使用纯 Node 脚本生成可复现 ZIP：`release/collect-i18n-skill-v<version>.zip`。推送 `v*` 标签后，GitHub Actions 会用同一脚本创建 Release 附件。
+`pnpm package:skill` 使用纯 Node 脚本生成可复现 ZIP：`release/collect-i18n-skill-v<version>.zip`。推送 `v*` 标签后，GitHub Actions 会用同一脚本创建 Release 附件。发布验收必须从 ZIP 安装 Skill 后由本机 Agent 完成，源码目录运行不计入发布验收。
 
-Skill ZIP 内置完整 CLI 引擎，安装后即可直接使用：`doctor`/`init`/`scan`/`export`/`import` 零配置运行；首次 `start` 自动安装 `playwright-core`，vite 从目标项目解析。如需自建 CLI，可设 `COLLECT_I18N_CLI` 指向已构建的 `packages/cli/dist/bin.js`。
+Skill ZIP 内置完整 CLI 引擎。默认使用 `run` 一次完成检查、初始化或刷新、启动、静态采集和首版 Excel；首次浏览器运行把 `playwright-core` 安装到用户可写的版本化缓存，Skill 安装目录保持只读，Vite 从目标项目解析。如需自建 CLI，可设 `COLLECT_I18N_CLI` 指向已构建的 `packages/cli/dist/bin.js`。
 
 ## 仓库结构
 
@@ -178,6 +178,7 @@ packages/runner         Playwright 执行器、Mock 与 TriggerPlan
 packages/excel          四列 Excel 导出与安全回稿导入
 packages/cli            CLI、SQLite、本地 HTTP 服务与任务编排
 skill/collect-i18n      Agent Skill
+examples/vue-i18n-translation-lab  不含测试预期的 601 词条可运行基准项目
 ```
 
 进一步阅读：[架构设计](docs/architecture.md) · [CLI 参考](docs/cli-reference.md) · [安全与局限](docs/security-and-limitations.md)

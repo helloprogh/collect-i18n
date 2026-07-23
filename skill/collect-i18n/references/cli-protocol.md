@@ -26,12 +26,13 @@ Failed output is written to stderr and has `ok: false`, `error.code`, `error.mes
 <CLI> doctor
 <CLI> init
 <CLI> scan
+<CLI> run --output <absolute-xlsx> --deadline-minutes 120
 <CLI> start --background
 <CLI> status --session <session-id>
 <CLI> stop
 ```
 
-`init` writes project configuration and the deterministic source/locale index. `start` creates or reuses a persistent loopback service, starts the instrumented Vite application, opens the project browser when needed, and returns `sessionId`, `serviceUrl`, `studioUrl`, and `appUrl`.
+`run` is the Skill default. It diagnoses, initializes or refreshes, starts or reuses the service, waits for deterministic work, and exports a progress workbook. It returns `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, status, and workbook details. Lower-level lifecycle commands remain available for recovery and diagnostics.
 
 Status counts are authoritative:
 
@@ -42,7 +43,12 @@ Status counts are authoritative:
 - `needs_agent`: tasks available to the Skill.
 - `needs_manual`: tasks handed to assisted human fallback.
 - `failed`: tasks that stopped with a recorded error.
-- `screenshotCount`: persisted evidence records.
+- `screenshotCount`: all persisted evidence records, including replacements.
+- `uniqueScreenshotCount`: distinct keys with screenshot evidence; use this for user-visible progress.
+- `duplicateEvidenceCount`: replacement evidence beyond the latest unique-key set.
+- `coveragePercent`: captured tasks divided by total tasks.
+- `manualPercent`: currently queued manual tasks divided by total tasks.
+- `exportReady`: deterministic work is settled, so a clean progress workbook can be delivered.
 
 ## Agent queue
 
@@ -54,7 +60,7 @@ Status counts are authoritative:
 
 `agent next` returns `done`, `task`, and current status. The task contains only bounded facts: key path, Chinese text, locale file, source occurrences, route/action hints, attempts, saved plan, and last error.
 
-`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction. Do not use a separate browser tool during execution.
+`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected.
 
 ## Assisted manual queue
 
@@ -73,4 +79,4 @@ The result supplies the Studio URL and target context. The command activates run
 <CLI> import --session <id> --file <absolute-xlsx> --apply
 ```
 
-Exported rows are stable by Key Path. The workbook has one visible worksheet and exactly four visible columns: `中文`, `英文`, `截图`, `Key Path`. Import validation and write results remain in CLI/Studio JSON; never add them to the workbook.
+Exported rows are stable by Key Path. The workbook has one visible worksheet and exactly four visible columns: `中文`, `英文`, `截图`, `Key Path`. Missing evidence leaves the screenshot cell empty and never blocks export. Import validation and write results remain in CLI/Studio JSON; never add them to the workbook.

@@ -1,0 +1,50 @@
+{
+  "title": "New Data Sync Job",
+  "subtitle": "Configure the source endpoint, environment, and retry policy",
+  "status": {
+    "ready": "Service available"
+  },
+  "form": {
+    "name": "Job name",
+    "namePlaceholder": "Enter a job name beginning with a letter",
+    "email": "Notification email",
+    "emailPlaceholder": "Example: owner{'@'}example.com",
+    "endpoint": "Service endpoint",
+    "endpointPlaceholder": "Example: https://api.example.com/v1",
+    "retries": "Retry count",
+    "environment": "Environment",
+    "environmentPlaceholder": "Select an environment",
+    "description": "Job description",
+    "descriptionPlaceholder": "Describe the data source, schedule, and failure handling",
+    "submit": "Continue",
+    "reset": "Reset form"
+  },
+  "environment": {
+    "development": "Development",
+    "staging": "Staging",
+    "production": "Production"
+  },
+  "validation": {
+    "nameRequired": "Enter a job name",
+    "nameLength": "The job name must contain 4 to 24 characters",
+    "namePattern": "The job name must begin with a letter and contain only letters, numbers, and hyphens",
+    "emailRequired": "Enter a notification email",
+    "emailInvalid": "Enter a valid email address",
+    "endpointRequired": "Enter a service endpoint",
+    "endpointInvalid": "The service endpoint must be a valid HTTPS URL",
+    "environmentRequired": "Select an environment",
+    "descriptionLength": "The job description cannot exceed 120 characters"
+  },
+  "confirmation": {
+    "title": "Confirm Sync Job Creation",
+    "message": "The job will connect to the source endpoint and begin syncing immediately. Continue?",
+    "cancel": "Back to edit",
+    "confirm": "Confirm creation"
+  },
+  "feedback": {
+    "success": "Job {name} was created with ID {id}",
+    "requestFailed": "Unable to create the job. Review the form and try again",
+    "quotaExceeded": "This workspace has insufficient quota. Contact an administrator to increase it",
+    "requestId": "Request ID: {requestId}"
+  }
+}

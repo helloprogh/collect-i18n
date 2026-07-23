@@ -76,14 +76,13 @@ export async function exportTranslationWorkbook(
   let imageCount = 0;
 
   for (const source of orderedRows) {
-    const row = worksheet.addRow({
-      chinese: source.chinese,
+    const row = worksheet.addRow([
+      source.chinese,
       // Every export is a clean translation task. Existing en-us values are
       // deliberately ignored; the reviewer starts from the Chinese source.
-      english: source.chinese,
-      screenshot: "",
-      keyPath: source.keyPath,
-    });
+      source.chinese,
+    ]);
+    row.getCell(4).value = source.keyPath;
     row.alignment = { vertical: "middle", wrapText: true };
     row.getCell(4).numFmt = "@";
 

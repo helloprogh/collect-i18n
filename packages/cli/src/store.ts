@@ -6,6 +6,7 @@ import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
 
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
+export const MAX_AGENT_ATTEMPTS = 2;
 export type EventOrigin = "system" | "deterministic" | "agent" | "manual" | "unknown";
 
 export interface StoredTask {
@@ -320,8 +321,26 @@ export class StateStore {
     const counts: Record<string, number> = { total: 0, pending: 0, running: 0, captured: 0, needs_agent: 0, needs_manual: 0, failed: 0, skipped: 0 };
     for (const row of rows) { counts[row.status] = Number(row.count); counts.total += Number(row.count); }
     const current = this.db.prepare("SELECT key_path,stage,status,last_error FROM tasks WHERE session_id=? AND status IN ('running','needs_manual') ORDER BY updated_at LIMIT 1").get(sessionId) as Record<string, unknown> | undefined;
-    const screenshotCount = Number((this.db.prepare("SELECT COUNT(*) AS count FROM evidence WHERE session_id=?").get(sessionId) as { count: number }).count);
-    return { ...session, counts, screenshotCount, current };
+    const evidenceCounts = this.db.prepare(`
+      SELECT COUNT(*) AS total,COUNT(DISTINCT key_path) AS unique_keys
+      FROM evidence WHERE session_id=?
+    `).get(sessionId) as { total: number; unique_keys: number };
+    const screenshotCount = Number(evidenceCounts.total);
+    const uniqueScreenshotCount = Number(evidenceCounts.unique_keys);
+    const duplicateEvidenceCount = Math.max(0, screenshotCount - uniqueScreenshotCount);
+    const coveragePercent = counts.total === 0 ? 100 : Number(((counts.captured / counts.total) * 100).toFixed(2));
+    const manualPercent = counts.total === 0 ? 0 : Number(((counts.needs_manual / counts.total) * 100).toFixed(2));
+    return {
+      ...session,
+      counts,
+      screenshotCount,
+      uniqueScreenshotCount,
+      duplicateEvidenceCount,
+      coveragePercent,
+      manualPercent,
+      exportReady: counts.pending === 0 && counts.running === 0,
+      current,
+    };
   }
 
   task(taskId: string): StoredTask | undefined {
@@ -368,15 +387,30 @@ export class StateStore {
 
   submitPlan(taskId: string, plan: unknown): void {
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE tasks SET plan_json=?,status='running',stage='agent',attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?")
-      .run(JSON.stringify(plan), now, taskId);
+    const result = this.db.prepare(`
+      UPDATE tasks
+      SET plan_json=?,status='running',stage='agent',attempts=attempts+1,last_error=NULL,updated_at=?
+      WHERE id=? AND status='needs_agent' AND attempts<?
+    `).run(JSON.stringify(plan), now, taskId, MAX_AGENT_ATTEMPTS);
+    if (Number(result.changes) !== 1) {
+      const task = this.task(taskId);
+      if (!task) throw new Error(`任务不存在：${taskId}`);
+      if (task.status !== "needs_agent") throw new Error(`任务状态为 ${task.status}，不能执行 Agent 计划：${task.keyPath}`);
+      throw new Error(`任务已达到 Agent 最大尝试次数 ${MAX_AGENT_ATTEMPTS}：${task.keyPath}`);
+    }
     const task = this.task(taskId);
     if (task) this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
   }
 
   savePlan(taskId: string, plan: unknown): void {
-    this.db.prepare("UPDATE tasks SET plan_json=?,updated_at=? WHERE id=?")
-      .run(JSON.stringify(plan), new Date().toISOString(), taskId);
+    const result = this.db.prepare("UPDATE tasks SET plan_json=?,updated_at=? WHERE id=? AND status='needs_agent' AND attempts<?")
+      .run(JSON.stringify(plan), new Date().toISOString(), taskId, MAX_AGENT_ATTEMPTS);
+    if (Number(result.changes) !== 1) {
+      const task = this.task(taskId);
+      if (!task) throw new Error(`任务不存在：${taskId}`);
+      if (task.status !== "needs_agent") throw new Error(`任务状态为 ${task.status}，不能提交 Agent 计划：${task.keyPath}`);
+      throw new Error(`任务已达到 Agent 最大尝试次数 ${MAX_AGENT_ATTEMPTS}：${task.keyPath}`);
+    }
     const task = this.task(taskId);
     if (task) this.addEvent(task.sessionId, "agent.plan_saved", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
   }

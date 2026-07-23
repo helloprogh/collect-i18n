@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -9,7 +9,7 @@ import { analyzeProject, discoverLocaleFiles } from "@collect-i18n/analyzer";
 import { commandFailure, commandSuccess, type ProjectConfig } from "@collect-i18n/core";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import { parseTriggerPlan } from "@collect-i18n/runner";
-import { createDefaultConfig, doctorProject, loadConfig, saveConfig } from "./config.js";
+import { configPath, createDefaultConfig, doctorProject, loadConfig, saveConfig } from "./config.js";
 import { callService, readServiceDescriptor, serviceDescriptorPath, type ServiceDescriptor } from "./service-client.js";
 import { LocalService } from "./service.js";
 import { StateStore } from "./store.js";
@@ -130,11 +130,60 @@ async function startBackground(projectRoot: string, sessionId: string): Promise<
   return waitForDescriptor(projectRoot, sessionId);
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try { await access(path); return true; }
+  catch { return false; }
+}
+
+async function prepareWorkflow(projectRoot: string): Promise<{ descriptor: ServiceDescriptor; config: ProjectConfig; reused: boolean }> {
+  const existing = await descriptorAlive(projectRoot);
+  if (existing) return { descriptor: existing, config: await loadConfig(projectRoot), reused: true };
+
+  await retireStaleDescriptor(projectRoot);
+  const doctor = await doctorProject(projectRoot);
+  if (!doctor.ready) {
+    throw new Error(`项目环境检查未通过：${doctor.checks.filter((check) => check.required && !check.ok).map((check) => check.label).join("、")}`);
+  }
+  const config = await pathExists(configPath(projectRoot))
+    ? await loadConfig(projectRoot)
+    : await createDefaultConfig(projectRoot);
+  if (!await pathExists(configPath(projectRoot))) await saveConfig(config);
+  if (!config.instrumentation.enabled) throw new Error("运行时采集要求 instrumentation.enabled=true，请修改 .collect-i18n/config.json");
+
+  const analysis = await analyze(config);
+  const store = await StateStore.open(projectRoot);
+  let sessionId: string;
+  try {
+    const projectId = store.syncProject(projectRoot, config, analysis);
+    sessionId = store.createSession(projectId, config.app.baseUrl);
+  } finally { store.close(); }
+  try {
+    return { descriptor: await startBackground(projectRoot, sessionId), config, reused: false };
+  } catch (error) {
+    const failedStore = await StateStore.open(projectRoot);
+    try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
+    throw error;
+  }
+}
+
+async function waitForDeterministicQueue(projectRoot: string, sessionId: string, timeoutMs: number): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const store = await StateStore.open(projectRoot);
+    const status = store.status(sessionId);
+    store.close();
+    const counts = status.counts as Record<string, number>;
+    if (counts.pending === 0 && counts.running === 0) return status;
+    if (Date.now() >= deadline) return { ...status, deterministicWaitTimedOut: true };
+    await new Promise((done) => setTimeout(done, 500));
+  }
+}
+
 const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.1.0")
+  .version("0.2.0")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -244,6 +293,37 @@ program.command("start")
       try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
       throw error;
     }
+  });
+
+program.command("run")
+  .description("为 Skill 初始化、启动、等待静态采集并生成可立即交付的进度 Excel")
+  .option("--output <file>", "Excel 输出路径")
+  .option("--deadline-minutes <minutes>", "完整工作流截止时间", "120")
+  .option("--deterministic-timeout-minutes <minutes>", "等待静态队列的最长时间", "15")
+  .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes: string }, command) => {
+    const projectRoot = projectOf(command);
+    const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
+    const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || 15);
+    const workflow = await prepareWorkflow(projectRoot);
+    const status = await waitForDeterministicQueue(projectRoot, workflow.descriptor.sessionId, deterministicTimeoutMinutes * 60_000);
+    const englishRoot = await findEnglishRoot(workflow.config);
+    const store = await StateStore.open(projectRoot);
+    const rows = store.localeCatalog(workflow.descriptor.sessionId, englishRoot);
+    store.close();
+    const outputPath = resolve(options.output ?? join(projectRoot, ".collect-i18n", "collect-i18n-translations.xlsx"));
+    const exported = await exportTranslationWorkbook(rows, outputPath);
+    const counts = status.counts as Record<string, number>;
+    const nextAction = counts.failed > 0 ? "failed" : counts.needs_agent > 0 ? "agent" : counts.needs_manual > 0 ? "manual" : "complete";
+    output(command, "run", {
+      sessionId: workflow.descriptor.sessionId,
+      studioUrl: workflow.descriptor.studioUrl,
+      appUrl: workflow.descriptor.appUrl,
+      reused: workflow.reused,
+      deadlineAt: new Date(Date.now() + deadlineMinutes * 60_000).toISOString(),
+      nextAction,
+      status,
+      workbook: exported,
+    });
   });
 
 program.command("serve", { hidden: true })

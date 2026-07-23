@@ -379,6 +379,16 @@ export class LocalService {
     this.deterministicRunning = true;
     const store = this.store!;
     try {
+      try {
+        await this.exclusive(async () => this.collector(sessionId));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const task of store.listTasks(sessionId, ["pending"])) {
+          store.markTask(task.id, "failed", `Collector startup failed: ${message}`);
+        }
+        console.error("[collect-i18n] collector startup failed", error);
+        return;
+      }
       for (;;) {
         if (this.manualActive) break;
         const seed = store.nextTask(sessionId, ["pending"]);

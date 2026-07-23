@@ -1,0 +1,9 @@
+{
+  "product": "GDE Admin Console",
+  "title": "Data Sync Center",
+  "switchLocale": "Switch to Chinese",
+  "nav": {
+    "createJob": "New Job",
+    "jobs": "Sync Jobs"
+  }
+}

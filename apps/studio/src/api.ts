@@ -6,6 +6,11 @@ export interface SessionStatus {
   service_url: string;
   counts: Record<string, number> & { total: number; captured: number; needs_agent: number; needs_manual: number; failed: number; pending: number };
   screenshotCount: number;
+  uniqueScreenshotCount: number;
+  duplicateEvidenceCount: number;
+  coveragePercent: number;
+  manualPercent: number;
+  exportReady: boolean;
   current?: { key_path: string; stage: string; status: string; last_error?: string };
 }
 

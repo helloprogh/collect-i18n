@@ -11,7 +11,7 @@ Use the stable `collect-i18n` CLI as the execution and truth layer. Let the loca
 
 Resolve one command prefix once and reuse it for the whole run. The Skill ships a fully bundled engine, so the bundled CLI below is the default and needs no separate install:
 
-1. Use the Skill bundled engine: `node <skill-directory>/cli/bootstrap.mjs`. This is the default. `doctor`, `init`, `scan`, `export`, `import`, `status`, `agent` and `manual` run with zero setup. The first `start` (which drives Chrome) installs `playwright-core` once into `<skill-directory>/cli/node_modules`; vite is resolved from the target project at runtime.
+1. Use the Skill bundled engine: `node <skill-directory>/cli/bootstrap.mjs`. This is the default. The first browser run installs the versioned browser driver into the user's writable `~/.collect-i18n/runtime` cache; it never modifies the installed Skill. Vite is resolved from the target project at runtime.
 2. If `COLLECT_I18N_CLI` names an absolute `dist/bin.js`, use `node <that-file>` instead.
 3. Otherwise, if `collect-i18n` is on `PATH`, use it directly.
 4. When this Skill is running from a source checkout, the repository-relative `packages/cli/dist/bin.js` is also valid after confirming it exists.
@@ -33,31 +33,27 @@ Read [CLI protocol](references/cli-protocol.md) before operating the tool. Read 
 
 ## End-to-end workflow
 
-### 1. Diagnose and initialize
+### 1. Prepare and start with one command
 
-Run `doctor` first and inspect each required check. Stop on a failed required check and report the concrete missing project prerequisite.
+Run `run --output <absolute-xlsx-path> --deadline-minutes 120`. This checks the environment, initializes or refreshes the real project index, starts or reuses the collector, waits for deterministic work, and writes an immediately usable four-column workbook. Record `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, and the workbook path.
 
-Run `init` when `.collect-i18n/config.json` is absent or the user explicitly requests reinitialization. Otherwise run `scan` to refresh the real locale/source index without replacing configuration.
+Stop on a failed required check and report the concrete project prerequisite. Do not replace an invalid existing configuration automatically. Report actual counts from JSON; never invent coverage.
 
-Report actual counts from JSON: locale keys, occurrences, route hints, action hints, unknown keys, and diagnostics. Do not invent a target count or expected coverage.
+The returned workbook is a valid progress delivery. Missing runtime evidence leaves only its screenshot cell empty; Chinese and English remain populated. Never delay the first workbook until every screenshot exists.
 
-### 2. Start or reuse the collector
+If `nextAction` is `failed`, stop the workflow and report the collector startup or infrastructure error. Do not reinterpret an unavailable browser as 100% Agent work.
 
-Run `start --background`. Record `sessionId`, `studioUrl`, and `appUrl`. A reused service is valid; use the returned session instead of starting a second browser.
-
-Run `status --session <id>` after startup. Present progress using only returned fields, for example:
+Present progress using only returned fields, for example:
 
 ```text
 词条总数：<counts.total>
-已生成截图：<counts.captured>
+已生成截图：<uniqueScreenshotCount>
 等待 Agent：<counts.needs_agent>
 等待人工：<counts.needs_manual>
 当前处理：<current.key_path, if present>
 ```
 
-The deterministic queue runs in the background. Poll status at a reasonable interval until `pending` and `running` reach zero before consuming Agent work.
-
-### 3. Process the Agent queue
+### 2. Process the Agent queue
 
 Call `agent next --session <id>`. If `done` is true, leave the loop.
 
@@ -68,11 +64,15 @@ For each returned task:
 3. Save the JSON below `.collect-i18n/plans/`.
 4. Run `agent submit`, then `agent execute`.
 5. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path.
-6. On failure, call `agent next` again. Make at most one evidence-driven correction; the service moves repeated failures to the manual queue.
+6. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. After the second failure the service moves it to `needs_manual` and rejects further Agent execution. Never bypass that state with a saved task id.
 
 Process tasks sequentially so browser state and failure evidence remain attributable. Never alter source code to make an Agent plan succeed.
 
-### 4. Hand off the irreducible remainder
+### 3. Deliver on time and hand off the irreducible remainder
+
+Poll `status` between tasks. When `deadlineAt` is reached, or when `needs_agent` is zero, run `export` immediately even if manual items remain. Confirm unique screenshot count, duplicate evidence count, coverage, manual percentage, row count, and embedded image count.
+
+Treat the workbook as delivered once export succeeds. Treat screenshot collection as fully complete only when no manual items remain. These are separate outcomes.
 
 When Agent work is exhausted, run `manual open --session <id>` to activate the next remaining task. Return the Studio URL and summarize the exact target key, Chinese text, source file, route hints, action hints, and any last error.
 
@@ -80,7 +80,7 @@ The human performs normal business operations in the opened project. The tool li
 
 Repeat `manual open` only after the previous target is captured or the user asks to move on.
 
-### 5. Export or import
+### 4. Export or import
 
 For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm the returned row and image counts. The workbook must contain only `中文`, `英文`, `截图`, `Key Path`, in that order.
 
@@ -88,4 +88,4 @@ For a translated return, run `import --file <absolute-xlsx-path> --session <id> 
 
 ## Completion
 
-Finish with the session totals, evidence count, remaining manual count, workbook path or written en-us files, and any nonfatal diagnostics. If manual items remain, do not call the run complete; clearly hand them to the Studio queue.
+Finish with session totals, unique screenshot count, duplicate evidence count, coverage, remaining manual count, deadline result, workbook path or written en-us files, and nonfatal diagnostics. If manual items remain, state that the workbook has been delivered with blank screenshot cells and hand those keys to the Studio queue; do not describe screenshot collection as complete.
