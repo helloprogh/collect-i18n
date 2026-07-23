@@ -1,4 +1,0 @@
-interface:
-  display_name: "Collect I18n"
-  short_description: "Generate a four-column Vue i18n translation workbook"
-  default_prompt: "Use $collect-i18n to process this real Vue project end to end and deliver its four-column translation workbook."

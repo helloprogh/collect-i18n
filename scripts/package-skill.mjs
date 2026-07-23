@@ -50,8 +50,16 @@ function frontmatter(markdown) {
 
 async function validateSkill(files) {
   const relativeFiles = files.map((file) => portable(relative(skillDirectory, file)));
-  for (const required of ["SKILL.md", "agents/openai.yaml", "references/cli-protocol.md", "references/trigger-plan.md", "cli/bootstrap.mjs"]) {
+  for (const required of ["SKILL.md", "references/cli-protocol.md", "references/trigger-plan.md", "cli/bootstrap.mjs"]) {
     if (!relativeFiles.includes(required)) throw new Error(`Missing required skill file: ${required}`);
+  }
+  const platformSpecificFile = relativeFiles.find((file) =>
+    file.startsWith("agents/") ||
+    file.startsWith(".claude/") ||
+    file.startsWith(".codex/")
+  );
+  if (platformSpecificFile) {
+    throw new Error(`Universal Skill package must not contain platform-specific metadata: ${platformSpecificFile}`);
   }
 
   const markdown = await readFile(join(skillDirectory, "SKILL.md"), "utf8");
@@ -63,10 +71,6 @@ async function validateSkill(files) {
     throw new Error("SKILL.md must route the Agent to both protocol references");
   }
 
-  const agentYaml = await readFile(join(skillDirectory, "agents", "openai.yaml"), "utf8");
-  for (const field of ["display_name:", "short_description:", "default_prompt:"]) {
-    if (!agentYaml.includes(field)) throw new Error(`agents/openai.yaml is missing ${field}`);
-  }
   return relativeFiles;
 }
 
