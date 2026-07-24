@@ -12,6 +12,16 @@ export interface SessionStatus {
   manualPercent: number;
   exportReady: boolean;
   current?: { key_path: string; stage: string; status: string; last_error?: string };
+  automatic: {
+    phase: "running" | "complete";
+    processed: number;
+    total: number;
+    percent: number;
+    captured: number;
+    deferred: number;
+    failed: number;
+    currentKey?: string;
+  };
 }
 
 export interface Task {

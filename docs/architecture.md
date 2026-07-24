@@ -67,21 +67,28 @@ zh-cn/users/form.json + { "nameRequired": "请输入姓名" }
 
 ## 运行时绑定
 
-仅给 DOM 元素加 `data-i18n-key` 无法覆盖组件属性和命令式提示，因此系统使用运行时登记表：
+系统不会把 Key Path 写入目标 DOM。Vite 插件在已确认的渲染出口写入不透明
+`data-collect-i18n-sink` ID，Key Path 与源码信息只保存在运行时登记表：
 
 ```text
-编译期 occurrence 描述
+编译期 occurrence + opaque sink
         ↓
-渲染值回报 / DOM 标记 / 文本 Range / 组件属性关联
+渲染值回报 / owner scope / 文本 Range / 组件属性关联
         ↓
-CollectorRegistry 快照
+CollectorRegistry A/B/C 证据快照
         ↓
 按 target key 监听
         ↓
 可见矩形 + 路由 + occurrence + 截图
 ```
 
-Element Plus 的 Message、Notification 等服务通常 Teleport 到 `body`，生命周期也很短。服务调用与 DOM 观察共同把这些节点关联到调用处的 key；监听器先锁定目标，再由业务操作触发，因此不要求提示长期显示。
+直接文本和原生属性能够形成编译器 sink 到 Host DOM 的连续链，记为 A 级。
+组件内部转发由编译器 owner scope 限定在对应组件实例内，记为 B 级。
+只有最终文本相同、CSS 或时间窗口等启发式信息时记为 C 级，不能进入自动证据。
+
+Element Plus 的 Message、Notification 等服务通常 Teleport 到 `body`，生命周期也很短。
+插件为每次服务调用建立 `invocationId`，运行时只在对应调用时间窗和服务容器内关联节点；
+并发调用无法唯一证明时自动降为 C 级。监听器先锁定目标，再由业务操作触发，因此不要求提示长期显示。
 
 插桩仅用于采集开发服务器。正常生产构建不需要、也不应携带采集标记。
 
@@ -102,6 +109,7 @@ TriggerPlan 是版本化 JSON DSL，当前只允许：
 
 - 目标 `Key Path` 与任务一致；
 - key 已在当前真实页面绑定到可定位目标；
+- 确定性采集必须是 A 级证据，Agent 采集必须是 A/B 级证据；
 - 记录当前路由和采集时间；
 - 截图成功写入会话 evidence 目录；
 - 能取得时保存可见矩形、occurrence 和动作轨迹。

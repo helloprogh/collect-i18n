@@ -405,7 +405,7 @@ export class LocalService {
               if (this.manualActive) break;
               store.markTask(task.id, "running");
               try {
-                const target = await collector.waitForKey(task.keyPath, 2_500);
+                const target = await collector.waitForKey(task.keyPath, 2_500, "A");
                 const evidence = await collector.capture(target, "deterministic");
                 store.addEvidence(task.id, evidence);
               } catch (error) {

@@ -68,12 +68,16 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
 
     const nativeInput = result!.code.match(/<input[^>]+>/)?.[0]
     const componentInput = result!.code.match(/<el-input[^>]+>/)?.[0]
-    expect(nativeInput).toContain('data-i18n-key="form.name.placeholder"')
-    expect(nativeInput).toContain('data-collect-i18n-bindings=')
-    expect(componentInput).not.toContain('data-i18n-key')
+    expect(nativeInput).toContain('data-collect-i18n-sink=')
+    expect(nativeInput).not.toContain('data-i18n-key')
+    expect(componentInput).toContain('data-collect-i18n-sink=')
+    expect(componentInput?.match(/data-collect-i18n-sink="([^"]+)"/)?.[1]).not.toContain(
+      'form.email.placeholder',
+    )
     expect(result!.code).toContain('__collectI18nEnqueue(')
     expect(result!.code).toContain('__collectI18nValue(t(\'actions.submit\')')
     expect(result!.code).toContain('__collectI18nValue(t(field.submitKey)')
+    expect(result!.code).toContain("__collectI18nInvoke('ElMessage'")
   })
 
   it('adds a compatible script setup block when the SFC has only an options script', () => {
@@ -82,6 +86,18 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
     const result = instrumentVueSfc(source, componentId, { projectRoot })
     expect(result!.code).toContain('<script setup lang="ts">')
     expect(result!.code).toContain("$t('hello')")
+  })
+
+  it('does not create a trusted DOM sink for non-visual native attributes', () => {
+    const source = `<template><button :aria-label="t('actions.accessible')" :class="t('actions.css')">{{ t('actions.visible') }}</button></template>`
+    const result = instrumentVueSfc(source, componentId, { projectRoot })!
+    const button = result.code.match(/<button[^>]+>/)?.[0] ?? ''
+    const sinkIds = button.match(/data-collect-i18n-sink="([^"]+)"/)?.[1]?.split(' ') ?? []
+    const byKey = new Map(result.occurrences.map((item) => [item.key, item]))
+
+    expect(sinkIds).toEqual([byKey.get('actions.visible')?.occurrenceId])
+    expect(byKey.get('actions.accessible')).toMatchObject({ kind: 'virtual' })
+    expect(byKey.get('actions.css')).toMatchObject({ kind: 'virtual' })
   })
 
   it('uses exactly the same occurrence IDs as static analysis', async () => {
@@ -112,6 +128,7 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
       expect.objectContaining({ key: 'errors.body', kind: 'imperative-service', service: 'ElNotification' }),
     ]))
     expect(result.code.match(/__collectI18nValue\(/g)).toHaveLength(2)
+    expect(result.code).toContain('__collectI18nInvoke("ElNotification"')
   })
 })
 

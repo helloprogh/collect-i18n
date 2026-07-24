@@ -27,6 +27,8 @@ interface TranslationCall {
   key?: string
   keyExpression?: string
   service?: string
+  invocationStart?: number
+  invocationEnd?: number
 }
 
 interface ExpressionContext {
@@ -36,7 +38,7 @@ interface ExpressionContext {
   component?: string
   prop?: string
   service?: string
-  nativeOwner?: ElementNode
+  owner?: ElementNode
 }
 
 interface InstrumentationState {
@@ -46,8 +48,15 @@ interface InstrumentationState {
   templateOffset: number
   magic: MagicStringApi
   occurrences: OccurrenceDescriptor[]
-  replacements: Array<{ start: number; end: number; occurrenceId: string }>
-  nativeBindings: Map<ElementNode, OccurrenceDescriptor[]>
+  replacements: Array<{
+    start: number
+    end: number
+    occurrenceId: string
+    service?: string
+    invocationStart?: number
+    invocationEnd?: number
+  }>
+  ownerBindings: Map<ElementNode, OccurrenceDescriptor[]>
 }
 
 type BabelNode = {
@@ -66,6 +75,8 @@ interface MagicStringApi {
   generateMap(options?: SourceMapOptions): SourceMap
   toString(): string
 }
+
+type ValueReplacement = InstrumentationState['replacements'][number]
 
 const MagicString = MagicStringDefault as unknown as new (source: string) => MagicStringApi
 
@@ -110,18 +121,6 @@ function staticArgumentValue(node: BabelNode | undefined): string | undefined {
   return undefined
 }
 
-function walkBabel(node: BabelNode, visit: (node: BabelNode) => boolean | void): void {
-  if (visit(node) === false) return
-  for (const [key, value] of Object.entries(node)) {
-    if (key === 'loc' || key === 'extra' || key === 'tokens' || key === 'comments') continue
-    if (Array.isArray(value)) {
-      for (const item of value) if (isBabelNode(item)) walkBabel(item, visit)
-    } else if (isBabelNode(value)) {
-      walkBabel(value, visit)
-    }
-  }
-}
-
 export function findTranslationCalls(expression: string): TranslationCall[] {
   try {
     const ast = parseExpression(`(${expression})`, {
@@ -130,26 +129,54 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
       errorRecovery: true,
     }) as unknown as BabelNode
     const calls: TranslationCall[] = []
-    walkBabel(ast, (node) => {
-      if (node.type !== 'CallExpression' && node.type !== 'OptionalCallExpression') return
-      if (!isTranslationCallee(isBabelNode(node.callee) ? node.callee : undefined)) return
-      if (typeof node.start !== 'number' || typeof node.end !== 'number') return false
-      const args = Array.isArray(node.arguments) ? node.arguments : []
-      const firstArgument = isBabelNode(args[0]) ? args[0] : undefined
-      const key = staticArgumentValue(firstArgument)
-      const argumentStart = typeof firstArgument?.start === 'number' ? firstArgument.start - 1 : undefined
-      const argumentEnd = typeof firstArgument?.end === 'number' ? firstArgument.end - 1 : undefined
-      calls.push({
-        start: node.start - 1,
-        end: node.end - 1,
-        key,
-        keyExpression:
-          key === undefined && argumentStart !== undefined && argumentEnd !== undefined
-            ? expression.slice(argumentStart, argumentEnd)
-            : undefined,
-      })
-      return false
-    })
+    const visit = (
+      node: BabelNode,
+      inheritedInvocation?: { service: string; start: number; end: number },
+    ): void => {
+      const isCall = node.type === 'CallExpression' || node.type === 'OptionalCallExpression'
+      const callee = isBabelNode(node.callee) ? node.callee : undefined
+      const directService = isCall ? imperativeServiceFromCallee(callee) : undefined
+      const invocation =
+        directService && typeof node.start === 'number' && typeof node.end === 'number'
+          ? { service: directService, start: node.start - 1, end: node.end - 1 }
+          : inheritedInvocation
+      if (
+        isCall &&
+        isTranslationCallee(callee) &&
+        typeof node.start === 'number' &&
+        typeof node.end === 'number'
+      ) {
+        const args = Array.isArray(node.arguments) ? node.arguments : []
+        const firstArgument = isBabelNode(args[0]) ? args[0] : undefined
+        const key = staticArgumentValue(firstArgument)
+        const argumentStart = typeof firstArgument?.start === 'number' ? firstArgument.start - 1 : undefined
+        const argumentEnd = typeof firstArgument?.end === 'number' ? firstArgument.end - 1 : undefined
+        calls.push({
+          start: node.start - 1,
+          end: node.end - 1,
+          key,
+          keyExpression:
+            key === undefined && argumentStart !== undefined && argumentEnd !== undefined
+              ? expression.slice(argumentStart, argumentEnd)
+              : undefined,
+          service: inheritedInvocation?.service,
+          invocationStart: inheritedInvocation?.start,
+          invocationEnd: inheritedInvocation?.end,
+        })
+        return
+      }
+      for (const [property, value] of Object.entries(node)) {
+        if (property === 'loc' || property === 'extra' || property === 'tokens' || property === 'comments') {
+          continue
+        }
+        if (Array.isArray(value)) {
+          for (const item of value) if (isBabelNode(item)) visit(item, invocation)
+        } else if (isBabelNode(value)) {
+          visit(value, invocation)
+        }
+      }
+    }
+    visit(ast)
     return calls.sort((left, right) => left.start - right.start)
   } catch {
     return []
@@ -164,10 +191,17 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
       errorRecovery: true,
     }) as unknown as BabelNode
     const calls: TranslationCall[] = []
-    const visit = (node: BabelNode, inheritedService?: string): void => {
+    const visit = (
+      node: BabelNode,
+      inheritedInvocation?: { service: string; start: number; end: number },
+    ): void => {
       const isCall = node.type === 'CallExpression' || node.type === 'OptionalCallExpression'
       const callee = isBabelNode(node.callee) ? node.callee : undefined
-      const service = (isCall ? imperativeServiceFromCallee(callee) : undefined) ?? inheritedService
+      const directService = isCall ? imperativeServiceFromCallee(callee) : undefined
+      const invocation =
+        directService && typeof node.start === 'number' && typeof node.end === 'number'
+          ? { service: directService, start: node.start, end: node.end }
+          : inheritedInvocation
       if (
         isCall &&
         isTranslationCallee(callee) &&
@@ -187,7 +221,9 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
             key === undefined && argumentStart !== undefined && argumentEnd !== undefined
               ? script.slice(argumentStart, argumentEnd)
               : undefined,
-          service: inheritedService,
+          service: inheritedInvocation?.service,
+          invocationStart: inheritedInvocation?.start,
+          invocationEnd: inheritedInvocation?.end,
         })
         return
       }
@@ -196,9 +232,9 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
           continue
         }
         if (Array.isArray(value)) {
-          for (const item of value) if (isBabelNode(item)) visit(item, service)
+          for (const item of value) if (isBabelNode(item)) visit(item, invocation)
         } else if (isBabelNode(value)) {
-          visit(value, service)
+          visit(value, invocation)
         }
       }
     }
@@ -240,20 +276,82 @@ function occurrenceId(
   })
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-}
-
 function quoteInsideVueAttribute(value: string): string {
   return `'${value
     .replaceAll('\\', '\\\\')
     .replaceAll("'", "\\'")
     .replaceAll('\r', '\\r')
     .replaceAll('\n', '\\n')}'`
+}
+
+function applyRuntimeReplacements(
+  magic: MagicStringApi,
+  source: string,
+  replacements: ValueReplacement[],
+  quote: (value: string) => string,
+): void {
+  const invocationGroups = new Map<
+    string,
+    {
+      start: number
+      end: number
+      service: string
+      replacements: ValueReplacement[]
+    }
+  >()
+  for (const replacement of replacements) {
+    if (
+      !replacement.service ||
+      replacement.invocationStart === undefined ||
+      replacement.invocationEnd === undefined ||
+      replacement.invocationStart > replacement.start ||
+      replacement.invocationEnd < replacement.end
+    ) {
+      continue
+    }
+    const key = `${replacement.invocationStart}:${replacement.invocationEnd}:${replacement.service}`
+    const group = invocationGroups.get(key) ?? {
+      start: replacement.invocationStart,
+      end: replacement.invocationEnd,
+      service: replacement.service,
+      replacements: [],
+    }
+    group.replacements.push(replacement)
+    invocationGroups.set(key, group)
+  }
+
+  const claimed = new Set<ValueReplacement>()
+  const groups = [...invocationGroups.values()].sort((left, right) => right.start - left.start)
+  for (const group of groups) {
+    if (group.replacements.some((replacement) => claimed.has(replacement))) continue
+    const segmentSource = source.slice(group.start, group.end)
+    const segment = new MagicString(segmentSource)
+    for (const replacement of [...group.replacements].sort((left, right) => right.start - left.start)) {
+      const original = source.slice(replacement.start, replacement.end)
+      segment.overwrite(
+        replacement.start - group.start,
+        replacement.end - group.start,
+        `__collectI18nValue(${original}, ${quote(replacement.occurrenceId)})`,
+      )
+      claimed.add(replacement)
+    }
+    const occurrenceIds = [...new Set(group.replacements.map((item) => item.occurrenceId))]
+    magic.overwrite(
+      group.start,
+      group.end,
+      `__collectI18nInvoke(${quote(group.service)}, [${occurrenceIds.map(quote).join(', ')}], () => (${segment.toString()}))`,
+    )
+  }
+
+  for (const replacement of [...replacements].sort((left, right) => right.start - left.start)) {
+    if (claimed.has(replacement)) continue
+    const original = source.slice(replacement.start, replacement.end)
+    magic.overwrite(
+      replacement.start,
+      replacement.end,
+      `__collectI18nValue(${original}, ${quote(replacement.occurrenceId)})`,
+    )
+  }
 }
 
 function openingTagEnd(source: string): number {
@@ -279,16 +377,17 @@ function blockContentOffset(source: string, block: SFCBlock): number {
   return found >= 0 ? found : hinted
 }
 
-function serviceInExpression(expression: string): string | undefined {
-  if (/\bElMessageBox\b/.test(expression)) return 'ElMessageBox'
-  if (/\bElNotification\b/.test(expression)) return 'ElNotification'
-  if (/\bElMessage\b/.test(expression)) return 'ElMessage'
-  return undefined
-}
-
 function directivePropName(node: DirectiveNode): string | undefined {
   if (!node.arg || node.arg.type !== NodeTypes.SIMPLE_EXPRESSION || !node.arg.isStatic) return undefined
   return node.arg.content
+}
+
+function nativeBindingKind(prop: DirectiveNode, propName?: string): OccurrenceKind {
+  if (prop.name === 'text' || prop.name === 'html') return 'text'
+  if (prop.name === 'bind' && (propName === 'placeholder' || propName === 'value')) {
+    return 'native'
+  }
+  return 'virtual'
 }
 
 function registerExpression(state: InstrumentationState, context: ExpressionContext): void {
@@ -296,14 +395,16 @@ function registerExpression(state: InstrumentationState, context: ExpressionCont
   for (const call of calls) {
     const absoluteStart = context.absoluteOffset + call.start
     const absoluteEnd = context.absoluteOffset + call.end
+    const service = call.service ?? context.service
+    const kind: OccurrenceKind = service ? 'imperative-service' : context.kind
     const id = occurrenceId(
       state.portableId,
       state.source,
       absoluteStart,
-      context.kind,
+      kind,
       call.key,
       context.prop,
-      context.service,
+      service,
     )
     const start = lineColumn(state.source, absoluteStart)
     const end = lineColumn(state.source, absoluteEnd)
@@ -311,10 +412,10 @@ function registerExpression(state: InstrumentationState, context: ExpressionCont
       occurrenceId: id,
       key: call.key,
       keyExpression: call.key === undefined ? call.keyExpression : undefined,
-      kind: context.kind,
+      kind,
       component: context.component,
       prop: context.prop,
-      service: context.service,
+      service,
       source: {
         file: state.portableId,
         line: start.line,
@@ -322,13 +423,43 @@ function registerExpression(state: InstrumentationState, context: ExpressionCont
         endLine: end.line,
         endColumn: end.column,
       },
+      metadata: {
+        sinkId: id,
+        evidenceGrade:
+          kind === 'native' || (kind === 'text' && !context.component)
+            ? 'A'
+            : kind === 'component-prop' || kind === 'text'
+              ? 'B'
+              : 'C',
+        evidenceProof:
+          kind === 'native'
+            ? 'compiler-native-sink'
+            : kind === 'text' && !context.component
+              ? 'compiler-text-sink'
+              : kind === 'component-prop' || kind === 'text'
+                ? 'compiler-component-scope'
+                : 'descriptor-only',
+      },
     }
     state.occurrences.push(descriptor)
-    state.replacements.push({ start: absoluteStart, end: absoluteEnd, occurrenceId: id })
-    if (context.nativeOwner && call.key) {
-      const existing = state.nativeBindings.get(context.nativeOwner) ?? []
+    state.replacements.push({
+      start: absoluteStart,
+      end: absoluteEnd,
+      occurrenceId: id,
+      service,
+      invocationStart:
+        service && call.invocationStart !== undefined
+          ? context.absoluteOffset + call.invocationStart
+          : undefined,
+      invocationEnd:
+        service && call.invocationEnd !== undefined
+          ? context.absoluteOffset + call.invocationEnd
+          : undefined,
+    })
+    if (context.owner) {
+      const existing = state.ownerBindings.get(context.owner) ?? []
       existing.push(descriptor)
-      state.nativeBindings.set(context.nativeOwner, existing)
+      state.ownerBindings.set(context.owner, existing)
     }
   }
 }
@@ -343,12 +474,12 @@ function inspectElement(state: InstrumentationState, element: ElementNode): void
     ) {
       continue
     }
-    const service = serviceInExpression(prop.exp.content)
     const propName = directivePropName(prop)
     let kind: OccurrenceKind
-    if (service) kind = 'imperative-service'
-    else if (prop.name === 'bind' || prop.name === 'model' || prop.name === 'text') {
-      kind = isNative ? 'native' : 'component-prop'
+    if (isNative) {
+      kind = nativeBindingKind(prop, propName)
+    } else if (prop.name === 'bind' || prop.name === 'model' || prop.name === 'text' || prop.name === 'html') {
+      kind = 'component-prop'
     } else {
       kind = 'virtual'
     }
@@ -358,8 +489,10 @@ function inspectElement(state: InstrumentationState, element: ElementNode): void
       kind,
       component: isNative ? undefined : element.tag,
       prop: propName,
-      service,
-      nativeOwner: isNative && kind === 'native' ? element : undefined,
+      owner:
+        kind === 'native' || kind === 'component-prop'
+          ? element
+          : undefined,
     })
   }
 
@@ -384,7 +517,7 @@ function registerInterpolation(
     absoluteOffset: state.templateOffset + content.loc.start.offset,
     kind: 'text',
     component: isNative ? undefined : owner.tag,
-    nativeOwner: isNative ? owner : undefined,
+    owner,
   })
 }
 
@@ -405,9 +538,11 @@ function inspectChild(state: InstrumentationState, child: TemplateChildNode): vo
 function instrumentTemplateAst(state: InstrumentationState, root: RootNode): void {
   for (const child of root.children) inspectChild(state, child)
 
-  for (const [element, bindings] of state.nativeBindings) {
+  for (const [element, bindings] of state.ownerBindings) {
     const alreadyMarked = element.props.some(
-      (prop) => prop.type === NodeTypes.ATTRIBUTE && prop.name === 'data-i18n-key',
+      (prop) =>
+        prop.type === NodeTypes.ATTRIBUTE &&
+        prop.name === 'data-collect-i18n-sink',
     )
     if (alreadyMarked || bindings.length === 0) continue
     const source = element.loc.source
@@ -416,13 +551,10 @@ function instrumentTemplateAst(state: InstrumentationState, root: RootNode): voi
     const selfClosingOffset = source.slice(0, tagEnd).match(/\/\s*$/)?.index
     const insertAt =
       state.templateOffset + element.loc.start.offset + (selfClosingOffset ?? tagEnd)
-    const primary = bindings[0]!
-    const serializedBindings = escapeHtmlAttribute(JSON.stringify(bindings))
+    const sinkIds = [...new Set(bindings.map((binding) => binding.occurrenceId))].join(' ')
     state.magic.appendLeft(
       insertAt,
-      ` data-i18n-key="${escapeHtmlAttribute(primary.key!)}"` +
-        ` data-i18n-occurrence="${primary.occurrenceId}"` +
-        ` data-collect-i18n-bindings="${serializedBindings}"`,
+      ` data-collect-i18n-sink="${sinkIds}"`,
     )
   }
 }
@@ -458,8 +590,22 @@ function instrumentScriptBlock(state: InstrumentationState, block: SFCBlock | nu
         endLine: end.line,
         endColumn: end.column,
       },
+      metadata: {
+        sinkId: id,
+        evidenceGrade: call.service ? 'C' : 'C',
+        evidenceProof: call.service ? 'imperative-text-heuristic' : 'descriptor-only',
+      },
     })
-    state.replacements.push({ start: absoluteStart, end: absoluteEnd, occurrenceId: id })
+    state.replacements.push({
+      start: absoluteStart,
+      end: absoluteEnd,
+      occurrenceId: id,
+      service: call.service,
+      invocationStart:
+        call.service && call.invocationStart !== undefined ? offset + call.invocationStart : undefined,
+      invocationEnd:
+        call.service && call.invocationEnd !== undefined ? offset + call.invocationEnd : undefined,
+    })
   }
 }
 
@@ -472,7 +618,7 @@ function injectRuntimeScript(
   if (state.occurrences.length === 0) return
   const descriptorJson = JSON.stringify(state.occurrences).replaceAll('<', '\\u003c')
   const runtimeCode =
-    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue } from ${JSON.stringify(runtimeImport)};\n` +
+    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue, runImperativeInvocation as __collectI18nInvoke } from ${JSON.stringify(runtimeImport)};\n` +
     `__collectI18nEnqueue(${descriptorJson});\n`
 
   if (scriptSetup) {
@@ -482,14 +628,12 @@ function injectRuntimeScript(
     state.magic.append(`\n<script setup${lang}>\n${runtimeCode}</script>\n`)
   }
 
-  for (const replacement of [...state.replacements].sort((left, right) => right.start - left.start)) {
-    const original = state.source.slice(replacement.start, replacement.end)
-    state.magic.overwrite(
-      replacement.start,
-      replacement.end,
-      `__collectI18nValue(${original}, ${quoteInsideVueAttribute(replacement.occurrenceId)})`,
-    )
-  }
+  applyRuntimeReplacements(
+    state.magic,
+    state.source,
+    state.replacements,
+    quoteInsideVueAttribute,
+  )
 }
 
 export function instrumentVueSfc(
@@ -520,7 +664,7 @@ export function instrumentVueSfc(
     magic,
     occurrences: [],
     replacements: [],
-    nativeBindings: new Map(),
+    ownerBindings: new Map(),
   }
   instrumentTemplateAst(state, templateAst)
   instrumentScriptBlock(state, parsed.descriptor.script)
@@ -554,7 +698,7 @@ export function instrumentScriptModule(
   if (calls.length === 0) return undefined
 
   const occurrences: OccurrenceDescriptor[] = []
-  const replacements: Array<{ start: number; end: number; occurrenceId: string }> = []
+  const replacements: ValueReplacement[] = []
   for (const call of calls) {
     const kind: OccurrenceKind = call.service ? 'imperative-service' : 'virtual'
     const idValue = occurrenceId(
@@ -581,23 +725,28 @@ export function instrumentScriptModule(
         endLine: end.line,
         endColumn: end.column,
       },
+      metadata: {
+        sinkId: idValue,
+        evidenceGrade: 'C',
+        evidenceProof: call.service ? 'imperative-text-heuristic' : 'descriptor-only',
+      },
     })
-    replacements.push({ start: call.start, end: call.end, occurrenceId: idValue })
+    replacements.push({
+      start: call.start,
+      end: call.end,
+      occurrenceId: idValue,
+      service: call.service,
+      invocationStart: call.invocationStart,
+      invocationEnd: call.invocationEnd,
+    })
   }
 
   const magic = new MagicString(source)
-  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
-    const original = source.slice(replacement.start, replacement.end)
-    magic.overwrite(
-      replacement.start,
-      replacement.end,
-      `__collectI18nValue(${original}, ${JSON.stringify(replacement.occurrenceId)})`,
-    )
-  }
+  applyRuntimeReplacements(magic, source, replacements, JSON.stringify)
   const descriptors = JSON.stringify(occurrences).replaceAll('<', '\\u003c')
   const runtimeImport = resolveRuntimeImport(options.runtimeImport)
   magic.prepend(
-    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue } from ${JSON.stringify(runtimeImport)};\n` +
+    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue, runImperativeInvocation as __collectI18nInvoke } from ${JSON.stringify(runtimeImport)};\n` +
       `__collectI18nEnqueue(${descriptors});\n`,
   )
   return {

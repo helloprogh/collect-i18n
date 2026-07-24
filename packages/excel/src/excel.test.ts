@@ -138,6 +138,21 @@ describe("four-column translation workbook export", () => {
       item.workbookPath,
     )).rejects.toThrow("does not match its extension");
   });
+
+  it("rejects a screenshot replaced after evidence capture", async () => {
+    const item = await fixture();
+    const screenshotPath = join(item.root, "changed.png");
+    await writeFile(screenshotPath, ONE_PIXEL_PNG);
+
+    await expect(exportTranslationWorkbook(
+      [{
+        ...item.catalog[0]!,
+        screenshotPath,
+        screenshotSha256: "0".repeat(64),
+      }],
+      item.workbookPath,
+    )).rejects.toThrow("Screenshot integrity check failed");
+  });
 });
 
 describe("four-column translation workbook import", () => {

@@ -9,6 +9,8 @@ export interface LocaleCatalogEntry {
   /** Nested JSON property path inside targetFile. */
   jsonPath: string[];
   screenshotPath?: string;
+  /** SHA-256 captured with the evidence; verified again before Excel embedding. */
+  screenshotSha256?: string;
 }
 
 export interface WorkbookExportRow extends LocaleCatalogEntry {

@@ -79,22 +79,27 @@ function prepareInvocation(
   service: ElementPlusServiceName,
   args: unknown[],
   options: CommandAdapterOptions,
-): { args: unknown[]; descriptor: OccurrenceDescriptor; text?: string } {
+): { args: unknown[]; descriptor: OccurrenceDescriptor; invocationId: string; text?: string } {
   const tagged = args.find(isTaggedCommand)
   const explicit = tagged?.descriptor ?? args.map(metadataDescriptor).find(Boolean)
   const rawText = args.map((argument) => normalizeText(isTaggedCommand(argument) ? argument.payload : argument)).find(Boolean)
   const key = explicit?.key ?? (rawText ? options.resolveKey?.(rawText, service) : undefined)
+  const invocationId = `invocation:${service}:${++imperativeSequence}`
   const descriptor: OccurrenceDescriptor = {
     ...explicit,
     occurrenceId:
-      explicit?.occurrenceId ?? `imperative:${service}:${key ?? 'unknown'}:${++imperativeSequence}`,
+      explicit?.occurrenceId ?? `imperative:${service}:${key ?? 'unknown'}:${imperativeSequence}`,
     key,
     kind: 'imperative-service',
     service,
     source: explicit?.source ?? options.source,
     renderedText: rawText,
+    metadata: {
+      ...explicit?.metadata,
+      invocationId,
+    },
   }
-  return { args: args.map(sanitizeArgument), descriptor, text: rawText }
+  return { args: args.map(sanitizeArgument), descriptor, invocationId, text: rawText }
 }
 
 function wrapCallable<T extends object>(
@@ -106,6 +111,7 @@ function wrapCallable<T extends object>(
   const invoke = (target: Function, thisArg: unknown, args: unknown[]): unknown => {
     const prepared = prepareInvocation(service, args, options)
     const dispose = registry?.registerImperativeInvocation({
+      invocationId: prepared.invocationId,
       descriptor: prepared.descriptor,
       text: prepared.text,
       invokedAt: Date.now(),

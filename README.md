@@ -19,6 +19,9 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 覆盖普通 DOM、文本节点、组件属性、表单校验、Dialog、Drawer、Teleport、`ElMessage`、Notification 等场景。
 - 使用受限 TriggerPlan 执行路由、点击、填写、选择、按键、等待和请求 Mock。
 - 自动校验截图与目标 Key Path 的运行时绑定，避免图片与词条错配。
+- 编译期只向 DOM 写入不透明 sink ID；Key Path 保留在本地 Registry、SQLite 和 Excel 中，不注入页面文本或 DOM 属性。
+- 运行时按 A/B/C 证据分级：确定性队列只接受 A 级，Agent 只接受 A/B 级，纯文本猜测不能自动写入证据。
+- 自动处理期间，命令行和工作台持续显示已处理数、可信截图数、转交数、失败数和当前 Key。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
 - 人工只需完成正常业务操作。目标 key 出现后，工具自动高亮、截图并保存证据。
 - 随时导出进度 Excel；没有截图的词条保留空白截图单元格，不阻塞翻译任务交付。
@@ -101,7 +104,7 @@ node <skill-root>/cli/bootstrap.mjs \
 2. 首次运行时创建 `.collect-i18n/config.json`；启动新会话时复用配置并刷新索引。
 3. 扫描语言包、源码、路由和动作提示。
 4. 启动或复用采集服务、目标 Vite 和 Chrome。
-5. 等待确定性队列完成。
+5. 等待确定性队列完成，并持续显示当前词条和实时处理进度。
 6. 导出一份立即可用的四列进度 Excel。
 7. 返回 `sessionId`、工作台地址、项目地址、截止时间、任务统计和下一步动作。
 

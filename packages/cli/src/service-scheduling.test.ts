@@ -51,6 +51,7 @@ describe("collector scheduling", () => {
       capture: async (target: RuntimeTargetSnapshot): Promise<CollectedEvidence> => ({
         ...target,
         screenshotPath: `D:/evidence/${target.key}.png`,
+        screenshotSha256: "0".repeat(64),
         capturedAt: new Date().toISOString(),
         source: "manual",
       }),

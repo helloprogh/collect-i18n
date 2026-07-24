@@ -28,6 +28,16 @@ const completion = computed(() => {
   return counts?.total ? Math.round((counts.captured / counts.total) * 100) : 0;
 });
 const remaining = computed(() => Math.max(0, (status.value?.counts.total ?? 0) - (status.value?.counts.captured ?? 0)));
+const automatic = computed(() => status.value?.automatic ?? {
+  phase: "running" as const,
+  processed: 0,
+  total: status.value?.counts.total ?? 0,
+  percent: 0,
+  captured: 0,
+  deferred: 0,
+  failed: 0,
+  currentKey: undefined,
+});
 const manualQueue = computed(() => tasks.value.filter((task) => ["needs_manual", "failed"].includes(task.status)));
 const agentTasks = computed(() => tasks.value.filter((task) => task.status === "needs_agent" || task.stage === "agent" || task.plan));
 const currentAgentTask = computed(() => agentTasks.value.find((task) => task.status === "running"));
@@ -145,7 +155,7 @@ function downloadWorkbook() {
 
 watch(page, () => void refresh(true));
 onMounted(async () => {
-  try { sessionId.value = (await api.health()).sessionId; await refresh(); timer = window.setInterval(() => void refresh(true), 3000); }
+  try { sessionId.value = (await api.health()).sessionId; await refresh(); timer = window.setInterval(() => void refresh(true), 1000); }
   catch (error) { ElMessage.error(error instanceof Error ? error.message : String(error)); }
 });
 onBeforeUnmount(() => timer && clearInterval(timer));
@@ -172,6 +182,27 @@ onBeforeUnmount(() => timer && clearInterval(timer));
         <section class="hero-card">
           <div><span class="section-kicker">采集进度</span><h2>已完成 {{ status?.counts.captured ?? 0 }} / {{ status?.counts.total ?? 0 }} 个词条</h2><p>静态分析先覆盖直接可达词条，Agent 处理复杂动作，最后只把无法自动完成的任务交给你。</p></div>
           <div class="progress-ring" :style="{ '--progress': `${completion * 3.6}deg` }"><strong>{{ completion }}%</strong><span>已留证</span></div>
+        </section>
+        <section class="panel automatic-progress-card">
+          <div class="panel-title">
+            <div>
+              <span class="section-kicker">自动处理状态</span>
+              <h3>{{ automatic.phase === "running" ? "正在建立可信截图证据" : "自动处理已完成" }}</h3>
+            </div>
+            <el-tag :type="automatic.phase === 'running' ? 'primary' : 'success'" effect="light">
+              {{ automatic.processed }} / {{ automatic.total }}
+            </el-tag>
+          </div>
+          <el-progress :percentage="Math.round(automatic.percent)" :stroke-width="10" />
+          <div class="automatic-progress-meta">
+            <span><small>可信截图</small><strong>{{ automatic.captured }}</strong></span>
+            <span><small>转 Agent / 人工</small><strong>{{ automatic.deferred }}</strong></span>
+            <span><small>失败</small><strong>{{ automatic.failed }}</strong></span>
+            <span class="automatic-current">
+              <small>当前词条</small>
+              <code>{{ automatic.currentKey || (automatic.phase === "complete" ? "已处理完毕" : "正在准备页面") }}</code>
+            </span>
+          </div>
         </section>
         <section class="metric-grid">
           <article><span class="metric-icon blue"><Files /></span><div><small>词条总数</small><strong>{{ status?.counts.total ?? 0 }}</strong></div></article>
@@ -315,5 +346,5 @@ onBeforeUnmount(() => timer && clearInterval(timer));
 </template>
 
 <style scoped>
-.badge.agent-badge{background:#2563eb}.agent-hero{display:grid;grid-template-columns:minmax(0,1fr) 200px auto;align-items:center;gap:28px;background:linear-gradient(118deg,#14213d,#1d3557 58%,#274c77);border-radius:18px;padding:28px 32px;color:#fff;box-shadow:0 16px 40px #1d35572b}.agent-hero .section-kicker{color:#a9c9ef}.agent-hero h2{margin:7px 0;font-size:25px}.agent-hero p{margin:0;color:#cbdcf1;line-height:1.65;font-size:13px}.agent-progress{display:grid;grid-template-columns:1fr 46px;align-items:center;gap:10px}.agent-progress-track{height:9px;background:#ffffff25;border-radius:20px;overflow:hidden}.agent-progress-track i{display:block;height:100%;background:linear-gradient(90deg,#60a5fa,#5eead4);border-radius:inherit;transition:width .3s}.agent-progress strong{font-size:14px}.agent-stats{display:flex;gap:9px}.agent-stats span{min-width:84px;padding:10px 12px;background:#ffffff12;border:1px solid #ffffff18;border-radius:10px;display:flex;flex-direction:column}.agent-stats small{color:#bcd0e8;font-size:11px}.agent-stats strong{font-size:20px;margin-top:3px}.agent-notice{margin:18px 0}.agent-task-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}.agent-task-card{min-height:306px}.agent-target{display:flex;flex-direction:column;gap:7px;padding:15px 16px;background:#f4f7fb;border-radius:11px;border-left:4px solid #3b82f6}.agent-target strong{font-size:20px;color:#172033}.agent-target code{color:#475467;font-size:12px;overflow-wrap:anywhere}.agent-task-meta{margin:17px 0;display:grid;grid-template-columns:1.5fr 1fr 90px;gap:9px}.agent-task-meta div{background:#f8fafc;border-radius:9px;padding:11px 12px;min-width:0}.agent-task-meta dt{color:#667085;font-size:11px;margin-bottom:5px}.agent-task-meta dd{margin:0;color:#344054;font-weight:600;font-size:12px;overflow-wrap:anywhere}.agent-empty-state{height:205px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#667085}.agent-empty-state svg{width:32px;color:#98a2b3;margin-bottom:9px}.agent-empty-state strong{color:#475467}.agent-empty-state p{font-size:12px;line-height:1.6;max-width:390px;margin:7px 0 0}.agent-empty-state.compact{height:230px}.agent-lower-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:18px}.plan-panel .panel-title code{max-width:290px;overflow:hidden;text-overflow:ellipsis;color:#667085;font-size:11px}.plan-panel pre{height:340px;overflow:auto;margin:0;background:#101828;color:#d1e9ff;border-radius:11px;padding:18px;font-size:12px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}.event-count{font-size:12px;color:#667085;background:#f2f4f7;border-radius:15px;padding:5px 10px}.event-timeline{list-style:none;padding:0;margin:0;max-height:340px;overflow:auto}.event-timeline li{position:relative;display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:11px;padding:2px 0 18px}.event-timeline li:not(:last-child):before{content:"";position:absolute;left:5px;top:13px;bottom:0;width:1px;background:#dbe3ed}.event-timeline li>i{width:11px;height:11px;margin-top:4px;border-radius:50%;background:#3b82f6;box-shadow:0 0 0 4px #3b82f61a;z-index:1}.event-timeline li>i.success{background:#12b76a;box-shadow:0 0 0 4px #12b76a1c}.event-timeline li>i.warning{background:#f79009;box-shadow:0 0 0 4px #f790091c}.event-timeline li div{display:flex;flex-direction:column;gap:4px;min-width:0}.event-timeline strong{font-size:13px;color:#344054}.event-timeline code{font-size:11px;color:#667085;overflow:hidden;text-overflow:ellipsis}.event-timeline p{margin:0;color:#b42318;font-size:11px;line-height:1.5}.event-timeline time{font-size:10px;color:#98a2b3;white-space:nowrap;margin-top:3px}@media(max-width:1280px){.agent-hero{grid-template-columns:minmax(0,1fr) 180px}.agent-stats{grid-column:1/-1}.agent-task-meta{grid-template-columns:1fr 1fr}.agent-task-meta div:last-child{grid-column:1/-1}}
+.automatic-progress-card{margin:18px 0}.automatic-progress-meta{display:grid;grid-template-columns:120px 150px 90px minmax(220px,1fr);gap:12px;margin-top:16px}.automatic-progress-meta span{display:flex;flex-direction:column;gap:4px;padding:10px 12px;background:#f8fafc;border-radius:9px}.automatic-progress-meta small{color:#667085;font-size:11px}.automatic-progress-meta strong{font-size:18px;color:#344054}.automatic-progress-meta code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#2563eb;font-size:12px}.badge.agent-badge{background:#2563eb}.agent-hero{display:grid;grid-template-columns:minmax(0,1fr) 200px auto;align-items:center;gap:28px;background:linear-gradient(118deg,#14213d,#1d3557 58%,#274c77);border-radius:18px;padding:28px 32px;color:#fff;box-shadow:0 16px 40px #1d35572b}.agent-hero .section-kicker{color:#a9c9ef}.agent-hero h2{margin:7px 0;font-size:25px}.agent-hero p{margin:0;color:#cbdcf1;line-height:1.65;font-size:13px}.agent-progress{display:grid;grid-template-columns:1fr 46px;align-items:center;gap:10px}.agent-progress-track{height:9px;background:#ffffff25;border-radius:20px;overflow:hidden}.agent-progress-track i{display:block;height:100%;background:linear-gradient(90deg,#60a5fa,#5eead4);border-radius:inherit;transition:width .3s}.agent-progress strong{font-size:14px}.agent-stats{display:flex;gap:9px}.agent-stats span{min-width:84px;padding:10px 12px;background:#ffffff12;border:1px solid #ffffff18;border-radius:10px;display:flex;flex-direction:column}.agent-stats small{color:#bcd0e8;font-size:11px}.agent-stats strong{font-size:20px;margin-top:3px}.agent-notice{margin:18px 0}.agent-task-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}.agent-task-card{min-height:306px}.agent-target{display:flex;flex-direction:column;gap:7px;padding:15px 16px;background:#f4f7fb;border-radius:11px;border-left:4px solid #3b82f6}.agent-target strong{font-size:20px;color:#172033}.agent-target code{color:#475467;font-size:12px;overflow-wrap:anywhere}.agent-task-meta{margin:17px 0;display:grid;grid-template-columns:1.5fr 1fr 90px;gap:9px}.agent-task-meta div{background:#f8fafc;border-radius:9px;padding:11px 12px;min-width:0}.agent-task-meta dt{color:#667085;font-size:11px;margin-bottom:5px}.agent-task-meta dd{margin:0;color:#344054;font-weight:600;font-size:12px;overflow-wrap:anywhere}.agent-empty-state{height:205px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#667085}.agent-empty-state svg{width:32px;color:#98a2b3;margin-bottom:9px}.agent-empty-state strong{color:#475467}.agent-empty-state p{font-size:12px;line-height:1.6;max-width:390px;margin:7px 0 0}.agent-empty-state.compact{height:230px}.agent-lower-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:18px}.plan-panel .panel-title code{max-width:290px;overflow:hidden;text-overflow:ellipsis;color:#667085;font-size:11px}.plan-panel pre{height:340px;overflow:auto;margin:0;background:#101828;color:#d1e9ff;border-radius:11px;padding:18px;font-size:12px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}.event-count{font-size:12px;color:#667085;background:#f2f4f7;border-radius:15px;padding:5px 10px}.event-timeline{list-style:none;padding:0;margin:0;max-height:340px;overflow:auto}.event-timeline li{position:relative;display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:11px;padding:2px 0 18px}.event-timeline li:not(:last-child):before{content:"";position:absolute;left:5px;top:13px;bottom:0;width:1px;background:#dbe3ed}.event-timeline li>i{width:11px;height:11px;margin-top:4px;border-radius:50%;background:#3b82f6;box-shadow:0 0 0 4px #3b82f61a;z-index:1}.event-timeline li>i.success{background:#12b76a;box-shadow:0 0 0 4px #12b76a1c}.event-timeline li>i.warning{background:#f79009;box-shadow:0 0 0 4px #f790091c}.event-timeline li div{display:flex;flex-direction:column;gap:4px;min-width:0}.event-timeline strong{font-size:13px;color:#344054}.event-timeline code{font-size:11px;color:#667085;overflow:hidden;text-overflow:ellipsis}.event-timeline p{margin:0;color:#b42318;font-size:11px;line-height:1.5}.event-timeline time{font-size:10px;color:#98a2b3;white-space:nowrap;margin-top:3px}@media(max-width:1280px){.automatic-progress-meta{grid-template-columns:repeat(3,1fr)}.automatic-current{grid-column:1/-1}.agent-hero{grid-template-columns:minmax(0,1fr) 180px}.agent-stats{grid-column:1/-1}.agent-task-meta{grid-template-columns:1fr 1fr}.agent-task-meta div:last-child{grid-column:1/-1}}
 </style>

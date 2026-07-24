@@ -5,6 +5,22 @@ export type OccurrenceKind =
   | 'imperative-service'
   | 'virtual'
 
+export type EvidenceGrade = 'A' | 'B' | 'C'
+
+export type EvidenceProof =
+  | 'compiler-native-sink'
+  | 'compiler-text-sink'
+  | 'compiler-component-scope'
+  | 'element-plus-invocation'
+  | 'imperative-text-heuristic'
+  | 'text-heuristic'
+  | 'descriptor-only'
+
+export interface EvidenceAssessment {
+  grade: EvidenceGrade
+  proof: EvidenceProof
+}
+
 export interface SourceLocation {
   file?: string
   line?: number
@@ -31,19 +47,29 @@ export interface OccurrenceDescriptor {
 export interface ElementAnchor {
   type: 'element'
   element: Element
+  evidence: EvidenceAssessment
 }
 
 export interface RangeAnchor {
   type: 'range'
   range: Range
+  evidence: EvidenceAssessment
+}
+
+/** An exact compiler-owned scope which still needs a host text/prop landing. */
+export interface OwnerAnchor {
+  type: 'owner'
+  element: Element
+  evidence: EvidenceAssessment
 }
 
 export interface VirtualAnchor {
   type: 'virtual'
   reason?: string
+  evidence: EvidenceAssessment
 }
 
-export type OccurrenceAnchor = ElementAnchor | RangeAnchor | VirtualAnchor
+export type OccurrenceAnchor = ElementAnchor | RangeAnchor | OwnerAnchor | VirtualAnchor
 
 export interface OccurrenceRegistration extends OccurrenceDescriptor {
   anchor?: OccurrenceAnchor
@@ -62,6 +88,8 @@ export interface RectSnapshot {
 
 export interface OccurrenceSnapshot extends OccurrenceDescriptor {
   anchorType: OccurrenceAnchor['type']
+  evidenceGrade: EvidenceGrade
+  evidenceProof: EvidenceProof
   connected: boolean
   visible: boolean
   text?: string
@@ -102,6 +130,7 @@ export interface WaitForTargetOptions {
 export type ElementPlusServiceName = 'ElMessage' | 'ElNotification' | 'ElMessageBox'
 
 export interface ImperativeInvocation {
+  invocationId: string
   descriptor: OccurrenceDescriptor
   text?: string
   invokedAt: number
@@ -111,8 +140,21 @@ export type CollectorEventListener = (event: CollectorEvent) => void
 
 export interface CollectorRegistryApi {
   register(registration: OccurrenceRegistration): () => void
-  registerElement(descriptor: OccurrenceDescriptor, element: Element): () => void
-  registerRange(descriptor: OccurrenceDescriptor, range: Range): () => void
+  registerElement(
+    descriptor: OccurrenceDescriptor,
+    element: Element,
+    evidence?: EvidenceAssessment,
+  ): () => void
+  registerRange(
+    descriptor: OccurrenceDescriptor,
+    range: Range,
+    evidence?: EvidenceAssessment,
+  ): () => void
+  registerOwner(
+    descriptor: OccurrenceDescriptor,
+    element: Element,
+    evidence?: EvidenceAssessment,
+  ): () => void
   registerVirtual(descriptor: OccurrenceDescriptor, reason?: string): () => void
   registerComponentProp(
     descriptor: OccurrenceDescriptor,

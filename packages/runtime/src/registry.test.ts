@@ -4,6 +4,8 @@ import {
   createElementPlusCommandAdapter,
   enqueueDescriptors,
   installCollectorRuntime,
+  recordRenderedValue,
+  runImperativeInvocation,
   uninstallGlobalCollector,
 } from './index.js'
 
@@ -218,9 +220,10 @@ describe('CollectorRegistry', () => {
     expect(registry.focus({ occurrenceId: 'jobs-title' })).toBeUndefined()
     expect(navigationScroll).not.toHaveBeenCalled()
 
-    registry.registerElement(
+    registry.registerOwner(
       { occurrenceId: 'jobs-title', key: 'jobs.title', kind: 'text' },
       heading,
+      { grade: 'A', proof: 'compiler-text-sink' },
     )
     await mutationsSettled()
 
@@ -288,13 +291,14 @@ describe('CollectorRegistry', () => {
     await mutationsSettled()
     expect(registry.getOccurrence('delayed-title')?.anchorType).toBe('range')
 
-    registry.registerElement(
+    registry.registerOwner(
       { occurrenceId: 'delayed-title', key: 'jobs.delayedTitle', kind: 'text' },
       heading,
+      { grade: 'A', proof: 'compiler-text-sink' },
     )
     await mutationsSettled()
 
-    expect(registry.getOccurrence('delayed-title')?.anchorType).toBe('element')
+    expect(registry.getOccurrence('delayed-title')?.anchorType).toBe('owner')
     registry.focus({ occurrenceId: 'delayed-title' })
     expect(headingScroll).toHaveBeenCalledOnce()
     expect(unrelatedScroll).not.toHaveBeenCalled()
@@ -321,6 +325,62 @@ describe('CollectorRegistry', () => {
     expect(registry.getOccurrence('name-placeholder')).toMatchObject({
       anchorType: 'element',
       connected: true,
+    })
+  })
+
+  it('uses an opaque compiler sink to scope duplicate component text', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'opaque-component-label',
+        key: 'form.actions.submit',
+        kind: 'text',
+        component: 'el-button',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const unrelated = document.createElement('span')
+    unrelated.textContent = 'Submit'
+    const componentRoot = document.createElement('button')
+    componentRoot.setAttribute('data-collect-i18n-sink', 'opaque-component-label')
+    componentRoot.textContent = 'Submit'
+    document.body.append(unrelated, componentRoot)
+
+    registry.recordRenderedValue('opaque-component-label', 'Submit')
+    registry.rescan(document)
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('opaque-component-label')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-component-scope',
+      connected: true,
+      text: 'Submit',
+    })
+  })
+
+  it('abstains when two occurrences share the same text inside one compiler owner', async () => {
+    enqueueDescriptors([
+      { occurrenceId: 'same-owner-a', key: 'labels.a', kind: 'text' },
+      { occurrenceId: 'same-owner-b', key: 'labels.b', kind: 'text' },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const owner = document.createElement('p')
+    owner.setAttribute('data-collect-i18n-sink', 'same-owner-a same-owner-b')
+    owner.append('Duplicate', document.createTextNode('Duplicate'))
+    document.body.append(owner)
+
+    registry.recordRenderedValue('same-owner-a', 'Duplicate')
+    registry.recordRenderedValue('same-owner-b', 'Duplicate')
+    registry.rescan(document)
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('same-owner-a')).toMatchObject({
+      anchorType: 'owner',
+      visible: false,
+    })
+    expect(registry.getOccurrence('same-owner-b')).toMatchObject({
+      anchorType: 'owner',
+      visible: false,
     })
   })
 
@@ -418,6 +478,34 @@ describe('CollectorRegistry', () => {
       service: 'ElNotification',
       anchorType: 'range',
       connected: true,
+    })
+  })
+
+  it('promotes an instrumented Element Plus call to invocation-scoped B evidence', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'compiled-message',
+        key: 'messages.saved',
+        kind: 'imperative-service',
+        service: 'ElMessage',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+
+    runImperativeInvocation('ElMessage', ['compiled-message'], () => {
+      recordRenderedValue('Saved', 'compiled-message')
+      const message = document.createElement('div')
+      message.className = 'el-message'
+      message.textContent = 'Saved'
+      document.body.append(message)
+    })
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('compiled-message')).toMatchObject({
+      anchorType: 'element',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      text: 'Saved',
     })
   })
 

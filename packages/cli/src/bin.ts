@@ -166,12 +166,59 @@ async function prepareWorkflow(projectRoot: string): Promise<{ descriptor: Servi
   }
 }
 
-async function waitForDeterministicQueue(projectRoot: string, sessionId: string, timeoutMs: number): Promise<Record<string, unknown>> {
+interface AutomaticProgress {
+  processed: number;
+  total: number;
+  percent: number;
+  captured: number;
+  deferred: number;
+  failed: number;
+  currentKey?: string;
+}
+
+function automaticProgress(status: Record<string, unknown>): AutomaticProgress {
+  const counts = status.counts as Record<string, number>;
+  const automatic = status.automatic as Partial<AutomaticProgress> | undefined;
+  const total = Number(automatic?.total ?? counts.total ?? 0);
+  const processed = Number(
+    automatic?.processed ?? Math.max(0, total - Number(counts.pending ?? 0) - Number(counts.running ?? 0)),
+  );
+  return {
+    processed,
+    total,
+    percent: Number(automatic?.percent ?? (total === 0 ? 100 : (processed / total) * 100)),
+    captured: Number(automatic?.captured ?? counts.captured ?? 0),
+    deferred: Number(
+      automatic?.deferred ?? Number(counts.needs_agent ?? 0) + Number(counts.needs_manual ?? 0),
+    ),
+    failed: Number(automatic?.failed ?? counts.failed ?? 0),
+    currentKey:
+      typeof automatic?.currentKey === "string"
+        ? automatic.currentKey
+        : typeof (status.current as { key_path?: unknown } | undefined)?.key_path === "string"
+          ? String((status.current as { key_path: string }).key_path)
+          : undefined,
+  };
+}
+
+async function waitForDeterministicQueue(
+  projectRoot: string,
+  sessionId: string,
+  timeoutMs: number,
+  onProgress?: (progress: AutomaticProgress) => void,
+): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
+  let previous = "";
   for (;;) {
     const store = await StateStore.open(projectRoot);
     const status = store.status(sessionId);
     store.close();
+    const progress = automaticProgress(status);
+    const signature = JSON.stringify(progress);
+    if (signature !== previous) {
+      previous = signature;
+      onProgress?.(progress);
+    }
     const counts = status.counts as Record<string, number>;
     if (counts.pending === 0 && counts.running === 0) return status;
     if (Date.now() >= deadline) return { ...status, deterministicWaitTimedOut: true };
@@ -304,8 +351,26 @@ program.command("run")
     const projectRoot = projectOf(command);
     const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
     const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || 15);
+    const jsonMode = Boolean((command.optsWithGlobals() as GlobalOptions).json);
+    if (!jsonMode) process.stderr.write("[collect-i18n] 正在检查项目并启动采集服务…\n");
     const workflow = await prepareWorkflow(projectRoot);
-    const status = await waitForDeterministicQueue(projectRoot, workflow.descriptor.sessionId, deterministicTimeoutMinutes * 60_000);
+    if (!jsonMode) process.stderr.write("[collect-i18n] 自动处理已开始。\n");
+    const status = await waitForDeterministicQueue(
+      projectRoot,
+      workflow.descriptor.sessionId,
+      deterministicTimeoutMinutes * 60_000,
+      jsonMode
+        ? undefined
+        : (progress) => {
+            const current = progress.currentKey ? ` · 当前 ${progress.currentKey}` : "";
+            process.stderr.write(
+              `[collect-i18n] 自动处理 ${progress.processed}/${progress.total} (${progress.percent.toFixed(1)}%)` +
+              ` · 已截图 ${progress.captured} · 待 Agent/人工 ${progress.deferred}` +
+              `${progress.failed ? ` · 失败 ${progress.failed}` : ""}${current}\n`,
+            );
+          },
+    );
+    if (!jsonMode) process.stderr.write("[collect-i18n] 自动处理已结束，正在生成 Excel…\n");
     const englishRoot = await findEnglishRoot(workflow.config);
     const store = await StateStore.open(projectRoot);
     const rows = store.localeCatalog(workflow.descriptor.sessionId, englishRoot);

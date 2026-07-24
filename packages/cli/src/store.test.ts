@@ -92,8 +92,16 @@ function evidence(source: CollectedEvidence["source"] = "deterministic"): Collec
     route: "http://127.0.0.1:5173/form",
     rect: { x: 1, y: 2, width: 30, height: 20 },
     screenshotPath: "D:/evidence/form.save.png",
+    screenshotSha256: "0".repeat(64),
     capturedAt: new Date().toISOString(),
     source,
+    evidenceGrade: source === "deterministic" ? "A" : source === "agent" ? "B" : "C",
+    evidenceProof:
+      source === "deterministic"
+        ? "compiler-text-sink"
+        : source === "agent"
+          ? "compiler-component-scope"
+          : "text-heuristic",
   };
 }
 
@@ -336,7 +344,39 @@ describe("StateStore transactions", () => {
       coveragePercent: 100,
       manualPercent: 0,
       exportReady: true,
+      automatic: {
+        phase: "complete",
+        processed: 1,
+        total: 1,
+        percent: 100,
+        captured: 1,
+        deferred: 0,
+        failed: 0,
+      },
     });
+    store.close();
+  });
+
+  it("rejects evidence below the minimum grade for its automatic stage", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisWithOccurrence("native_dom", 0.99));
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["pending"]);
+    if (!task) throw new Error("missing deterministic fixture task");
+
+    expect(() => store.addEvidence(task.id, {
+      ...evidence("deterministic"),
+      evidenceGrade: "B",
+      evidenceProof: "compiler-component-scope",
+    })).toThrow("requires grade A");
+
+    store.markTask(task.id, "needs_agent");
+    expect(() => store.addEvidence(task.id, {
+      ...evidence("agent"),
+      evidenceGrade: "C",
+      evidenceProof: "text-heuristic",
+    })).toThrow("requires grade B");
     store.close();
   });
 

@@ -80,7 +80,7 @@ Skill 的默认入口：
 collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 ```
 
-命令自动检查环境，在缺少配置时初始化，否则刷新索引；随后启动或复用采集服务、等待确定性队列结束并导出首版四列 Excel。返回 `sessionId`、`studioUrl`、`appUrl`、`deadlineAt`、`nextAction`、状态和工作簿结果。人工项不会阻止导出，未取证词条的截图单元格保持为空。
+命令自动检查环境，在缺少配置时初始化，否则刷新索引；随后启动或复用采集服务、等待确定性队列结束并导出首版四列 Excel。非 JSON 模式会在等待期间持续向标准错误输出自动处理进度，包括当前 Key、已处理数、可信截图数、转交数和失败数；JSON 标准输出仍保持单一稳定结果。最终返回 `sessionId`、`studioUrl`、`appUrl`、`deadlineAt`、`nextAction`、状态和工作簿结果。人工项不会阻止导出，未取证词条的截图单元格保持为空。
 
 ### `start`
 
@@ -122,6 +122,9 @@ collect-i18n status --session <session-id>
 | `coveragePercent` | 已截图词条占比 |
 | `manualPercent` | 当前人工队列占比 |
 | `exportReady` | 确定性队列是否已经结束，可以交付进度 Excel |
+
+`automatic` 提供工作台和调用方使用的实时阶段数据：`phase`、`processed`、
+`total`、`percent`、`captured`、`deferred`、`failed` 和 `currentKey`。
 
 在 `pending` 与 `running` 都归零后再消费 Agent 队列。
 

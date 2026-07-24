@@ -1,7 +1,10 @@
-import { mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
+
+export type RuntimeEvidenceGrade = "A" | "B" | "C";
 
 export interface BrowserCollectorOptions {
   baseUrl: string;
@@ -20,6 +23,8 @@ export interface RuntimeTargetSnapshot {
   key: string;
   occurrenceId?: string;
   binding?: string;
+  evidenceGrade?: RuntimeEvidenceGrade;
+  evidenceProof?: string;
   text: string;
   route: string;
   rect: { x: number; y: number; width: number; height: number };
@@ -27,6 +32,7 @@ export interface RuntimeTargetSnapshot {
 
 export interface CollectedEvidence extends RuntimeTargetSnapshot {
   screenshotPath: string;
+  screenshotSha256: string;
   capturedAt: string;
   source: "deterministic" | "agent" | "manual";
   plan?: ParsedTriggerPlan;
@@ -41,6 +47,8 @@ export interface RuntimeInspection {
     key?: string;
     occurrenceId?: string;
     kind?: string;
+    evidenceGrade?: RuntimeEvidenceGrade;
+    evidenceProof?: string;
     visible?: boolean;
     anchorType?: string;
     text?: string;
@@ -71,6 +79,8 @@ type RuntimeWindow = Window & {
       key?: string;
       occurrenceId?: string;
       kind?: string;
+      evidenceGrade?: RuntimeEvidenceGrade;
+      evidenceProof?: string;
       text?: string;
       visible?: boolean;
       rect?: { x: number; y: number; width: number; height: number };
@@ -79,6 +89,8 @@ type RuntimeWindow = Window & {
       key?: string;
       occurrenceId?: string;
       kind?: string;
+      evidenceGrade?: RuntimeEvidenceGrade;
+      evidenceProof?: string;
       text?: string;
       visible?: boolean;
       rect?: { x: number; y: number; width: number; height: number };
@@ -93,6 +105,8 @@ type RuntimeWindow = Window & {
       key?: string;
       occurrenceId?: string;
       kind?: string;
+      evidenceGrade?: RuntimeEvidenceGrade;
+      evidenceProof?: string;
       text?: string;
       visible?: boolean;
       rect?: { x: number; y: number; width: number; height: number };
@@ -305,7 +319,7 @@ export class BrowserCollector {
         this.assertSameOrigin();
       }
 
-      const target = await this.waitForKey(plan.targetKey, 10_000);
+      const target = await this.waitForKey(plan.targetKey, 10_000, "B");
       return this.capture(target, source, plan);
     })();
     try {
@@ -356,6 +370,8 @@ export class BrowserCollector {
         key: item.key,
         occurrenceId: item.occurrenceId,
         kind: item.kind,
+        evidenceGrade: item.evidenceGrade,
+        evidenceProof: item.evidenceProof,
         visible: item.visible,
         anchorType: "anchorType" in item ? String(item.anchorType) : undefined,
         text: item.text,
@@ -364,14 +380,18 @@ export class BrowserCollector {
       return {
         url: location.href,
         collectorInstalled: Boolean(collector),
-        markedElements: document.querySelectorAll("[data-i18n-key],[data-collect-i18n-bindings]").length,
+        markedElements: document.querySelectorAll("[data-collect-i18n-sink],[data-i18n-key],[data-collect-i18n-bindings]").length,
         pendingDescriptors: runtimeWindow.__COLLECT_I18N_PENDING__?.length ?? 0,
         snapshots,
       };
     }, Math.max(1, Math.min(limit, 2_000))), 3_000, "Runtime inspection timed out while the page was navigating");
   }
 
-  async waitForKey(key: string, timeoutMs = 60_000): Promise<RuntimeTargetSnapshot> {
+  async waitForKey(
+    key: string,
+    timeoutMs = 60_000,
+    minimumGrade: RuntimeEvidenceGrade = "C",
+  ): Promise<RuntimeTargetSnapshot> {
     const startedAt = Date.now();
     let first = true;
     let lastUrl = "";
@@ -379,7 +399,7 @@ export class BrowserCollector {
       this.assertSameOrigin();
       const currentUrl = this.activePage.url();
       if (currentUrl !== lastUrl) first = true;
-      const evaluation = this.activePage.evaluate(({ targetKey, initialize }) => {
+      const evaluation = this.activePage.evaluate(({ targetKey, initialize, minGrade }) => {
         const runtimeWindow = window as RuntimeWindow;
         const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
         if (initialize) {
@@ -390,18 +410,27 @@ export class BrowserCollector {
         const intersectsViewport = (rect: { x: number; y: number; width: number; height: number }): boolean =>
           rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight &&
           rect.x + rect.width > 0 && rect.y + rect.height > 0;
+        const gradeRank = (grade: RuntimeEvidenceGrade | undefined): number =>
+          grade === "A" ? 3 : grade === "B" ? 2 : 1;
         const normalizeRuntimeTarget = (candidate: {
           key?: string;
           occurrenceId?: string;
           kind?: string;
+          evidenceGrade?: RuntimeEvidenceGrade;
+          evidenceProof?: string;
           text?: string;
           rect?: { x: number; y: number; width: number; height: number };
         }): RuntimeTargetSnapshot | undefined => {
           if (!candidate.rect || !intersectsViewport(candidate.rect)) return undefined;
+          if (gradeRank(candidate.evidenceGrade) < gradeRank(minGrade)) {
+            return undefined;
+          }
           return {
             key: candidate.key ?? targetKey,
             occurrenceId: candidate.occurrenceId,
             binding: candidate.kind,
+            evidenceGrade: candidate.evidenceGrade,
+            evidenceProof: candidate.evidenceProof,
             text: candidate.text ?? "",
             route: location.href,
             rect: {
@@ -413,7 +442,12 @@ export class BrowserCollector {
           };
         };
         const runtimeTargets = collector?.targets?.(targetKey) ?? collector?.getVisibleOccurrences?.(targetKey) ?? [];
-        const valid = runtimeTargets.find((candidate) => candidate.rect && intersectsViewport(candidate.rect));
+        const valid = runtimeTargets
+          .filter((candidate) => candidate.rect && intersectsViewport(candidate.rect))
+          .sort((left, right) =>
+            gradeRank(right.evidenceGrade) - gradeRank(left.evidenceGrade))
+          .find((candidate) =>
+            gradeRank(candidate.evidenceGrade) >= gradeRank(minGrade));
         if (valid) return normalizeRuntimeTarget(valid);
         const registryTarget = collector?.getSnapshot?.().find((candidate) => candidate.key === targetKey && candidate.visible);
         if (registryTarget) {
@@ -430,11 +464,13 @@ export class BrowserCollector {
           key: targetKey,
           occurrenceId: element.dataset.i18nOccurrence ?? element.dataset.i18nOcc,
           binding: "native_dom",
+          evidenceGrade: "A" as const,
+          evidenceProof: "compiler-native-sink",
           text: element.innerText || element.getAttribute("placeholder") || element.getAttribute("aria-label") || "",
           route: location.href,
           rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         };
-      }, { targetKey: key, initialize: first });
+      }, { targetKey: key, initialize: first, minGrade: minimumGrade });
       let snapshot: RuntimeTargetSnapshot | undefined;
       try {
         snapshot = await bounded(evaluation, 2_000, `Page became unresponsive while locating i18n key: ${key}`);
@@ -461,12 +497,13 @@ export class BrowserCollector {
     plan?: ParsedTriggerPlan,
   ): Promise<CollectedEvidence> {
     const page = this.activePage;
-    let resolvedTarget = await this.waitForKey(target.key, 5_000);
+    const minimumGrade = target.evidenceGrade ?? "C";
+    let resolvedTarget = await this.waitForKey(target.key, 5_000, minimumGrade);
     // Validation messages, dialogs and Teleports often animate into place.
     // Require two near-identical layout samples before drawing the marker.
     for (let sample = 0; sample < 6; sample += 1) {
       await page.waitForTimeout(100);
-      const next = await this.waitForKey(target.key, 2_000);
+      const next = await this.waitForKey(target.key, 2_000, minimumGrade);
       const delta = Math.max(
         Math.abs(next.rect.x - resolvedTarget.rect.x),
         Math.abs(next.rect.y - resolvedTarget.rect.y),
@@ -513,11 +550,21 @@ export class BrowserCollector {
         "Timed out removing the screenshot marker",
       ).catch(() => undefined);
     }
-    return { ...resolvedTarget, screenshotPath, capturedAt: new Date().toISOString(), source, plan };
+    const screenshotSha256 = createHash("sha256")
+      .update(await readFile(screenshotPath))
+      .digest("hex");
+    return {
+      ...resolvedTarget,
+      screenshotPath,
+      screenshotSha256,
+      capturedAt: new Date().toISOString(),
+      source,
+      plan,
+    };
   }
 
   async listenAndCapture(key: string, timeoutMs = 30 * 60_000): Promise<CollectedEvidence> {
-    const target = await this.waitForKey(key, timeoutMs);
+    const target = await this.waitForKey(key, timeoutMs, "C");
     return this.capture(target, "manual");
   }
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { extname, dirname, resolve } from "node:path";
 import ExcelJS from "exceljs";
@@ -94,6 +94,12 @@ export async function exportTranslationWorkbook(
       const buffer = await readFile(resolve(source.screenshotPath));
       if (!imageMatchesExtension(buffer, extension)) {
         throw new Error(`Screenshot content does not match its extension: ${source.screenshotPath}`);
+      }
+      if (
+        source.screenshotSha256 &&
+        createHash("sha256").update(buffer).digest("hex") !== source.screenshotSha256
+      ) {
+        throw new Error(`Screenshot integrity check failed for Key Path: ${source.keyPath}`);
       }
       const imageId = workbook.addImage({ base64: buffer.toString("base64"), extension });
       row.height = 88;

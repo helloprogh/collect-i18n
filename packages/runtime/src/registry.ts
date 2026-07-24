@@ -4,6 +4,8 @@ import type {
   CollectorInstallOptions,
   CollectorRegistryApi,
   CollectorTarget,
+  EvidenceAssessment,
+  EvidenceGrade,
   ImperativeInvocation,
   OccurrenceAnchor,
   OccurrenceDescriptor,
@@ -34,14 +36,24 @@ interface ImperativeBinding {
   dispose: () => void
 }
 
-const NATIVE_SELECTOR = '[data-i18n-key],[data-collect-i18n-bindings]'
+const SINK_ATTRIBUTE = 'data-collect-i18n-sink'
+const NATIVE_SELECTOR =
+  `[${SINK_ATTRIBUTE}],[data-i18n-key],[data-collect-i18n-bindings]`
 const ELEMENT_PLUS_SELECTORS =
   '.el-message,.el-notification,.el-message-box,.el-message-box__wrapper'
 
 const anchorRank: Record<OccurrenceAnchor['type'], number> = {
   virtual: 0,
-  range: 1,
-  element: 2,
+  owner: 1,
+  range: 2,
+  element: 3,
+}
+
+const DEFAULT_EVIDENCE: Record<OccurrenceAnchor['type'], EvidenceAssessment> = {
+  virtual: { grade: 'C', proof: 'descriptor-only' },
+  owner: { grade: 'C', proof: 'descriptor-only' },
+  range: { grade: 'C', proof: 'text-heuristic' },
+  element: { grade: 'C', proof: 'text-heuristic' },
 }
 
 function now(): number {
@@ -93,19 +105,19 @@ function getRangeRect(range: Range): DOMRect | undefined {
 
 function anchorIsConnected(anchor: OccurrenceAnchor): boolean {
   if (anchor.type === 'virtual') return false
-  if (anchor.type === 'element') return anchor.element.isConnected
+  if (anchor.type === 'element' || anchor.type === 'owner') return anchor.element.isConnected
   return anchor.range.startContainer.isConnected && anchor.range.endContainer.isConnected
 }
 
 function anchorElement(anchor: OccurrenceAnchor): Element | undefined {
-  if (anchor.type === 'element') return anchor.element
+  if (anchor.type === 'element' || anchor.type === 'owner') return anchor.element
   if (anchor.type === 'virtual') return undefined
   const container = anchor.range.startContainer
   return container.nodeType === 1 ? (container as Element) : container.parentElement ?? undefined
 }
 
 function rankAnchor(entry: StoredOccurrence, anchor: OccurrenceAnchor): number {
-  if (entry.descriptor.kind === 'text' && anchor.type === 'range') return 3
+  if (entry.descriptor.kind === 'text' && anchor.type === 'range') return 4
   return anchorRank[anchor.type]
 }
 
@@ -119,15 +131,20 @@ function selectAnchor(entry: StoredOccurrence): OccurrenceAnchor {
     anchors.sort((left, right) => rankAnchor(entry, right) - rankAnchor(entry, left))[0] ?? {
       type: 'virtual',
       reason: 'descriptor-only',
+      evidence: DEFAULT_EVIDENCE.virtual,
     }
   )
 }
 
 function connectedElementOwner(entry: StoredOccurrence): Element | undefined {
   return [...entry.anchors.values()].find(
-    (anchor): anchor is Extract<OccurrenceAnchor, { type: 'element' }> =>
-      anchor.type === 'element' && anchorIsConnected(anchor),
+    (anchor): anchor is Extract<OccurrenceAnchor, { type: 'owner' }> =>
+      anchor.type === 'owner' && anchorIsConnected(anchor),
   )?.element
+}
+
+function gradeRank(grade: EvidenceGrade): number {
+  return grade === 'A' ? 3 : grade === 'B' ? 2 : 1
 }
 
 function rangeIsWithinElement(range: Range, element: Element): boolean {
@@ -170,6 +187,15 @@ function parseBindings(element: Element): OccurrenceDescriptor[] {
       kind: 'native',
     },
   ]
+}
+
+function parseSinkIds(element: Element): string[] {
+  return [...new Set(
+    (element.getAttribute(SINK_ATTRIBUTE) ?? '')
+      .split(/\s+/)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )]
 }
 
 function elementPlusServiceFor(element: Element): string | undefined {
@@ -229,7 +255,12 @@ export class CollectorRegistry implements CollectorRegistryApi {
           characterData: this.#options.observeTeleport,
           attributes: this.#options.scanNativeAttributes,
           attributeFilter: this.#options.scanNativeAttributes
-            ? ['data-i18n-key', 'data-i18n-occurrence', 'data-collect-i18n-bindings']
+            ? [
+                SINK_ATTRIBUTE,
+                'data-i18n-key',
+                'data-i18n-occurrence',
+                'data-collect-i18n-bindings',
+              ]
             : undefined,
         })
       }
@@ -268,7 +299,13 @@ export class CollectorRegistry implements CollectorRegistryApi {
     }
     entry.descriptor = descriptor
     entry.lastSeenAt = timestamp
-    entry.anchors.set(token, registration.anchor ?? { type: 'virtual' })
+    entry.anchors.set(
+      token,
+      registration.anchor ?? {
+        type: 'virtual',
+        evidence: DEFAULT_EVIDENCE.virtual,
+      },
+    )
     this.#entries.set(descriptor.occurrenceId, entry)
     this.#emit(previous ? 'updated' : 'registered', this.#snapshot(entry))
     this.#checkTarget(entry)
@@ -293,16 +330,35 @@ export class CollectorRegistry implements CollectorRegistryApi {
     }
   }
 
-  registerElement(descriptor: OccurrenceDescriptor, element: Element): () => void {
-    return this.register({ ...descriptor, anchor: { type: 'element', element } })
+  registerElement(
+    descriptor: OccurrenceDescriptor,
+    element: Element,
+    evidence: EvidenceAssessment = DEFAULT_EVIDENCE.element,
+  ): () => void {
+    return this.register({ ...descriptor, anchor: { type: 'element', element, evidence } })
   }
 
-  registerRange(descriptor: OccurrenceDescriptor, range: Range): () => void {
-    return this.register({ ...descriptor, anchor: { type: 'range', range } })
+  registerRange(
+    descriptor: OccurrenceDescriptor,
+    range: Range,
+    evidence: EvidenceAssessment = DEFAULT_EVIDENCE.range,
+  ): () => void {
+    return this.register({ ...descriptor, anchor: { type: 'range', range, evidence } })
+  }
+
+  registerOwner(
+    descriptor: OccurrenceDescriptor,
+    element: Element,
+    evidence: EvidenceAssessment = DEFAULT_EVIDENCE.owner,
+  ): () => void {
+    return this.register({ ...descriptor, anchor: { type: 'owner', element, evidence } })
   }
 
   registerVirtual(descriptor: OccurrenceDescriptor, reason = 'descriptor-only'): () => void {
-    return this.register({ ...descriptor, anchor: { type: 'virtual', reason } })
+    return this.register({
+      ...descriptor,
+      anchor: { type: 'virtual', reason, evidence: DEFAULT_EVIDENCE.virtual },
+    })
   }
 
   registerComponentProp(
@@ -310,7 +366,13 @@ export class CollectorRegistry implements CollectorRegistryApi {
     target: Element | (() => Element | null | undefined),
   ): () => void {
     const element = typeof target === 'function' ? target() : target
-    if (element) return this.registerElement({ ...descriptor, kind: 'component-prop' }, element)
+    if (element) {
+      return this.registerOwner(
+        { ...descriptor, kind: 'component-prop' },
+        element,
+        { grade: 'B', proof: 'compiler-component-scope' },
+      )
+    }
     return this.registerVirtual(
       { ...descriptor, kind: 'component-prop' },
       'component root is not mounted',
@@ -381,6 +443,9 @@ export class CollectorRegistry implements CollectorRegistryApi {
       .filter(({ snapshot }) => snapshot.connected)
       .sort((left, right) => {
         if (left.snapshot.visible !== right.snapshot.visible) return left.snapshot.visible ? -1 : 1
+        if (left.snapshot.evidenceGrade !== right.snapshot.evidenceGrade) {
+          return gradeRank(right.snapshot.evidenceGrade) - gradeRank(left.snapshot.evidenceGrade)
+        }
         return right.entry.lastSeenAt - left.entry.lastSeenAt
       })
     const selected = candidates[0]
@@ -495,8 +560,12 @@ export class CollectorRegistry implements CollectorRegistryApi {
     let text: string | undefined
     if (anchor.type === 'element') {
       rect = anchor.element.getBoundingClientRect()
+      const boundAttribute = entry.descriptor.prop
+        ? anchor.element.getAttribute(entry.descriptor.prop)
+        : undefined
       text = normalizeText(
-        anchor.element.textContent ||
+        boundAttribute ||
+          anchor.element.textContent ||
           anchor.element.getAttribute('placeholder') ||
           anchor.element.getAttribute('title') ||
           anchor.element.getAttribute('aria-label'),
@@ -509,6 +578,14 @@ export class CollectorRegistry implements CollectorRegistryApi {
     const view = this.#document.defaultView
     const styledElement = anchorElement(anchor)
     const style = styledElement ? view?.getComputedStyle(styledElement) : undefined
+    const inputLike =
+      styledElement?.tagName === 'INPUT' || styledElement?.tagName === 'TEXTAREA'
+        ? styledElement as HTMLInputElement | HTMLTextAreaElement
+        : undefined
+    const visualNativeValueHidden =
+      (entry.descriptor.prop === 'placeholder' && Boolean(inputLike?.value)) ||
+      (styledElement?.tagName === 'INPUT' &&
+        (styledElement as HTMLInputElement).type.toLowerCase() === 'hidden')
     const viewportWidth = view?.innerWidth ?? this.#document.documentElement.clientWidth
     const viewportHeight = view?.innerHeight ?? this.#document.documentElement.clientHeight
     const intersectsViewport = Boolean(
@@ -524,14 +601,17 @@ export class CollectorRegistry implements CollectorRegistryApi {
         rect.width > 0 &&
         rect.height > 0 &&
         intersectsViewport &&
+        !visualNativeValueHidden &&
         style?.display !== 'none' &&
         style?.visibility !== 'hidden',
     )
     return {
       ...entry.descriptor,
       anchorType: anchor.type,
+      evidenceGrade: anchor.evidence.grade,
+      evidenceProof: anchor.evidence.proof,
       connected,
-      visible,
+      visible: anchor.type === 'owner' ? false : visible,
       text: text ?? entry.descriptor.renderedText,
       rect: rect ? rectToSnapshot(rect) : undefined,
       firstSeenAt: entry.firstSeenAt,
@@ -565,9 +645,28 @@ export class CollectorRegistry implements CollectorRegistryApi {
     if (previous) {
       for (const dispose of previous) dispose()
     }
-    const disposers = parseBindings(element).map((descriptor) =>
-      this.registerElement({ ...descriptor, kind: descriptor.kind ?? 'native' }, element),
-    )
+    const descriptors = new Map<string, OccurrenceDescriptor>()
+    for (const descriptor of parseBindings(element)) {
+      descriptors.set(descriptor.occurrenceId, descriptor)
+    }
+    for (const occurrenceId of parseSinkIds(element)) {
+      const descriptor = this.#entries.get(occurrenceId)?.descriptor
+      if (descriptor) descriptors.set(occurrenceId, descriptor)
+    }
+    const disposers = [...descriptors.values()].map((descriptor) => {
+      if (descriptor.kind === 'native') {
+        return this.registerElement(
+          descriptor,
+          element,
+          { grade: 'A', proof: 'compiler-native-sink' },
+        )
+      }
+      const evidence: EvidenceAssessment =
+        descriptor.component || descriptor.kind === 'component-prop'
+          ? { grade: 'B', proof: 'compiler-component-scope' }
+          : { grade: 'A', proof: 'compiler-text-sink' }
+      return this.registerOwner(descriptor, element, evidence)
+    })
     this.#nativeDisposers.set(element, disposers)
   }
 
@@ -672,6 +771,14 @@ export class CollectorRegistry implements CollectorRegistryApi {
       const useElement = !composite && containerText === text
       const anchorType = useElement ? 'element' : 'range'
       const anchorNode = useElement ? element : range.startContainer
+      const matchingInvocations = this.#pendingInvocations.filter(
+        (pending) =>
+          pending.invocation.descriptor.occurrenceId === descriptor.occurrenceId &&
+          pending.invocation.descriptor.service === descriptor.service,
+      )
+      const evidence: EvidenceAssessment = matchingInvocations.length === 1
+        ? { grade: 'B', proof: 'element-plus-invocation' }
+        : { grade: 'C', proof: 'imperative-text-heuristic' }
       const existing = bindings.get(descriptor.occurrenceId)
       if (
         existing &&
@@ -685,8 +792,8 @@ export class CollectorRegistry implements CollectorRegistryApi {
       }
       existing?.dispose()
       const dispose = useElement
-        ? this.registerElement({ ...descriptor, renderedText: text }, element)
-        : this.registerRange({ ...descriptor, renderedText: text }, range)
+        ? this.registerElement({ ...descriptor, renderedText: text }, element, evidence)
+        : this.registerRange({ ...descriptor, renderedText: text }, range, evidence)
       bindings.set(descriptor.occurrenceId, {
         anchorNode,
         anchorType,
@@ -736,13 +843,27 @@ export class CollectorRegistry implements CollectorRegistryApi {
       // elsewhere in the page. Inspect every registered anchor instead of only
       // `existing`: text ranges intentionally outrank elements in selectAnchor,
       // so an older global fallback may otherwise hide the real owner forever.
-      const textOwner = descriptor.kind === 'text' ? connectedElementOwner(entry) : undefined
+      const compilerOwner = connectedElementOwner(entry)
+      const textOwner = descriptor.kind === 'text' ? compilerOwner : undefined
+      const expectedEvidence: EvidenceAssessment = compilerOwner
+        ? descriptor.component || descriptor.kind === 'component-prop'
+          ? { grade: 'B', proof: 'compiler-component-scope' }
+          : { grade: 'A', proof: 'compiler-text-sink' }
+        : { grade: 'C', proof: 'text-heuristic' }
       const needsTextRange =
         descriptor.kind === 'text' &&
         (existing.type !== 'range' ||
-          Boolean(textOwner && !rangeIsWithinElement(existing.range, textOwner)))
+          Boolean(textOwner && !rangeIsWithinElement(existing.range, textOwner)) ||
+          gradeRank(existing.evidence.grade) < gradeRank(expectedEvidence.grade))
       const needsComponentElement =
-        descriptor.kind === 'component-prop' && existing.type !== 'element'
+        descriptor.kind === 'component-prop' &&
+        (compilerOwner
+          ? existing.type === 'virtual' ||
+            existing.type === 'owner' ||
+            !anchorElement(existing) ||
+            !compilerOwner.contains(anchorElement(existing)!) ||
+            gradeRank(existing.evidence.grade) < gradeRank(expectedEvidence.grade)
+          : existing.type !== 'element')
       if (
         !needsTextRange &&
         !needsComponentElement &&
@@ -754,7 +875,7 @@ export class CollectorRegistry implements CollectorRegistryApi {
 
       const match =
         descriptor.kind === 'component-prop'
-          ? this.#findComponentPropAnchor(descriptor, text)
+          ? this.#findComponentPropAnchor(descriptor, text, compilerOwner)
           : this.#findTextRange(text, textOwner)
       if (!match) {
         if (
@@ -782,15 +903,16 @@ export class CollectorRegistry implements CollectorRegistryApi {
         existing.range.startContainer === match.startContainer &&
         existing.range.startOffset === match.startOffset &&
         existing.range.endContainer === match.endContainer &&
-        existing.range.endOffset === match.endOffset
+        existing.range.endOffset === match.endOffset &&
+        gradeRank(existing.evidence.grade) >= gradeRank(expectedEvidence.grade)
       ) {
         continue
       }
       this.#renderedDisposers.get(descriptor.occurrenceId)?.()
       const dispose =
         match instanceof this.#document.defaultView!.Range
-          ? this.registerRange(descriptor, match)
-          : this.registerElement(descriptor, match)
+          ? this.registerRange(descriptor, match, expectedEvidence)
+          : this.registerElement(descriptor, match, expectedEvidence)
       this.#renderedDisposers.set(descriptor.occurrenceId, dispose)
     }
   }
@@ -798,13 +920,18 @@ export class CollectorRegistry implements CollectorRegistryApi {
   #findComponentPropAnchor(
     descriptor: OccurrenceDescriptor,
     text: string,
+    root?: Element,
   ): Element | Range | undefined {
     const attributes = [descriptor.prop, 'placeholder', 'title', 'aria-label', 'value'].filter(
       (attribute): attribute is string => Boolean(attribute),
     )
     const seen = new Set<Element>()
     for (const attribute of attributes) {
-      for (const element of Array.from(this.#document.querySelectorAll(`[${attribute}]`))) {
+      const elements = [
+        ...(root?.matches(`[${attribute}]`) ? [root] : []),
+        ...Array.from((root ?? this.#document).querySelectorAll(`[${attribute}]`)),
+      ]
+      for (const element of elements) {
         if (seen.has(element)) continue
         seen.add(element)
         if (normalizeText(element.getAttribute(attribute)) === text) return element
@@ -814,16 +941,19 @@ export class CollectorRegistry implements CollectorRegistryApi {
     // as a DOM attribute. Prefer one exact text node before considering
     // substring matches: e.g. the table header "运行状态" must not become
     // ambiguous merely because a page subtitle contains "…及其运行状态".
-    const exactTextRanges = this.#findTextRanges(text, undefined, true)
+    const exactTextRanges = this.#findTextRanges(text, root, true)
     if (exactTextRanges.length > 0) {
       return exactTextRanges.length === 1 ? exactTextRanges[0] : undefined
     }
-    const textRanges = this.#findTextRanges(text)
+    const textRanges = this.#findTextRanges(text, root)
     return textRanges.length === 1 ? textRanges[0] : undefined
   }
 
   #findTextRange(text: string, root?: ParentNode): Range | undefined {
-    if (root) return this.#findTextRanges(text, root)[0]
+    if (root) {
+      const scoped = this.#findTextRanges(text, root)
+      return scoped.length === 1 ? scoped[0] : undefined
+    }
     // Descriptor-only slot text has no compiled owner, so it must be globally
     // unique. Prefer an EXACT text match: substring matching makes a short
     // label ambiguous whenever another node merely contains it (for example a

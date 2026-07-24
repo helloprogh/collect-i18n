@@ -290,6 +290,9 @@ export const EvidenceSchema = z
     keyPath: z.string().min(1),
     occurrenceId: z.string().min(1).optional(),
     screenshotPath: z.string().min(1),
+    screenshotSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    evidenceGrade: z.enum(['A', 'B', 'C']),
+    evidenceProof: z.string().min(1),
     route: z.string().min(1),
     capturedAt: z.string().datetime({ offset: true }),
     viewport: z

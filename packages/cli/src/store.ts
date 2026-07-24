@@ -330,6 +330,10 @@ export class StateStore {
     const duplicateEvidenceCount = Math.max(0, screenshotCount - uniqueScreenshotCount);
     const coveragePercent = counts.total === 0 ? 100 : Number(((counts.captured / counts.total) * 100).toFixed(2));
     const manualPercent = counts.total === 0 ? 0 : Number(((counts.needs_manual / counts.total) * 100).toFixed(2));
+    const automaticProcessed = Math.max(0, counts.total - counts.pending - counts.running);
+    const automaticPercent = counts.total === 0
+      ? 100
+      : Number(((automaticProcessed / counts.total) * 100).toFixed(2));
     return {
       ...session,
       counts,
@@ -340,6 +344,21 @@ export class StateStore {
       manualPercent,
       exportReady: counts.pending === 0 && counts.running === 0,
       current,
+      automatic: {
+        phase: counts.pending > 0 || counts.running > 0 ? "running" : "complete",
+        processed: automaticProcessed,
+        total: counts.total,
+        percent: automaticPercent,
+        captured: counts.captured,
+        deferred: counts.needs_agent + counts.needs_manual,
+        failed: counts.failed,
+        currentKey:
+          current?.status === "running" &&
+          current?.stage === "deterministic" &&
+          typeof current.key_path === "string"
+            ? current.key_path
+            : undefined,
+      },
     };
   }
 
@@ -430,6 +449,15 @@ export class StateStore {
       if (evidence.key !== task.keyPath) {
         throw new Error(`Evidence key ${evidence.key} does not match task key ${task.keyPath}`);
       }
+      const gradeRank = evidence.evidenceGrade === "A" ? 3 : evidence.evidenceGrade === "B" ? 2 : 1;
+      const requiredRank = evidence.source === "deterministic" ? 3 : evidence.source === "agent" ? 2 : 1;
+      if (gradeRank < requiredRank) {
+        throw new Error(
+          `${evidence.source} evidence for ${task.keyPath} requires grade ${
+            evidence.source === "deterministic" ? "A" : evidence.source === "agent" ? "B" : "C"
+          }, received ${evidence.evidenceGrade ?? "C"}`,
+        );
+      }
       const session = this.session(task.sessionId);
       if (!session || session.status !== "running") throw new Error(`会话已结束，不能写入截图证据：${task.sessionId}`);
       this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?)")
@@ -454,7 +482,7 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
-  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string }> {
+  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string }> {
     const rows = this.db.prepare(`
       SELECT k.*, (
         SELECT e.screenshot_path
@@ -462,21 +490,31 @@ export class StateStore {
         WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
         ORDER BY e.captured_at DESC,e.rowid DESC
         LIMIT 1
-      ) screenshot_path
+      ) screenshot_path, (
+        SELECT e.data_json
+        FROM evidence e
+        WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
+        ORDER BY e.captured_at DESC,e.rowid DESC
+        LIMIT 1
+      ) evidence_json
       FROM session_locale_keys k
       JOIN tasks t ON t.session_id=k.session_id AND t.key_path=k.key_path
       WHERE k.session_id=?
       ORDER BY k.key_path
     `).all(sessionId) as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      keyPath: row.key_path as string,
-      chinese: row.chinese as string,
-      english: row.english as string | undefined,
-      relativeFile: row.relative_file as string,
-      targetFile: join(resolve(englishRoot), row.relative_file as string),
-      jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),
-      screenshotPath: row.screenshot_path as string | undefined,
-    }));
+    return rows.map((row) => {
+      const evidence = parseJson<{ screenshotSha256?: string }>(row.evidence_json, {});
+      return {
+        keyPath: row.key_path as string,
+        chinese: row.chinese as string,
+        english: row.english as string | undefined,
+        relativeFile: row.relative_file as string,
+        targetFile: join(resolve(englishRoot), row.relative_file as string),
+        jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),
+        screenshotPath: row.screenshot_path as string | undefined,
+        screenshotSha256: evidence.screenshotSha256,
+      };
+    });
   }
 
   taskByKey(sessionId: string, keyPath: string): StoredTask | undefined {

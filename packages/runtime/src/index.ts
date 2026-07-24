@@ -2,12 +2,24 @@ import { CollectorRegistry } from './registry.js'
 import type {
   CollectorInstallOptions,
   CollectorRegistryApi,
+  EvidenceAssessment,
   OccurrenceDescriptor,
 } from './types.js'
 
 export * from './element-plus.js'
 export * from './registry.js'
 export * from './types.js'
+
+interface ActiveImperativeInvocation {
+  invocationId: string
+  service: string
+  occurrenceIds: Set<string>
+  registered: Set<string>
+  invokedAt: number
+}
+
+let activeImperativeInvocation: ActiveImperativeInvocation | undefined
+let imperativeInvocationSequence = 0
 
 export function installGlobalCollector(options: CollectorInstallOptions = {}): CollectorRegistryApi {
   const targetWindow = options.document?.defaultView ?? globalThis.window
@@ -52,14 +64,70 @@ export function enqueueDescriptors(descriptors: OccurrenceDescriptor[]): void {
  */
 export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey?: string): T {
   if (typeof window === 'undefined') return value
-  window.__COLLECT_I18N__?.recordRenderedValue(occurrenceId, value, actualKey)
+  const registry = window.__COLLECT_I18N__
+  registry?.recordRenderedValue(occurrenceId, value, actualKey)
+  const invocation = activeImperativeInvocation
+  if (
+    registry &&
+    invocation?.occurrenceIds.has(occurrenceId) &&
+    !invocation.registered.has(occurrenceId)
+  ) {
+    const snapshot = registry.getOccurrence(occurrenceId)
+    if (snapshot) {
+      invocation.registered.add(occurrenceId)
+      registry.registerImperativeInvocation({
+        invocationId: invocation.invocationId,
+        descriptor: {
+          ...snapshot,
+          kind: 'imperative-service',
+          service: invocation.service,
+          metadata: {
+            ...snapshot.metadata,
+            invocationId: invocation.invocationId,
+          },
+        },
+        text:
+          typeof value === 'string' || typeof value === 'number'
+            ? String(value)
+            : undefined,
+        invokedAt: invocation.invokedAt,
+      })
+    }
+  }
   return value
+}
+
+/**
+ * Establish an invocation identity before Element Plus evaluates translated
+ * arguments. The wrapped call remains synchronous and receives/returns the
+ * exact same values as the original expression.
+ */
+export function runImperativeInvocation<T>(
+  service: string,
+  occurrenceIds: string[],
+  invoke: () => T,
+): T {
+  if (typeof window === 'undefined') return invoke()
+  const previous = activeImperativeInvocation
+  activeImperativeInvocation = {
+    invocationId: `invocation:${service}:${Date.now()}:${++imperativeInvocationSequence}`,
+    service,
+    occurrenceIds: new Set(occurrenceIds),
+    registered: new Set(),
+    invokedAt: Date.now(),
+  }
+  try {
+    return invoke()
+  } finally {
+    activeImperativeInvocation = previous
+  }
 }
 
 export function registerTextRange(
   descriptor: OccurrenceDescriptor,
   start: Node,
   end: Node = start,
+  evidence: EvidenceAssessment = { grade: 'A', proof: 'compiler-text-sink' },
 ): () => void {
   if (typeof window === 'undefined') return () => undefined
   const registry = window.__COLLECT_I18N__ ?? installGlobalCollector()
@@ -68,5 +136,5 @@ export function registerTextRange(
   else range.setStartBefore(start)
   if (end.nodeType === 3) range.setEnd(end, end.nodeValue?.length ?? 0)
   else range.setEndAfter(end)
-  return registry.registerRange({ ...descriptor, kind: 'text' }, range)
+  return registry.registerRange({ ...descriptor, kind: 'text' }, range, evidence)
 }
