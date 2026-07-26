@@ -1,0 +1,128 @@
+{
+  "title": "订单中心",
+  "subtitle": "按条件检索订单，查看明细并执行行级操作",
+  "searchPlaceholder": "输入订单号或客户名称",
+  "searchBtn": "搜索",
+  "resetBtn": "重置",
+  "emptyHint": "请输入查询条件后点击搜索",
+  "columns": {
+    "orderNo": "订单号",
+    "customer": "客户",
+    "status": "状态",
+    "amount": "金额",
+    "actions": "操作"
+  },
+  "toolbar": {
+    "refresh": "刷新",
+    "export": "导出",
+    "columnSettings": "列设置",
+    "simulateError": "模拟服务异常"
+  },
+  "filters": {
+    "title": "筛选条件",
+    "status": {
+      "label": "订单状态",
+      "placeholder": "全部状态",
+      "pending": "待支付",
+      "paid": "已支付",
+      "shipped": "已发货",
+      "cancelled": "已取消",
+      "refunded": "已退款",
+      "completed": "已完成"
+    },
+    "customerLevel": {
+      "label": "客户等级",
+      "placeholder": "全部等级",
+      "vip": "VIP",
+      "normal": "普通",
+      "new": "新客"
+    },
+    "dateRange": {
+      "label": "下单时间",
+      "start": "开始日期",
+      "end": "结束日期"
+    },
+    "minAmount": {
+      "label": "最低金额",
+      "placeholder": "例如 100.00"
+    },
+    "apply": "应用筛选",
+    "clear": "清除筛选"
+  },
+  "states": {
+    "loading": "订单查询中…",
+    "loadFailed": "订单加载失败，请稍后重试",
+    "retry": "重新加载",
+    "noResults": "没有符合条件的订单",
+    "success": "订单加载成功",
+    "quotaExceeded": "查询过于频繁，请稍后再试"
+  },
+  "pagination": {
+    "total": "共 {count} 条",
+    "pageSize": "每页 {size} 条",
+    "first": "首页",
+    "prev": "上一页",
+    "next": "下一页",
+    "last": "末页"
+  },
+  "actions": {
+    "viewDetail": "查看明细",
+    "reprint": "补打小票",
+    "cancel": "取消订单",
+    "export": "导出"
+  },
+  "detail": {
+    "title": "订单明细",
+    "orderNo": "订单号",
+    "customer": "客户",
+    "contact": "联系方式",
+    "status": "状态",
+    "amount": "订单金额",
+    "paymentMethod": "支付方式",
+    "createdAt": "下单时间",
+    "paidAt": "支付时间",
+    "shippedAt": "发货时间",
+    "address": "收货地址",
+    "remark": "备注",
+    "items": {
+      "title": "商品明细",
+      "product": "商品",
+      "quantity": "数量",
+      "price": "单价",
+      "subtotal": "小计"
+    },
+    "timeline": {
+      "title": "订单进度",
+      "created": "已创建",
+      "paid": "已支付",
+      "shipped": "已发货",
+      "delivered": "已送达"
+    },
+    "close": "关闭"
+  },
+  "cancelDialog": {
+    "title": "取消订单",
+    "message": "取消后订单将无法恢复，是否继续？",
+    "confirm": "确认取消",
+    "cancel": "再想想",
+    "success": "订单已取消",
+    "failed": "取消失败，请重试"
+  },
+  "export": {
+    "success": "订单已导出",
+    "failed": "导出失败，请稍后重试"
+  },
+  "reprint": {
+    "success": "小票已重新打印",
+    "failed": "打印失败，请检查设备"
+  },
+  "batch": {
+    "selected": "已选择 {count} 项"
+  },
+  "aria": {
+    "refresh": "刷新订单列表",
+    "filterToggle": "展开或收起筛选条件",
+    "closeDrawer": "关闭订单明细",
+    "rowActions": "行操作菜单"
+  }
+}

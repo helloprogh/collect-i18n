@@ -1,0 +1,102 @@
+{
+  "title": "消息通知",
+  "subtitle": "在常见业务状态下预览页面消息、通知与确认提示",
+  "sections": {
+    "messages": "页面消息",
+    "notifications": "桌面通知",
+    "confirmations": "确认操作"
+  },
+  "messages": {
+    "success": {
+      "label": "成功消息",
+      "text": "保存成功"
+    },
+    "warning": {
+      "label": "警告消息",
+      "text": "请检查未填写的必填项"
+    },
+    "error": {
+      "label": "错误消息",
+      "text": "操作失败，请稍后重试"
+    },
+    "info": {
+      "label": "提示消息",
+      "text": "已为您切换到新版本"
+    },
+    "plain": {
+      "label": "纯文本消息",
+      "text": "这是一条普通消息"
+    },
+    "duration": {
+      "label": "显示时长（毫秒）",
+      "placeholder": "默认 3000"
+    },
+    "closable": "可手动关闭",
+    "send": "发送消息",
+    "clear": "清除消息"
+  },
+  "notifications": {
+    "success": {
+      "label": "成功通知",
+      "title": "同步完成",
+      "text": "本次共同步 128 条记录"
+    },
+    "warning": {
+      "label": "警告通知",
+      "title": "存储空间不足",
+      "text": "剩余空间低于 10%，请尽快清理"
+    },
+    "error": {
+      "label": "错误通知",
+      "title": "同步失败",
+      "text": "远端服务无响应，已自动重试 3 次"
+    },
+    "info": {
+      "label": "信息通知",
+      "title": "版本更新",
+      "text": "新版本 v0.2.3 已发布"
+    },
+    "plain": {
+      "label": "普通通知",
+      "title": "系统公告",
+      "text": "今日 02:00-04:00 进行例行维护"
+    },
+    "position": {
+      "label": "弹出位置",
+      "topRight": "右上",
+      "bottomRight": "右下",
+      "topLeft": "左上",
+      "bottomLeft": "左下"
+    },
+    "send": "发送通知"
+  },
+  "confirmations": {
+    "confirm": {
+      "label": "确认对话框",
+      "title": "确认提交",
+      "message": "提交后将无法撤回，是否继续？",
+      "confirm": "确定",
+      "cancel": "取消"
+    },
+    "alert": {
+      "label": "警示框",
+      "title": "权限不足",
+      "message": "当前账户无权执行此操作",
+      "confirm": "知道了"
+    },
+    "prompt": {
+      "label": "输入框",
+      "title": "请输入驳回原因",
+      "placeholder": "请输入原因",
+      "confirm": "提交",
+      "cancel": "取消",
+      "validation": "原因不能为空"
+    },
+    "result": {
+      "confirmed": "您选择了确认",
+      "cancelled": "您选择了取消",
+      "entered": "您输入了：{value}"
+    },
+    "trigger": "触发确认框"
+  }
+}

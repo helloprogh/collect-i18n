@@ -82,6 +82,8 @@ collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 
 命令自动检查环境，在缺少配置时初始化，否则刷新索引；随后启动或复用采集服务、等待确定性队列结束并导出首版四列 Excel。非 JSON 模式会在等待期间持续向标准错误输出自动处理进度，包括当前 Key、已处理数、可信截图数、转交数和失败数；JSON 标准输出仍保持单一稳定结果。最终返回 `sessionId`、`studioUrl`、`appUrl`、`deadlineAt`、`nextAction`、状态和工作簿结果。人工项不会阻止导出，未取证词条的截图单元格保持为空。
 
+确定性队列会直接接受 A 级 Host DOM 证据。可靠路由上的 B 级 Vue 组件证据会先在隔离页面执行一次无副作用 Canary；只有目标 occurrence 随 Canary 精确变化后才提升为 A 级并截图。Canary 失败只会把任务转交 Agent，不会使用相似文本生成证据。
+
 ### `start`
 
 ```text
@@ -166,6 +168,20 @@ collect-i18n agent execute --session <session-id> --task <task-id> --plan-file <
 
 默认执行已提交的计划，也可临时提供计划文件。执行期间 CLI 独占项目浏览器。首次失败保留在 Agent 队列供一次基于证据的修正；再次失败进入人工队列。
 
+### `finalize`
+
+```text
+collect-i18n finalize --session <session-id>
+```
+
+只能在 `pending` 与 `running` 都归零后执行。命令收拢仍为 `needs_agent` 的任务：
+
+- 没有任何源码 occurrence 的词条记为 `skipped`，原因是 `no_source_occurrence`；
+- occurrence 全部是 `aria-*` 或原生元素 `title` 的非可视词条记为 `skipped`，原因是 `non_visual_source_only`；
+- 其余词条进入 `needs_manual`，原因是 `assisted_manual_fallback`。
+
+返回 `settled` 数量、三类 Key Path 清单和最新 `status`。该命令不创建截图，不把任务状态写入 Excel，也不会改变已经进入人工队列的任务。
+
 ## 人工兜底
 
 ```text
@@ -210,7 +226,7 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
 ```json
 {
   "version": 1,
-  "projectRoot": "D:/ProjectSpace/example",
+  "projectRoot": "<absolute-project-root>",
   "stateDirectory": ".collect-i18n",
   "source": {
     "include": ["src/**/*.{vue,ts,tsx,js,jsx}"],
@@ -224,7 +240,7 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
   "app": {
     "baseUrl": "http://127.0.0.1:5173",
     "devCommand": "pnpm dev",
-    "workingDirectory": "D:/ProjectSpace/example",
+    "workingDirectory": "<absolute-project-root>",
     "healthPath": "/"
   },
   "browser": {

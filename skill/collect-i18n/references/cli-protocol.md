@@ -29,6 +29,7 @@ Failed output is written to stderr and has `ok: false`, `error.code`, `error.mes
 <CLI> run --output <absolute-xlsx> --deadline-minutes 120
 <CLI> start --background
 <CLI> status --session <session-id>
+<CLI> finalize --session <session-id>
 <CLI> stop
 ```
 
@@ -61,6 +62,22 @@ Status counts are authoritative:
 `agent next` returns `done`, `task`, and current status. The task contains only bounded facts: key path, Chinese text, locale file, source occurrences, route/action hints, attempts, saved plan, and last error.
 
 `agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected.
+
+The queue prioritizes retryable tasks, source-evidenced actions, imperative services, and reliable routes. After a successful plan, `additionalEvidence` lists other visible A/B-grade keys captured from the same browser state. Treat those keys as complete and continue with a fresh `agent next`; do not replay the same interaction once per key.
+
+## Finalization
+
+```text
+<CLI> finalize --session <id>
+```
+
+Run only after `pending` and `running` are both zero, and after Agent processing is exhausted or the deadline is reached. The command settles remaining `needs_agent` tasks without creating evidence:
+
+- `skippedNoSource`: locale keys with no source occurrence (`no_source_occurrence`);
+- `skippedNonVisual`: keys whose occurrences are all `aria-*` or native-element `title` properties (`non_visual_source_only`);
+- `needsManual`: every other unresolved key (`assisted_manual_fallback`).
+
+The result contains `settled`, the exact `keys` in each category, and the latest `status`. These classifications remain in SQLite/events only. Do not add status columns, notes, colors, or placeholders to the workbook.
 
 ## Assisted manual queue
 

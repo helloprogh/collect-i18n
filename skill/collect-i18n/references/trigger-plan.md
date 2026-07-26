@@ -32,10 +32,12 @@ Use exactly one supported locator:
 { "kind": "label", "value": "用户名", "exact": true }
 { "kind": "text", "value": "高级设置", "exact": true }
 { "kind": "testId", "value": "save-user" }
+{ "kind": "testId", "value": "delete-row", "index": 0 }
 { "kind": "css", "value": "form.user-create button[type=submit]" }
 ```
 
 Prefer role, label, and testId. Use CSS only when source evidence makes it stable. Never select by generated Element Plus class suffix or DOM index if a semantic locator exists.
+Use zero-based `index` only when the source proves that the same stable locator is intentionally repeated (for example a `v-for` row action). Prefer a row-specific accessible name when one exists; otherwise select the smallest deterministic repeated instance needed by the source-defined scenario.
 
 ## Steps
 
@@ -48,6 +50,8 @@ Prefer role, label, and testId. Use CSS only when source evidence makes it stabl
 - `wait`: `milliseconds`, maximum 5000.
 - `waitForKey`: target key and optional timeout, maximum 60000.
 - `waitForText`: exact visible-source text hint and optional timeout.
+
+The engine may replay a read-only plan (`goto`, `reload`, `hover`, and bounded waits) in an isolated page to causally verify B-grade component evidence. Plans containing `click`, `fill`, `press`, or `select` are not replayed for this probe, so business side effects are never duplicated by Canary verification.
 - `reload`: no additional fields.
 
 A plan has at most 40 steps. Keep it short and end with `waitForKey` for the task target.
@@ -79,5 +83,7 @@ Do not invent UI copy in the mock. Use response shape/value evidence from the pr
 - Dropdown option / custom select: open the source-identified select, then `select` the option by its visible label (or click the option by role/text) and wait for the target key.
 - Element Plus message/notification: perform the source-identified command; runtime service binding and document observer locate the Teleport node.
 - HTTP error: install the smallest matching mock, perform the request action, wait for the error key.
+
+Prefer a source-proven state transition that reveals several related pending keys at once. The service captures other visible A/B-grade keys after the target succeeds, including custom Vue component props, fragment/slot/Teleport host text, and Element Plus service text. A TriggerPlan still has exactly one `targetKey`; never add extra actions solely to expose unrelated pages.
 
 Never add a page or phrase to the project to make these patterns succeed.

@@ -2,8 +2,32 @@
   "product": "GDE 管理控制台",
   "title": "数据同步中心",
   "switchLocale": "切换为英文",
+  "localeLabel": "语言",
   "nav": {
-    "createJob": "新建任务",
-    "jobs": "同步任务"
+    "onboarding": "用户入驻",
+    "orders": "订单中心",
+    "permissions": "权限管理",
+    "notifications": "消息通知",
+    "settings": "系统设置",
+    "requestLab": "API 调试台",
+    "diagnostics": "运行诊断"
+  },
+  "userMenu": {
+    "label": "账户",
+    "profile": "个人资料",
+    "settings": "偏好设置",
+    "logout": "退出登录"
+  },
+  "theme": {
+    "toggle": "切换主题",
+    "light": "浅色",
+    "dark": "深色"
+  },
+  "help": {
+    "tooltip": "查看帮助文档"
+  },
+  "footer": {
+    "copyright": "© 2026 GDE 数据同步中心",
+    "version": "控制台版本 3.8.0"
   }
 }

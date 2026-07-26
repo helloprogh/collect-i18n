@@ -25,6 +25,33 @@ export interface StoredTask {
   plan?: unknown;
 }
 
+export function agentTaskPriority(task: StoredTask): number {
+  const actionableHints = task.actionHints.filter(
+    (hint) => typeof hint === "object" && hint !== null,
+  ).length;
+  const reliableRoutes = task.routeHints.filter(
+    (hint) =>
+      typeof hint === "object" &&
+      hint !== null &&
+      "confidence" in hint &&
+      Number((hint as { confidence?: unknown }).confidence) >= 0.8,
+  ).length;
+  const imperativeOccurrences = task.occurrences.filter(
+    (occurrence) =>
+      typeof occurrence === "object" &&
+      occurrence !== null &&
+      "kind" in occurrence &&
+      String((occurrence as { kind?: unknown }).kind) === "imperative_service",
+  ).length;
+  return (
+    (task.attempts > 0 ? 100_000 : 0) +
+    Math.min(actionableHints, 5) * 2_000 +
+    Math.min(imperativeOccurrences, 2) * 800 +
+    Math.min(reliableRoutes, 2) * 300 +
+    (task.occurrences.length > 0 ? 200 : -500)
+  );
+}
+
 export interface TaskPage {
   items: StoredTask[];
   nextAfterKey: string | null;
@@ -44,6 +71,12 @@ export interface EventPage {
   items: StoredEvent[];
   nextAfter: number;
   hasMore: boolean;
+}
+
+export interface FinalizeUnresolvedResult {
+  skippedNoSource: string[];
+  skippedNonVisual: string[];
+  needsManual: string[];
 }
 
 function stableId(prefix: string, value: string): string {
@@ -383,6 +416,12 @@ export class StateStore {
     return row ? this.hydrateTask(row) : undefined;
   }
 
+  nextAgentTask(sessionId: string): StoredTask | undefined {
+    return this.listTasks(sessionId, ["needs_agent"], 2_000)
+      .map((task, index) => ({ task, index, priority: agentTaskPriority(task) }))
+      .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
+  }
+
   private hydrateTask(row: Record<string, unknown>): StoredTask {
     const occurrences = (this.db.prepare("SELECT data_json FROM occurrences WHERE project_id=? AND key_path=?").all(row.project_id as string, row.key_path as string) as Array<{ data_json: string }>).map((item) => parseJson<Record<string, unknown>>(item.data_json, {}));
     const routeHints = occurrences.flatMap((item) => Array.isArray(item.routeHints) ? item.routeHints : []);
@@ -439,6 +478,71 @@ export class StateStore {
       .run(status, error ?? null, new Date().toISOString(), taskId);
     const task = this.task(taskId);
     if (task) this.addEvent(task.sessionId, `task.${status}`, { taskId, keyPath: task.keyPath, error, stage: task.stage, origin: task.stage });
+  }
+
+  finalizeUnresolved(sessionId: string): FinalizeUnresolvedResult {
+    const status = this.status(sessionId);
+    const counts = status.counts as Record<string, number>;
+    if (Number(counts.pending ?? 0) > 0 || Number(counts.running ?? 0) > 0) {
+      throw new Error("自动或 Agent 任务仍在运行，不能执行 finalize");
+    }
+
+    const unresolved: StoredTask[] = [];
+    let afterKey: string | undefined;
+    for (;;) {
+      const page = this.taskPage(sessionId, ["needs_agent"], afterKey, 500);
+      unresolved.push(...page.items);
+      if (!page.hasMore) break;
+      afterKey = page.nextAfterKey ?? undefined;
+    }
+    const result: FinalizeUnresolvedResult = {
+      skippedNoSource: [],
+      skippedNonVisual: [],
+      needsManual: [],
+    };
+    const isNonVisualOccurrence = (occurrence: unknown): boolean => {
+      if (typeof occurrence !== "object" || occurrence === null) return false;
+      const item = occurrence as { property?: unknown; component?: unknown };
+      const property = typeof item.property === "string" ? item.property.toLowerCase() : "";
+      if (property.startsWith("aria-")) return true;
+      return property === "title" && !item.component;
+    };
+
+    this.transaction(() => {
+      const update = this.db.prepare(
+        "UPDATE tasks SET status=?,stage=?,last_error=NULL,updated_at=? WHERE id=? AND status='needs_agent'",
+      );
+      for (const task of unresolved) {
+        const noSource = task.occurrences.length === 0;
+        const nonVisualOnly =
+          !noSource && task.occurrences.every((occurrence) => isNonVisualOccurrence(occurrence));
+        const nextStatus: TaskStatus = noSource || nonVisualOnly ? "skipped" : "needs_manual";
+        const nextStage = nextStatus === "needs_manual" ? "manual" : task.stage;
+        const reason = noSource
+          ? "no_source_occurrence"
+          : nonVisualOnly
+            ? "non_visual_source_only"
+            : "assisted_manual_fallback";
+        const changed = update.run(
+          nextStatus,
+          nextStage,
+          new Date().toISOString(),
+          task.id,
+        );
+        if (Number(changed.changes) !== 1) continue;
+        if (reason === "no_source_occurrence") result.skippedNoSource.push(task.keyPath);
+        else if (reason === "non_visual_source_only") result.skippedNonVisual.push(task.keyPath);
+        else result.needsManual.push(task.keyPath);
+        this.addEvent(sessionId, `task.${nextStatus}`, {
+          taskId: task.id,
+          keyPath: task.keyPath,
+          stage: nextStage,
+          origin: "system",
+          reason,
+        });
+      }
+    });
+    return result;
   }
 
   addEvidence(taskId: string, evidence: CollectedEvidence): string {

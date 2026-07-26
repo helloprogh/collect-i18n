@@ -20,6 +20,78 @@ async function eventually(assertion: () => void): Promise<void> {
 }
 
 describe("collector scheduling", () => {
+  it("captures other mounted A/B tasks after one Agent state transition", async () => {
+    const added: string[] = [];
+    const tasks = [
+      { id: "task_a", keyPath: "dialog.title" },
+      { id: "task_b", keyPath: "dialog.confirm" },
+      { id: "task_c", keyPath: "dialog.heuristic" },
+    ];
+    const fakeStore = {
+      listTasks: () => tasks,
+      addEvidence: (taskId: string) => {
+        added.push(taskId);
+        return `evidence_${taskId}`;
+      },
+    };
+    const rect = { x: 10, y: 10, width: 100, height: 24 };
+    const fakeCollector = {
+      inspectRuntime: async () => ({
+        url: "http://127.0.0.1:5173/dialog",
+        collectorInstalled: true,
+        markedElements: 2,
+        pendingDescriptors: 0,
+        snapshots: [
+          { key: "dialog.title", evidenceGrade: "A" as const, connected: true, rect },
+          { key: "dialog.confirm", evidenceGrade: "B" as const, connected: true, rect },
+          { key: "dialog.heuristic", evidenceGrade: "C" as const, connected: true, rect },
+        ],
+      }),
+      waitForKey: async (key: string) => ({
+        key,
+        evidenceGrade: key === "dialog.title" ? "A" as const : "B" as const,
+        evidenceProof: "compiler-vnode-provenance",
+        text: key,
+        route: "http://127.0.0.1:5173/dialog",
+        rect,
+      }),
+      capture: async (target: RuntimeTargetSnapshot): Promise<CollectedEvidence> => ({
+        ...target,
+        screenshotPath: `D:/evidence/${target.key}.png`,
+        screenshotSha256: "0".repeat(64),
+        capturedAt: new Date().toISOString(),
+        source: "agent",
+      }),
+    };
+    const config = {
+      version: 1,
+      projectRoot: "D:/project",
+      stateDirectory: ".collect-i18n",
+      source: { include: [], exclude: [] },
+      locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
+      app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
+      browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
+      instrumentation: { enabled: true, devOnly: true },
+    } as ProjectConfig;
+    const service = new LocalService({ config, sessionId: "session_test", capability: "c".repeat(43) });
+    const internals = service as unknown as {
+      store: typeof fakeStore;
+      collector: () => Promise<typeof fakeCollector>;
+      captureVisibleBatch: (
+        sessionId: string,
+        primaryKey: string,
+        source: "agent" | "manual",
+      ) => Promise<Array<{ keyPath: string }>>;
+    };
+    internals.store = fakeStore;
+    internals.collector = async () => fakeCollector;
+
+    const result = await internals.captureVisibleBatch("session_test", "primary.key", "agent");
+
+    expect(result.map((item) => item.keyPath)).toEqual(["dialog.title", "dialog.confirm"]);
+    expect(added).toEqual(["task_a", "task_b"]);
+  });
+
   it("isolates manual listener generations and records only the current target", async () => {
     const first = deferred<RuntimeTargetSnapshot>();
     const second = deferred<RuntimeTargetSnapshot>();

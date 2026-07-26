@@ -11,6 +11,9 @@ export type EvidenceProof =
   | 'compiler-native-sink'
   | 'compiler-text-sink'
   | 'compiler-component-scope'
+  | 'compiler-vnode-provenance'
+  | 'compiler-inline-transport'
+  | 'causal-canary'
   | 'element-plus-invocation'
   | 'imperative-text-heuristic'
   | 'text-heuristic'
@@ -168,6 +171,7 @@ export interface CollectorRegistryApi {
   focus(target: CollectorTarget): OccurrenceSnapshot | undefined
   waitForTarget(target: CollectorTarget, options?: WaitForTargetOptions): Promise<OccurrenceSnapshot>
   getOccurrence(occurrenceId: string): OccurrenceSnapshot | undefined
+  getDerivedOccurrences(occurrenceId: string): OccurrenceSnapshot[]
   getSnapshot(): OccurrenceSnapshot[]
   eventsSince(sequence?: number): CollectorEvent[]
   subscribe(listener: CollectorEventListener): () => void

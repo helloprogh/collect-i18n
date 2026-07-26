@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.2.2`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.0`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -17,12 +17,16 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 扫描 Vue、TypeScript 和 JavaScript 源码，关联 Key Path、源码位置、路由与动作提示。
 - 启动目标项目自身的 Vite，并在内存中追加开发态采集插件，不修改业务源码或 Vite 配置。
 - 覆盖普通 DOM、文本节点、组件属性、表单校验、Dialog、Drawer、Teleport、`ElMessage`、Notification 等场景。
+- 通过 Vue VNode 生命周期把组件 occurrence 绑定到真实 Host roots，不依赖组件的属性透传，可处理多根节点、slots、`inheritAttrs: false` 与 Teleport。
 - 使用受限 TriggerPlan 执行路由、点击、填写、选择、按键、等待和请求 Mock。
 - 自动校验截图与目标 Key Path 的运行时绑定，避免图片与词条错配。
-- 编译期只向 DOM 写入不透明 sink ID；Key Path 保留在本地 Registry、SQLite 和 Excel 中，不注入页面文本或 DOM 属性。
+- 原生 DOM 仅写入不透明 sink ID，Vue 组件使用保留的 VNode 钩子；Key Path 保留在本地 Registry、SQLite 和 Excel 中，不注入页面文本或 DOM 属性。
 - 运行时按 A/B/C 证据分级：确定性队列只接受 A 级，Agent 只接受 A/B 级，纯文本猜测不能自动写入证据。
+- 安全的 B 级组件证据会在隔离页面执行一次性 Canary 因果验证，通过后提升为 A 级；有副作用的动作不会被自动重放。
 - 自动处理期间，命令行和工作台持续显示已处理数、可信截图数、转交数、失败数和当前 Key。
+- 一次 Agent 或人工操作建立业务状态后，会批量采集该状态中已挂载的其他 A/B 级词条；每个词条仍单独重新定位、标记和截图。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
+- Agent 队列结束后会进行可审计定案：源码无引用或仅用于 `aria-*` / 原生 `title` 的非可视词条明确留空，其余未解决词条进入人工辅助，不伪造截图。
 - 人工只需完成正常业务操作。目标 key 出现后，工具自动高亮、截图并保存证据。
 - 随时导出进度 Excel；没有截图的词条保留空白截图单元格，不阻塞翻译任务交付。
 - 支持翻译回稿校验，并按 Key Path 安全写回 `en-us` JSON。
@@ -37,6 +41,8 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 真实页面中的确定性路由与运行时截图
           ↓
 Skill 驱动 Agent 处理剩余交互任务
+          ↓
+对无源码/仅非可视词条做可审计定案
           ↓
 人工辅助完成最后少量复杂业务操作
           ↓
@@ -57,7 +63,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.2.2.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.0.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -115,6 +121,16 @@ agent next → agent submit → agent execute
 ```
 
 每个任务最多执行两次 Agent 计划。两次失败后任务进入 `needs_manual`，不能再由 Agent 强行重开。
+
+Agent 队列为空后，Skill 执行：
+
+```text
+finalize --session <session-id>
+```
+
+该步骤只把“语言包存在但源码无引用”以及“源码中仅用于 `aria-*` 或原生
+`title` 的非可视内容”记为 `skipped`，并在事件中保存原因；其余未取证词条统一
+进入 `needs_manual`。它只改变任务分类，不生成截图，也不会把内部状态写入 Excel。
 
 ## 人工辅助
 
@@ -177,6 +193,7 @@ status
 agent next
 agent submit
 agent execute
+finalize
 manual open
 export
 import
@@ -286,4 +303,4 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
-- [v0.2.2 发布说明](docs/release-notes-v0.2.2.md)
+- [v0.3.0 发布说明](docs/release-notes-v0.3.0.md)

@@ -1,8 +1,8 @@
-# Vue I18n Translation Lab
+# GDE Data Operations Console
 
-Versioned, runnable benchmark application for Collect I18n. It contains 601 locale keys across ordinary navigation, forms, validation, component props, dialogs, teleported messages, request success/error states, loading, empty states, and route-dependent screens.
+A Vue 3 administration console for user onboarding, order processing, access control, notifications, system settings, API diagnostics, and runtime operations.
 
-The application contains no expected screenshots, target selectors, scoring labels, or collector-specific fixtures. Evaluation expectations belong outside this directory so an installed Skill sees the same project a user would.
+The application uses Vite, Axios, Element Plus, Vue Router, and Vue I18n. Locale files are organized by business page under `src/locales/zh-cn` and `src/locales/en-us`; adding a JSON file requires no central import update. Requests use a deterministic local Axios adapter, so development does not depend on external services.
 
 ```powershell
 pnpm install --frozen-lockfile

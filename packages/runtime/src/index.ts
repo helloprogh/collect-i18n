@@ -1,4 +1,8 @@
-import { CollectorRegistry } from './registry.js'
+import {
+  appendInlineProvenance,
+  CollectorRegistry,
+  createDerivedOccurrenceId,
+} from './registry.js'
 import type {
   CollectorInstallOptions,
   CollectorRegistryApi,
@@ -20,6 +24,139 @@ interface ActiveImperativeInvocation {
 
 let activeImperativeInvocation: ActiveImperativeInvocation | undefined
 let imperativeInvocationSequence = 0
+const vnodeScopeDisposers = new WeakMap<object, Array<() => void>>()
+export const CAUSAL_PROBE_STORAGE_KEY = '__collect_i18n_causal_probe_v1'
+
+interface CausalProbe {
+  occurrenceId: string
+  token: string
+}
+
+interface RuntimeVNode {
+  el?: unknown
+  anchor?: unknown
+  children?: unknown
+  component?: {
+    subTree?: unknown
+  } | null
+  suspense?: {
+    activeBranch?: unknown
+    pendingBranch?: unknown
+  } | null
+}
+
+function isRuntimeVNode(value: unknown): value is RuntimeVNode {
+  return typeof value === 'object' && value !== null
+}
+
+function vnodeScopeIdentity(vnode: RuntimeVNode): object {
+  if (vnode.component && typeof vnode.component === 'object') return vnode.component
+  if (typeof Node !== 'undefined' && vnode.el instanceof Node) return vnode.el
+  return vnode
+}
+
+function collectVNodeHostRoots(
+  value: unknown,
+  roots: Set<Element>,
+  visited: Set<object>,
+): void {
+  if (Array.isArray(value)) {
+    for (const child of value) collectVNodeHostRoots(child, roots, visited)
+    return
+  }
+  if (!isRuntimeVNode(value) || visited.has(value)) return
+  visited.add(value)
+
+  if (value.component?.subTree) {
+    collectVNodeHostRoots(value.component.subTree, roots, visited)
+    return
+  }
+  if (value.suspense?.activeBranch || value.suspense?.pendingBranch) {
+    collectVNodeHostRoots(
+      value.suspense.activeBranch ?? value.suspense.pendingBranch,
+      roots,
+      visited,
+    )
+    return
+  }
+  if (typeof Element !== 'undefined' && value.el instanceof Element) {
+    roots.add(value.el)
+    return
+  }
+  collectVNodeHostRoots(value.children, roots, visited)
+}
+
+function disposeVNodeScope(identity: object): void {
+  for (const dispose of vnodeScopeDisposers.get(identity) ?? []) dispose()
+  vnodeScopeDisposers.delete(identity)
+}
+
+function activeCausalProbe(occurrenceId: string): CausalProbe | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(CAUSAL_PROBE_STORAGE_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as Partial<CausalProbe>
+    if (
+      parsed.occurrenceId !== occurrenceId ||
+      typeof parsed.token !== 'string' ||
+      parsed.token.length < 8
+    ) {
+      return undefined
+    }
+    return { occurrenceId: parsed.occurrenceId, token: parsed.token }
+  } catch {
+    return undefined
+  }
+}
+
+function bindVNodeScope(vnodeValue: unknown, occurrenceIds: string[]): void {
+  if (typeof window === 'undefined' || !isRuntimeVNode(vnodeValue)) return
+  const registry = window.__COLLECT_I18N__
+  if (!registry) return
+  const identity = vnodeScopeIdentity(vnodeValue)
+  disposeVNodeScope(identity)
+
+  const roots = new Set<Element>()
+  collectVNodeHostRoots(vnodeValue.component?.subTree ?? vnodeValue, roots, new Set())
+  const disposers: Array<() => void> = []
+  for (const occurrenceId of new Set(occurrenceIds)) {
+    const baseDescriptor = registry.getOccurrence(occurrenceId)
+    const descriptors = [
+      ...(baseDescriptor ? [baseDescriptor] : []),
+      ...registry.getDerivedOccurrences(occurrenceId),
+    ]
+    for (const descriptor of descriptors) {
+      for (const root of roots) {
+        disposers.push(
+          registry.registerOwner(
+            descriptor,
+            root,
+            { grade: 'B', proof: 'compiler-vnode-provenance' },
+          ),
+        )
+      }
+    }
+  }
+  if (disposers.length > 0) vnodeScopeDisposers.set(identity, disposers)
+}
+
+/**
+ * Vite-injected VNode lifecycle hooks keep compiler provenance attached to
+ * component host roots even when attrs do not fall through (fragments,
+ * inheritAttrs:false, Teleport, or library components).
+ */
+export function vnodeProvenanceMounted(vnode: unknown, occurrenceIds: string[]): void {
+  bindVNodeScope(vnode, occurrenceIds)
+}
+
+export function vnodeProvenanceUpdated(vnode: unknown, occurrenceIds: string[]): void {
+  bindVNodeScope(vnode, occurrenceIds)
+}
+
+export function vnodeProvenanceBeforeUnmount(vnode: unknown): void {
+  if (!isRuntimeVNode(vnode)) return
+  disposeVNodeScope(vnodeScopeIdentity(vnode))
+}
 
 export function installGlobalCollector(options: CollectorInstallOptions = {}): CollectorRegistryApi {
   const targetWindow = options.document?.defaultView ?? globalThis.window
@@ -65,16 +202,28 @@ export function enqueueDescriptors(descriptors: OccurrenceDescriptor[]): void {
 export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey?: string): T {
   if (typeof window === 'undefined') return value
   const registry = window.__COLLECT_I18N__
-  registry?.recordRenderedValue(occurrenceId, value, actualKey)
+  const snapshot = registry?.getOccurrence(occurrenceId)
+  const dynamicOccurrenceId =
+    actualKey && snapshot?.keyExpression
+      ? createDerivedOccurrenceId(occurrenceId, actualKey)
+      : undefined
+  const probe = activeCausalProbe(dynamicOccurrenceId ?? occurrenceId)
+  const canSubstitute =
+    probe &&
+    (snapshot?.metadata?.canarySafe === true || Boolean(dynamicOccurrenceId)) &&
+    (typeof value === 'string' || typeof value === 'number')
+  const renderedValue = canSubstitute ? probe.token : value
+  registry?.recordRenderedValue(occurrenceId, renderedValue, actualKey)
   const invocation = activeImperativeInvocation
+  const invocationOccurrenceId = dynamicOccurrenceId ?? occurrenceId
   if (
     registry &&
     invocation?.occurrenceIds.has(occurrenceId) &&
-    !invocation.registered.has(occurrenceId)
+    !invocation.registered.has(invocationOccurrenceId)
   ) {
-    const snapshot = registry.getOccurrence(occurrenceId)
+    const snapshot = registry.getOccurrence(invocationOccurrenceId)
     if (snapshot) {
-      invocation.registered.add(occurrenceId)
+      invocation.registered.add(invocationOccurrenceId)
       registry.registerImperativeInvocation({
         invocationId: invocation.invocationId,
         descriptor: {
@@ -87,14 +236,23 @@ export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey
           },
         },
         text:
-          typeof value === 'string' || typeof value === 'number'
-            ? String(value)
+          typeof renderedValue === 'string' || typeof renderedValue === 'number'
+            ? String(renderedValue)
             : undefined,
         invokedAt: invocation.invokedAt,
       })
     }
   }
-  return value
+  if (
+    snapshot?.metadata?.inlineTransport === true &&
+    (typeof renderedValue === 'string' || typeof renderedValue === 'number')
+  ) {
+    return appendInlineProvenance(
+      String(renderedValue),
+      invocationOccurrenceId,
+    ) as T
+  }
+  return renderedValue as T
 }
 
 /**

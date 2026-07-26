@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { createServer, resolveConfig } from 'vite'
+import { compileScript, compileTemplate, parse as parseSfc } from '@vue/compiler-sfc'
 import { scanProjectSources } from '@collect-i18n/analyzer'
 import {
   collectI18nVuePlugin,
@@ -51,7 +52,12 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
           component: 'el-input',
           prop: 'placeholder',
         }),
-        expect.objectContaining({ key: 'actions.submit', kind: 'text', component: 'el-button' }),
+        expect.objectContaining({
+          key: 'actions.submit',
+          kind: 'text',
+          component: 'el-button',
+          metadata: expect.objectContaining({ inlineTransport: true }),
+        }),
         expect.objectContaining({
           key: 'messages.saved',
           kind: 'imperative-service',
@@ -62,7 +68,11 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
           kind: 'imperative-service',
           service: 'ElNotification',
         }),
-        expect.objectContaining({ keyExpression: 'field.submitKey', kind: 'text' }),
+        expect.objectContaining({
+          keyExpression: 'field.submitKey',
+          kind: 'text',
+          metadata: expect.objectContaining({ inlineTransport: true }),
+        }),
       ]),
     )
 
@@ -70,14 +80,49 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
     const componentInput = result!.code.match(/<el-input[^>]+>/)?.[0]
     expect(nativeInput).toContain('data-collect-i18n-sink=')
     expect(nativeInput).not.toContain('data-i18n-key')
-    expect(componentInput).toContain('data-collect-i18n-sink=')
-    expect(componentInput?.match(/data-collect-i18n-sink="([^"]+)"/)?.[1]).not.toContain(
-      'form.email.placeholder',
-    )
+    expect(componentInput).not.toContain('data-collect-i18n-sink=')
+    expect(componentInput).toContain('@vue:mounted="__collectI18nVNodeMounted(')
+    expect(componentInput).toContain('@vue:updated="__collectI18nVNodeUpdated(')
+    expect(componentInput).toContain('@vue:before-unmount="__collectI18nVNodeBeforeUnmount(')
     expect(result!.code).toContain('__collectI18nEnqueue(')
     expect(result!.code).toContain('__collectI18nValue(t(\'actions.submit\')')
-    expect(result!.code).toContain('__collectI18nValue(t(field.submitKey)')
+    expect(result!.code).toContain(
+      '__collectI18nValue(t(__collectI18nActualKey)',
+    )
+    expect(result!.code.match(/\)\(field\.submitKey\)/g)).toHaveLength(1)
+    expect(result!.code).toContain('String(__collectI18nActualKey)')
     expect(result!.code).toContain("__collectI18nInvoke('ElMessage'")
+  })
+
+  it('preserves user VNode lifecycle hooks while adding the missing provenance hooks', () => {
+    const source = `<template><CustomLabel @vue:mounted="onMounted">{{ t('label.name') }}</CustomLabel></template>`
+    const result = instrumentVueSfc(source, componentId, { projectRoot })!
+    const component = result.code.match(/<CustomLabel[^>]+>/)?.[0] ?? ''
+
+    expect(component.match(/@vue:mounted=/g)).toHaveLength(1)
+    expect(component).toContain('@vue:mounted="onMounted"')
+    expect(component).toContain('data-collect-i18n-sink=')
+    expect(component).toContain('@vue:updated="__collectI18nVNodeUpdated(')
+    expect(component).toContain('@vue:before-unmount="__collectI18nVNodeBeforeUnmount(')
+  })
+
+  it('produces VNode provenance hooks accepted by the Vue SFC compiler', () => {
+    const source = `<script setup lang="ts">const field = { label: 'form.label' }</script>
+<template><Teleport to="body"><CustomLabel :title="t('form.title')">{{ t(field.label) }}</CustomLabel></Teleport></template>`
+    const instrumented = instrumentVueSfc(source, componentId, { projectRoot })!
+    const parsed = parseSfc(instrumented.code, { filename: componentId })
+    expect(parsed.errors).toEqual([])
+    const script = compileScript(parsed.descriptor, { id: 'provenance-test' })
+    const template = compileTemplate({
+      id: 'provenance-test',
+      filename: componentId,
+      source: parsed.descriptor.template!.content,
+      compilerOptions: { bindingMetadata: script.bindings },
+    })
+
+    expect(template.errors).toEqual([])
+    expect(template.code).toContain('onVnodeMounted')
+    expect(template.code).toContain('__collectI18nVNodeMounted')
   })
 
   it('adds a compatible script setup block when the SFC has only an options script', () => {
@@ -100,6 +145,25 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
     expect(byKey.get('actions.css')).toMatchObject({ kind: 'virtual' })
   })
 
+  it('tracks arbitrary component props and lets runtime visibility and canary prove the rendered sink', () => {
+    const source = `<template><CustomChart :series-name="t('chart.series')" :title="t('chart.title')" /></template>`
+    const result = instrumentVueSfc(source, componentId, { projectRoot })!
+    const byKey = new Map(result.occurrences.map((item) => [item.key, item]))
+    const component = result.code.match(/<CustomChart[^>]+>/)?.[0] ?? ''
+
+    expect(byKey.get('chart.series')).toMatchObject({
+      kind: 'component-prop',
+      metadata: expect.objectContaining({ canarySafe: true }),
+    })
+    expect(byKey.get('chart.title')).toMatchObject({
+      kind: 'component-prop',
+      metadata: expect.objectContaining({ canarySafe: true }),
+    })
+    expect(component).toContain('@vue:mounted="__collectI18nVNodeMounted(')
+    expect(component).toContain('@vue:updated="__collectI18nVNodeUpdated(')
+    expect(component).toContain('@vue:before-unmount="__collectI18nVNodeBeforeUnmount(')
+  })
+
   it('uses exactly the same occurrence IDs as static analysis', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'collect-i18n-id-'))
     const file = path.join(root, 'src', 'views', 'Form.vue')
@@ -116,6 +180,39 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
       }
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('uses inline provenance for script-defined display messages outside imperative services', () => {
+    const source = `<script setup lang="ts">
+const rules = {
+  name: [{ required: true, message: t('validation.nameRequired'), trigger: 'blur' }],
+  password: [{ validator: (_rule, _value, callback) => callback(new Error(t('validation.passwordWeak'))) }],
+}
+const stateTitle = () => t('states.ready')
+const assignError = () => (errorText.value = t('states.failed'))
+const notify = () => ElNotification({ message: t('messages.saved') })
+</script>
+<template><el-form :rules="rules" /></template>`
+    const result = instrumentVueSfc(source, componentId, { projectRoot })!
+    const byKey = new Map(result.occurrences.map((item) => [item.key, item]))
+
+    expect(byKey.get('validation.nameRequired')).toMatchObject({
+      kind: 'virtual',
+      metadata: expect.objectContaining({
+        inlineTransport: true,
+        canarySafe: true,
+      }),
+    })
+    expect(byKey.get('messages.saved')).toMatchObject({
+      kind: 'imperative-service',
+      service: 'ElNotification',
+      metadata: expect.not.objectContaining({ inlineTransport: true }),
+    })
+    for (const key of ['validation.passwordWeak', 'states.ready', 'states.failed']) {
+      expect(byKey.get(key)).toMatchObject({
+        metadata: expect.objectContaining({ inlineTransport: true }),
+      })
     }
   })
 

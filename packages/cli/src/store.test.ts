@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
 import { afterEach, describe, expect, it } from "vitest";
-import { StateStore } from "./store.js";
+import { agentTaskPriority, StateStore, type StoredTask } from "./store.js";
 
 const temporaryRoots: string[] = [];
 
@@ -85,6 +85,61 @@ function analysisWithOccurrence(
   }
 }
 
+function analysisForFinalize(): ProjectAnalysis {
+  const seed = analysisForKeys([
+    "fixture.unused",
+    "fixture.accessible",
+    "fixture.nativeTitle",
+    "fixture.visible",
+  ]);
+  return {
+    ...seed,
+    source: {
+      ...seed.source,
+      occurrences: [
+        {
+          id: "occ_accessible",
+          keyPath: "fixture.accessible",
+          kind: "native_dom",
+          location: { file: "src/views/FixtureView.vue", line: 1, column: 0 },
+          expression: "t('fixture.accessible')",
+          property: "aria-label",
+          teleported: false,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [],
+          actionHints: [],
+        },
+        {
+          id: "occ_native_title",
+          keyPath: "fixture.nativeTitle",
+          kind: "native_dom",
+          location: { file: "src/views/FixtureView.vue", line: 2, column: 0 },
+          expression: "t('fixture.nativeTitle')",
+          property: "title",
+          teleported: false,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [],
+          actionHints: [],
+        },
+        {
+          id: "occ_visible",
+          keyPath: "fixture.visible",
+          kind: "text_range",
+          location: { file: "src/views/FixtureView.vue", line: 3, column: 0 },
+          expression: "t('fixture.visible')",
+          teleported: false,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [],
+          actionHints: [],
+        },
+      ],
+    },
+  };
+}
+
 function evidence(source: CollectedEvidence["source"] = "deterministic"): CollectedEvidence {
   return {
     key: "form.save",
@@ -106,6 +161,33 @@ function evidence(source: CollectedEvidence["source"] = "deterministic"): Collec
 }
 
 describe("StateStore transactions", () => {
+  it("prioritizes retryable and actionable Agent tasks over descriptor-only keys", () => {
+    const base: StoredTask = {
+      id: "task",
+      sessionId: "session",
+      keyPath: "dialog.body",
+      status: "needs_agent",
+      stage: "agent",
+      chinese: "Body",
+      relativeFile: "dialog.json",
+      occurrences: [],
+      routeHints: [],
+      actionHints: [],
+      attempts: 0,
+    };
+    const actionable = {
+      ...base,
+      occurrences: [{ kind: "text_range" }],
+      routeHints: [{ path: "/dialog", confidence: 0.99 }],
+      actionHints: [{ kind: "click", selector: "[data-testid=dialog-open]" }],
+    };
+
+    expect(agentTaskPriority(actionable)).toBeGreaterThan(agentTaskPriority(base));
+    expect(agentTaskPriority({ ...base, attempts: 1 })).toBeGreaterThan(
+      agentTaskPriority(actionable),
+    );
+  });
+
   it("probes routed component props in the deterministic stage", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -279,6 +361,59 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("finalizes unresolved keys without inventing screenshots for non-visual content", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisForFinalize());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    for (const keyPath of [
+      "fixture.unused",
+      "fixture.accessible",
+      "fixture.nativeTitle",
+      "fixture.visible",
+    ]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+
+    expect(store.finalizeUnresolved(sessionId)).toEqual({
+      skippedNoSource: ["fixture.unused"],
+      skippedNonVisual: ["fixture.accessible", "fixture.nativeTitle"],
+      needsManual: ["fixture.visible"],
+    });
+    expect(store.status(sessionId)).toMatchObject({
+      counts: {
+        skipped: 3,
+        needs_manual: 1,
+        needs_agent: 0,
+      },
+      manualPercent: 25,
+      exportReady: true,
+    });
+    expect(store.events(sessionId).filter((event) =>
+      event.data && typeof event.data === "object" && "reason" in event.data
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "task.skipped",
+        origin: "system",
+        data: expect.objectContaining({ reason: "no_source_occurrence" }),
+      }),
+      expect.objectContaining({
+        type: "task.skipped",
+        origin: "system",
+        data: expect.objectContaining({ reason: "non_visual_source_only" }),
+      }),
+      expect.objectContaining({
+        type: "task.needs_manual",
+        origin: "system",
+        data: expect.objectContaining({ reason: "assisted_manual_fallback" }),
+      }),
+    ]));
+    store.close();
+  });
+
   it("records the execution stage and evidence source on task events", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -422,6 +557,11 @@ describe("StateStore transactions", () => {
 
     expect(collected).toEqual(keyPaths);
     expect(new Set(collected).size).toBe(2_101);
+    expect(store.finalizeUnresolved(sessionId).skippedNoSource).toHaveLength(2_101);
+    expect(store.status(sessionId).counts).toMatchObject({
+      needs_agent: 0,
+      skipped: 2_101,
+    });
     store.close();
   });
 

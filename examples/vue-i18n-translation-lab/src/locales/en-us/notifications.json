@@ -1,0 +1,102 @@
+{
+  "title": "Notifications",
+  "subtitle": "Preview page messages, notifications, and confirmations for common business states",
+  "sections": {
+    "messages": "Page messages",
+    "notifications": "Desktop notifications",
+    "confirmations": "Confirmations"
+  },
+  "messages": {
+    "success": {
+      "label": "Success message",
+      "text": "Saved successfully"
+    },
+    "warning": {
+      "label": "Warning message",
+      "text": "Please check the required fields"
+    },
+    "error": {
+      "label": "Error message",
+      "text": "Operation failed, please try again later"
+    },
+    "info": {
+      "label": "Info message",
+      "text": "You have been switched to the new version"
+    },
+    "plain": {
+      "label": "Plain message",
+      "text": "This is a plain message"
+    },
+    "duration": {
+      "label": "Duration (ms)",
+      "placeholder": "Default 3000"
+    },
+    "closable": "Manual close",
+    "send": "Send message",
+    "clear": "Clear messages"
+  },
+  "notifications": {
+    "success": {
+      "label": "Success notification",
+      "title": "Sync complete",
+      "text": "Synced 128 records this run"
+    },
+    "warning": {
+      "label": "Warning notification",
+      "title": "Low storage",
+      "text": "Free space is below 10%, please clean up"
+    },
+    "error": {
+      "label": "Error notification",
+      "title": "Sync failed",
+      "text": "Remote service did not respond; retried 3 times"
+    },
+    "info": {
+      "label": "Info notification",
+      "title": "Version update",
+      "text": "Version v0.2.3 has been released"
+    },
+    "plain": {
+      "label": "Plain notification",
+      "title": "System notice",
+      "text": "Routine maintenance today 02:00-04:00"
+    },
+    "position": {
+      "label": "Position",
+      "topRight": "Top-right",
+      "bottomRight": "Bottom-right",
+      "topLeft": "Top-left",
+      "bottomLeft": "Bottom-left"
+    },
+    "send": "Send notification"
+  },
+  "confirmations": {
+    "confirm": {
+      "label": "Confirm dialog",
+      "title": "Confirm submission",
+      "message": "This cannot be undone after submitting. Continue?",
+      "confirm": "OK",
+      "cancel": "Cancel"
+    },
+    "alert": {
+      "label": "Alert",
+      "title": "Permission denied",
+      "message": "Your account is not allowed to perform this action",
+      "confirm": "Got it"
+    },
+    "prompt": {
+      "label": "Prompt",
+      "title": "Enter the rejection reason",
+      "placeholder": "Enter a reason",
+      "confirm": "Submit",
+      "cancel": "Cancel",
+      "validation": "Reason cannot be empty"
+    },
+    "result": {
+      "confirmed": "You chose confirm",
+      "cancelled": "You chose cancel",
+      "entered": "You entered: {value}"
+    },
+    "trigger": "Trigger MessageBox"
+  }
+}

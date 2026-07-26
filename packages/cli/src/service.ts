@@ -401,11 +401,38 @@ export class LocalService {
             const collector = await this.collector(sessionId);
             collector.setMockRules([]);
             await collector.open(route);
-            for (const task of group) {
+            const inspection = await collector.inspectRuntimeSettled(2_000);
+            const gradeRank = (grade: string | undefined): number =>
+              grade === "A" ? 3 : grade === "B" ? 2 : 1;
+            const mountedKeys = new Set(
+              inspection.snapshots
+                .filter((snapshot) =>
+                  snapshot.key &&
+                  gradeRank(snapshot.evidenceGrade) >= 2 &&
+                  snapshot.connected !== false &&
+                  Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0),
+                )
+                .map((snapshot) => snapshot.key!),
+            );
+            const groupIds = new Set(group.map((task) => task.id));
+            const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
+              (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
+            );
+            for (const task of [...group, ...opportunistic]) {
               if (this.manualActive) break;
+              if (!mountedKeys.has(task.keyPath)) {
+                if (groupIds.has(task.id)) {
+                  store.markTask(
+                    task.id,
+                    "needs_agent",
+                    `Key is not mounted in the initial state of route ${route}`,
+                  );
+                }
+                continue;
+              }
               store.markTask(task.id, "running");
               try {
-                const target = await collector.waitForKey(task.keyPath, 2_500, "A");
+                const target = await collector.waitForKey(task.keyPath, 2_500, "B");
                 const evidence = await collector.capture(target, "deterministic");
                 store.addEvidence(task.id, evidence);
               } catch (error) {
@@ -436,7 +463,10 @@ export class LocalService {
     try {
       const evidence = await this.exclusive(async () => (await this.collector(task.sessionId)).executePlan(plan, "agent"));
       const evidenceId = store.addEvidence(taskId, evidence);
-      return { taskId, evidenceId, evidence };
+      const additionalEvidence = await this.exclusive(async () =>
+        this.captureVisibleBatch(task.sessionId, task.keyPath, "agent"),
+      ).catch(() => []);
+      return { taskId, evidenceId, evidence, additionalEvidence };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const next = task.attempts >= 1 ? "needs_manual" : "needs_agent";
@@ -445,6 +475,53 @@ export class LocalService {
     } finally {
       void this.runDeterministicQueue(task.sessionId);
     }
+  }
+
+  private async captureVisibleBatch(
+    sessionId: string,
+    primaryKey: string,
+    source: "agent" | "manual",
+    shouldContinue: () => boolean = () => true,
+  ): Promise<Array<{ taskId: string; keyPath: string; evidenceId: string }>> {
+    const store = this.store!;
+    const collector = await this.collector(sessionId);
+    const inspection = await collector.inspectRuntime(2_000);
+    const gradeRank = (grade: string | undefined): number =>
+      grade === "A" ? 3 : grade === "B" ? 2 : 1;
+    const eligibleKeys = new Set(
+      inspection.snapshots
+        .filter((snapshot) =>
+          snapshot.key &&
+          snapshot.key !== primaryKey &&
+          gradeRank(snapshot.evidenceGrade) >= 2 &&
+          snapshot.connected !== false &&
+          Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0),
+        )
+        .map((snapshot) => snapshot.key!),
+    );
+    if (eligibleKeys.size === 0) return [];
+
+    const pendingByKey = new Map(
+      store
+        .listTasks(sessionId, ["pending", "needs_agent", "needs_manual"], 2_000)
+        .map((task) => [task.keyPath, task]),
+    );
+    const captured: Array<{ taskId: string; keyPath: string; evidenceId: string }> = [];
+    for (const keyPath of [...eligibleKeys].slice(0, 250)) {
+      if (!shouldContinue()) break;
+      const task = pendingByKey.get(keyPath);
+      if (!task) continue;
+      try {
+        const target = await collector.waitForKey(keyPath, 1_000, "B");
+        const evidence = await collector.capture(target, source);
+        const evidenceId = store.addEvidence(task.id, evidence);
+        captured.push({ taskId: task.id, keyPath, evidenceId });
+      } catch {
+        // The state may animate or disappear while batching. Leave the task in
+        // its existing queue rather than recording weaker or stale evidence.
+      }
+    }
+    return captured;
   }
 
   private async startManual(sessionId: string, keyPath: string, route?: string, mocks: MockRule[] = []): Promise<Record<string, unknown>> {
@@ -495,6 +572,12 @@ export class LocalService {
           const evidence = await collector.capture(target, "manual");
           if (generation !== this.manualGeneration) return false;
           this.store!.addEvidence(taskId, evidence);
+          await this.captureVisibleBatch(
+            sessionId,
+            keyPath,
+            "manual",
+            () => generation === this.manualGeneration,
+          );
           return true;
         });
         if (captured) {

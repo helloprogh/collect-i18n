@@ -230,7 +230,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.2.2")
+  .version("0.3.0")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -432,12 +432,33 @@ program.command("status")
     const status = store.status(sessionId); store.close(); output(command, "status", status);
   });
 
+program.command("finalize")
+  .description("收尾 Agent 队列：无源码/仅非视觉词条留空，其余交给人工兜底")
+  .requiredOption("--session <id>")
+  .action(async (options: { session: string }, command) => {
+    const store = await StateStore.open(projectOf(command));
+    try {
+      const settled = store.finalizeUnresolved(options.session);
+      output(command, "finalize", {
+        settled: {
+          skippedNoSource: settled.skippedNoSource.length,
+          skippedNonVisual: settled.skippedNonVisual.length,
+          needsManual: settled.needsManual.length,
+        },
+        keys: settled,
+        status: store.status(options.session),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
 const agent = program.command("agent").description("由 Agent/Skill 消费的严格任务协议");
 agent.command("next")
   .requiredOption("--session <id>")
   .action(async (options: { session: string }, command) => {
     const store = await StateStore.open(projectOf(command));
-    const task = store.nextTask(options.session, ["needs_agent"]); const status = store.status(options.session); store.close();
+    const task = store.nextAgentTask(options.session); const status = store.status(options.session); store.close();
     output(command, "agent.next", { done: !task, task, status });
   });
 agent.command("submit")

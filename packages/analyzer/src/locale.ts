@@ -258,9 +258,11 @@ export async function buildLocaleCatalog(
       : {}
 
     for (const [jsonKeyPath, sourceText] of Object.entries(sourceEntries)) {
-      const keyPath = jsonKeyPath === sourceFile.namespace || jsonKeyPath.startsWith(`${sourceFile.namespace}.`)
-        ? jsonKeyPath
-        : `${sourceFile.namespace}.${jsonKeyPath}`
+      // Locale folders are loaded one JSON file per namespace (for example
+      // `notifications.json` becomes `messages.notifications`). A same-named
+      // root object inside that file is therefore a real second segment, not
+      // an already-prefixed key that should be collapsed.
+      const keyPath = `${sourceFile.namespace}.${jsonKeyPath}`
       const previous = firstKeyLocation.get(keyPath)
       if (previous) {
         diagnostics.push({

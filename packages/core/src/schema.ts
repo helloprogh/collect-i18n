@@ -242,12 +242,14 @@ export const TriggerActionSchema = z
 
 export type TriggerAction = z.infer<typeof TriggerActionSchema>
 
+const PlanLocatorIndexSchema = z.number().int().nonnegative().max(1_000).optional()
+
 export const PlanLocatorSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('css'), value: z.string().min(1).max(500) }).strict(),
-  z.object({ kind: z.literal('role'), value: z.string().min(1).max(100), name: z.string().max(200).optional() }).strict(),
-  z.object({ kind: z.literal('text'), value: z.string().min(1).max(300), exact: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('label'), value: z.string().min(1).max(300), exact: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('testId'), value: z.string().min(1).max(200) }).strict(),
+  z.object({ kind: z.literal('css'), value: z.string().min(1).max(500), index: PlanLocatorIndexSchema }).strict(),
+  z.object({ kind: z.literal('role'), value: z.string().min(1).max(100), name: z.string().max(200).optional(), index: PlanLocatorIndexSchema }).strict(),
+  z.object({ kind: z.literal('text'), value: z.string().min(1).max(300), exact: z.boolean().optional(), index: PlanLocatorIndexSchema }).strict(),
+  z.object({ kind: z.literal('label'), value: z.string().min(1).max(300), exact: z.boolean().optional(), index: PlanLocatorIndexSchema }).strict(),
+  z.object({ kind: z.literal('testId'), value: z.string().min(1).max(200), index: PlanLocatorIndexSchema }).strict(),
 ])
 
 export type PlanLocator = z.infer<typeof PlanLocatorSchema>

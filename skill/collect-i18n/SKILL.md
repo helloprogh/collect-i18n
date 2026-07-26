@@ -28,6 +28,7 @@ Run `--version` before touching the target project. Treat `<skill-directory>` as
 - Treat the capability embedded in `studioUrl` as a local session secret. Show or open it only for the requesting user; never copy it into TriggerPlans, project files, commits, issues, or shared logs, and redact it from summaries.
 - Keep English equal to Chinese in a newly exported workbook. Do not create a status column or annotate untranslated cells.
 - When importing a return, treat empty English or English equal to Chinese as untranslated and leave the target JSON unchanged.
+- Never invent screenshots for locale-only or non-visual keys. After Agent work, use the CLI `finalize` command as the only authority for classifying unresolved tasks.
 
 Read [CLI protocol](references/cli-protocol.md) before operating the tool. Read [TriggerPlan](references/trigger-plan.md) before creating an Agent plan.
 
@@ -59,24 +60,27 @@ Call `agent next --session <id>`. If `done` is true, leave the loop.
 
 For each returned task:
 
-1. Use only its Chinese text, source file, occurrences, route hints, action hints, attempts, and last error.
-2. Create one strict version-1 TriggerPlan. Prefer stable role, label, test-id, or exact source-derived CSS locators. Use request mocks only when the target is an API success/error state.
-3. Save the JSON below `.collect-i18n/plans/`.
-4. Run `agent submit`, then `agent execute`.
-5. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path.
-6. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. After the second failure the service moves it to `needs_manual` and rejects further Agent execution. Never bypass that state with a saved task id.
+1. Begin with the task's Chinese text, source file, occurrences, route hints, action hints, attempts, and last error. Read only a bounded region around the reported occurrence lines and, when needed, the directly referenced template handler, validation rule, request client, or local mock fixture. Do not scan or summarize unrelated project files.
+2. Trace the source-defined state transition from the translated call to the smallest stable control that exposes it. Prefer a plan that opens a state containing several unresolved keys (for example a dialog, drawer, tab, validation group, or request result); the engine will capture every additional visible A/B-grade key after the target succeeds.
+3. Create one strict version-1 TriggerPlan. Prefer stable role, label, test-id, or exact source-derived CSS locators. Use a zero-based locator `index` only when the source proves the same stable locator is intentionally repeated. Use request mocks only when the target is an API success/error state and the response contract is source-evidenced.
+4. Save the JSON below `.collect-i18n/plans/`.
+5. Run `agent submit`, then `agent execute`.
+6. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path. Count `additionalEvidence` as completed work from the same state transition; do not create separate plans for those keys.
+7. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. After the second failure the service moves it to `needs_manual` and rejects further Agent execution. Never bypass that state with a saved task id.
 
-Process tasks sequentially so browser state and failure evidence remain attributable. Never alter source code to make an Agent plan succeed.
+`agent next` is already ordered to favor retryable, actionable, and high-fan-out tasks. Process tasks sequentially so browser state and failure evidence remain attributable. Never alter source code to make an Agent plan succeed.
 
-### 3. Deliver on time and hand off the irreducible remainder
+### 3. Finalize, deliver on time, and hand off the irreducible remainder
 
-Poll `status` between tasks. When `deadlineAt` is reached, or when `needs_agent` is zero, run `export` immediately even if manual items remain. Confirm unique screenshot count, duplicate evidence count, coverage, manual percentage, row count, and embedded image count.
+Poll `status` between tasks. When `deadlineAt` is reached, or when `agent next` returns `done`, first require `pending` and `running` to be zero, then run `finalize --session <id>` exactly once. Do not classify keys from prose or coverage targets. The command records locale keys with no source occurrence and source-only non-visual `aria-*`/native `title` keys as `skipped`; every other unresolved key becomes `needs_manual`.
+
+After finalization, run `export` immediately even if manual items remain. Confirm finalized category counts, unique screenshot count, duplicate evidence count, coverage, manual percentage, row count, and embedded image count.
 
 Treat the workbook as delivered once export succeeds. Treat screenshot collection as fully complete only when no manual items remain. These are separate outcomes.
 
 When Agent work is exhausted, run `manual open --session <id>` to activate the next remaining task. Return the Studio URL and summarize the exact target key, Chinese text, source file, route hints, action hints, and any last error.
 
-The human performs normal business operations in the opened project. The tool listens for the target runtime binding across native DOM, text Range, component props, and Element Plus Teleport/service nodes. When the key appears, it automatically highlights and screenshots it. The human does not manually crop or label screenshots.
+The human performs normal business operations in the opened project. The tool listens for the target runtime binding across native DOM, text Range, Vue component Host roots (including fragments, slots, and Teleport), and Element Plus service nodes. Safe component evidence may be causally verified in an isolated canary page; side-effecting actions are never replayed for that probe. When the key appears, the tool automatically highlights and screenshots it. The human does not manually crop or label screenshots.
 
 Repeat `manual open` only after the previous target is captured or the user asks to move on.
 
@@ -88,4 +92,4 @@ For a translated return, run `import --file <absolute-xlsx-path> --session <id> 
 
 ## Completion
 
-Finish with session totals, unique screenshot count, duplicate evidence count, coverage, remaining manual count, deadline result, workbook path or written en-us files, and nonfatal diagnostics. If manual items remain, state that the workbook has been delivered with blank screenshot cells and hand those keys to the Studio queue; do not describe screenshot collection as complete.
+Finish with session totals, unique screenshot count, duplicate evidence count, coverage, skipped count and reasons, remaining manual count, deadline result, workbook path or written en-us files, and nonfatal diagnostics. If manual items remain, state that the workbook has been delivered with blank screenshot cells and hand those keys to the Studio queue; do not describe screenshot collection as complete.

@@ -1,0 +1,136 @@
+{
+  "title": "Permissions",
+  "subtitle": "Manage roles, assign permissions and review the operation log",
+  "tabs": {
+    "roles": "Roles",
+    "tree": "Permission tree",
+    "log": "Operation log"
+  },
+  "newRole": "New role",
+  "refresh": "Refresh",
+  "roles": {
+    "columns": {
+      "name": "Role name",
+      "code": "Role code",
+      "members": "Members",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "empty": "No roles yet, click New role above",
+    "actions": {
+      "edit": "Edit",
+      "permissions": "Permissions",
+      "disable": "Disable",
+      "enable": "Enable",
+      "delete": "Delete"
+    }
+  },
+  "roleDialog": {
+    "createTitle": "New role",
+    "editTitle": "Edit role",
+    "name": {
+      "label": "Role name",
+      "placeholder": "e.g. Order manager"
+    },
+    "code": {
+      "label": "Role code",
+      "placeholder": "e.g. order_manager"
+    },
+    "description": {
+      "label": "Description",
+      "placeholder": "Describe the role's responsibilities"
+    },
+    "status": {
+      "label": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "submit": "Save",
+    "cancel": "Cancel"
+  },
+  "validation": {
+    "nameRequired": "Please enter a role name",
+    "nameLength": "Role name must be 2-20 characters",
+    "codeRequired": "Please enter a role code",
+    "codePattern": "Role code may only contain lowercase letters, digits and underscores",
+    "codeExists": "Role code already exists"
+  },
+  "tree": {
+    "title": "Permission assignment",
+    "searchPlaceholder": "Search permission nodes",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "checked": "{count} selected",
+    "categories": {
+      "dashboard": "Dashboard",
+      "orders": "Orders",
+      "permissions": "Permissions",
+      "settings": "Settings",
+      "notifications": "Notifications"
+    },
+    "nodes": {
+      "view": "View",
+      "create": "Create",
+      "edit": "Edit",
+      "delete": "Delete",
+      "export": "Export",
+      "approve": "Approve"
+    },
+    "save": "Save permissions",
+    "reset": "Reset selection"
+  },
+  "confirmDialog": {
+    "title": "Save permissions",
+    "message": "Permission changes take effect immediately and affected users must sign in again. Continue?",
+    "confirm": "Confirm save",
+    "cancel": "Cancel",
+    "success": "Permissions updated",
+    "failed": "Save failed, please retry"
+  },
+  "deleteDialog": {
+    "title": "Delete role",
+    "message": "Users in this role will lose the related permissions. Continue?",
+    "confirm": "Confirm delete",
+    "cancel": "Cancel",
+    "success": "Role deleted",
+    "failed": "Delete failed, the role still has members"
+  },
+  "log": {
+    "columns": {
+      "operator": "Operator",
+      "action": "Action",
+      "target": "Target",
+      "time": "Time",
+      "result": "Result"
+    },
+    "result": {
+      "success": "Success",
+      "failed": "Failed"
+    },
+    "empty": "No operations recorded",
+    "filterPlaceholder": "Filter by operator"
+  },
+  "members": {
+    "title": "Role members",
+    "total": "{count} members",
+    "add": "Add member",
+    "remove": "Remove",
+    "empty": "No members in this role",
+    "columns": {
+      "name": "Member",
+      "dept": "Department",
+      "joinedAt": "Joined at",
+      "actions": "Actions"
+    }
+  },
+  "aria": {
+    "treeSearch": "Search permission nodes",
+    "toggleNode": "Expand or collapse the node",
+    "closeDialog": "Close the dialog",
+    "closeDrawer": "Close the members drawer"
+  }
+}

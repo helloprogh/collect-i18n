@@ -26,9 +26,12 @@ interface TranslationCall {
   end: number
   key?: string
   keyExpression?: string
+  keyArgumentStart?: number
+  keyArgumentEnd?: number
   service?: string
   invocationStart?: number
   invocationEnd?: number
+  inlineTransport?: boolean
 }
 
 interface ExpressionContext {
@@ -52,6 +55,8 @@ interface InstrumentationState {
     start: number
     end: number
     occurrenceId: string
+    keyArgumentStart?: number
+    keyArgumentEnd?: number
     service?: string
     invocationStart?: number
     invocationEnd?: number
@@ -121,6 +126,49 @@ function staticArgumentValue(node: BabelNode | undefined): string | undefined {
   return undefined
 }
 
+function objectPropertyName(node: BabelNode): string | undefined {
+  if (node.type !== 'ObjectProperty') return undefined
+  const key = isBabelNode(node.key) ? node.key : undefined
+  if (key?.type === 'Identifier' && typeof key.name === 'string') return key.name
+  if (key?.type === 'StringLiteral' && typeof key.value === 'string') return key.value
+  return undefined
+}
+
+const SCRIPT_DISPLAY_NAMES =
+  /(?:message|label|title|text|description|placeholder|error|result|hint|status)/iu
+
+function scriptDisplayContext(
+  node: BabelNode,
+  childProperty: string,
+  inherited?: string,
+): string | undefined {
+  if (node.type === 'ObjectProperty' && childProperty === 'value') {
+    const name = objectPropertyName(node)
+    return name && SCRIPT_DISPLAY_NAMES.test(name) ? `property:${name}` : inherited
+  }
+  if (node.type === 'ReturnStatement' && childProperty === 'argument') return 'return'
+  if (node.type === 'ArrowFunctionExpression' && childProperty === 'body') return 'return'
+  if (node.type === 'AssignmentExpression' && childProperty === 'right') return 'assignment'
+  if (
+    node.type === 'NewExpression' &&
+    childProperty === 'arguments' &&
+    isBabelNode(node.callee) &&
+    node.callee.type === 'Identifier' &&
+    node.callee.name === 'Error'
+  ) {
+    return 'error'
+  }
+  if (node.type === 'VariableDeclarator' && childProperty === 'init') {
+    const identifier = isBabelNode(node.id) && node.id.type === 'Identifier'
+      ? node.id.name
+      : undefined
+    return typeof identifier === 'string' && SCRIPT_DISPLAY_NAMES.test(identifier)
+      ? `binding:${identifier}`
+      : inherited
+  }
+  return inherited
+}
+
 export function findTranslationCalls(expression: string): TranslationCall[] {
   try {
     const ast = parseExpression(`(${expression})`, {
@@ -132,6 +180,7 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
     const visit = (
       node: BabelNode,
       inheritedInvocation?: { service: string; start: number; end: number },
+      inheritedDisplayProperty?: string,
     ): void => {
       const isCall = node.type === 'CallExpression' || node.type === 'OptionalCallExpression'
       const callee = isBabelNode(node.callee) ? node.callee : undefined
@@ -159,9 +208,13 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
             key === undefined && argumentStart !== undefined && argumentEnd !== undefined
               ? expression.slice(argumentStart, argumentEnd)
               : undefined,
+          keyArgumentStart: argumentStart,
+          keyArgumentEnd: argumentEnd,
           service: inheritedInvocation?.service,
           invocationStart: inheritedInvocation?.start,
           invocationEnd: inheritedInvocation?.end,
+          inlineTransport:
+            inheritedInvocation === undefined && inheritedDisplayProperty !== undefined,
         })
         return
       }
@@ -169,10 +222,15 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
         if (property === 'loc' || property === 'extra' || property === 'tokens' || property === 'comments') {
           continue
         }
+        const displayProperty = scriptDisplayContext(
+          node,
+          property,
+          inheritedDisplayProperty,
+        )
         if (Array.isArray(value)) {
-          for (const item of value) if (isBabelNode(item)) visit(item, invocation)
+          for (const item of value) if (isBabelNode(item)) visit(item, invocation, displayProperty)
         } else if (isBabelNode(value)) {
-          visit(value, invocation)
+          visit(value, invocation, displayProperty)
         }
       }
     }
@@ -194,6 +252,7 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
     const visit = (
       node: BabelNode,
       inheritedInvocation?: { service: string; start: number; end: number },
+      inheritedDisplayProperty?: string,
     ): void => {
       const isCall = node.type === 'CallExpression' || node.type === 'OptionalCallExpression'
       const callee = isBabelNode(node.callee) ? node.callee : undefined
@@ -221,9 +280,13 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
             key === undefined && argumentStart !== undefined && argumentEnd !== undefined
               ? script.slice(argumentStart, argumentEnd)
               : undefined,
+          keyArgumentStart: argumentStart,
+          keyArgumentEnd: argumentEnd,
           service: inheritedInvocation?.service,
           invocationStart: inheritedInvocation?.start,
           invocationEnd: inheritedInvocation?.end,
+          inlineTransport:
+            inheritedInvocation === undefined && inheritedDisplayProperty !== undefined,
         })
         return
       }
@@ -231,10 +294,15 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
         if (property === 'loc' || property === 'extra' || property === 'tokens' || property === 'comments') {
           continue
         }
+        const displayProperty = scriptDisplayContext(
+          node,
+          property,
+          inheritedDisplayProperty,
+        )
         if (Array.isArray(value)) {
-          for (const item of value) if (isBabelNode(item)) visit(item, invocation)
+          for (const item of value) if (isBabelNode(item)) visit(item, invocation, displayProperty)
         } else if (isBabelNode(value)) {
-          visit(value, invocation)
+          visit(value, invocation, displayProperty)
         }
       }
     }
@@ -290,6 +358,30 @@ function applyRuntimeReplacements(
   replacements: ValueReplacement[],
   quote: (value: string) => string,
 ): void {
+  const renderReplacement = (replacement: ValueReplacement): string => {
+    const original = source.slice(replacement.start, replacement.end)
+    if (
+      replacement.keyArgumentStart === undefined ||
+      replacement.keyArgumentEnd === undefined
+    ) {
+      return `__collectI18nValue(${original}, ${quote(replacement.occurrenceId)})`
+    }
+    const relativeStart = replacement.keyArgumentStart - replacement.start
+    const relativeEnd = replacement.keyArgumentEnd - replacement.start
+    const keyExpression = source.slice(
+      replacement.keyArgumentStart,
+      replacement.keyArgumentEnd,
+    )
+    const translatedWithCapturedKey =
+      original.slice(0, relativeStart) +
+      '__collectI18nActualKey' +
+      original.slice(relativeEnd)
+    return (
+      `((__collectI18nActualKey) => __collectI18nValue(` +
+      `${translatedWithCapturedKey}, ${quote(replacement.occurrenceId)}, ` +
+      `String(__collectI18nActualKey)))(${keyExpression})`
+    )
+  }
   const invocationGroups = new Map<
     string,
     {
@@ -327,11 +419,10 @@ function applyRuntimeReplacements(
     const segmentSource = source.slice(group.start, group.end)
     const segment = new MagicString(segmentSource)
     for (const replacement of [...group.replacements].sort((left, right) => right.start - left.start)) {
-      const original = source.slice(replacement.start, replacement.end)
       segment.overwrite(
         replacement.start - group.start,
         replacement.end - group.start,
-        `__collectI18nValue(${original}, ${quote(replacement.occurrenceId)})`,
+        renderReplacement(replacement),
       )
       claimed.add(replacement)
     }
@@ -345,11 +436,10 @@ function applyRuntimeReplacements(
 
   for (const replacement of [...replacements].sort((left, right) => right.start - left.start)) {
     if (claimed.has(replacement)) continue
-    const original = source.slice(replacement.start, replacement.end)
     magic.overwrite(
       replacement.start,
       replacement.end,
-      `__collectI18nValue(${original}, ${quote(replacement.occurrenceId)})`,
+      renderReplacement(replacement),
     )
   }
 }
@@ -390,6 +480,29 @@ function nativeBindingKind(prop: DirectiveNode, propName?: string): OccurrenceKi
   return 'virtual'
 }
 
+function componentBindingKind(prop: DirectiveNode, propName?: string): OccurrenceKind {
+  if (prop.name === 'text' || prop.name === 'html') return 'text'
+  if (prop.name === 'bind' && propName) {
+    return 'component-prop'
+  }
+  return 'virtual'
+}
+
+const INLINE_TRANSPORT_COMPONENT_PROPS = new Set([
+  'label',
+  'title',
+  'content',
+  'active-text',
+  'inactive-text',
+  'empty-text',
+  'confirm-button-text',
+  'cancel-button-text',
+])
+
+function componentPropUsesInlineTransport(prop?: string): boolean {
+  return Boolean(prop && INLINE_TRANSPORT_COMPONENT_PROPS.has(prop.toLowerCase()))
+}
+
 function registerExpression(state: InstrumentationState, context: ExpressionContext): void {
   const calls = findTranslationCalls(context.content)
   for (const call of calls) {
@@ -425,6 +538,13 @@ function registerExpression(state: InstrumentationState, context: ExpressionCont
       },
       metadata: {
         sinkId: id,
+        ...(kind === 'text' ||
+        (kind === 'component-prop' && componentPropUsesInlineTransport(context.prop))
+          ? { inlineTransport: true }
+          : {}),
+        canarySafe:
+          call.key !== undefined &&
+          (kind === 'text' || kind === 'component-prop'),
         evidenceGrade:
           kind === 'native' || (kind === 'text' && !context.component)
             ? 'A'
@@ -446,6 +566,14 @@ function registerExpression(state: InstrumentationState, context: ExpressionCont
       start: absoluteStart,
       end: absoluteEnd,
       occurrenceId: id,
+      keyArgumentStart:
+        call.key === undefined && call.keyArgumentStart !== undefined
+          ? context.absoluteOffset + call.keyArgumentStart
+          : undefined,
+      keyArgumentEnd:
+        call.key === undefined && call.keyArgumentEnd !== undefined
+          ? context.absoluteOffset + call.keyArgumentEnd
+          : undefined,
       service,
       invocationStart:
         service && call.invocationStart !== undefined
@@ -478,10 +606,8 @@ function inspectElement(state: InstrumentationState, element: ElementNode): void
     let kind: OccurrenceKind
     if (isNative) {
       kind = nativeBindingKind(prop, propName)
-    } else if (prop.name === 'bind' || prop.name === 'model' || prop.name === 'text' || prop.name === 'html') {
-      kind = 'component-prop'
     } else {
-      kind = 'virtual'
+      kind = componentBindingKind(prop, propName)
     }
     registerExpression(state, {
       content: prop.exp.content,
@@ -491,6 +617,7 @@ function inspectElement(state: InstrumentationState, element: ElementNode): void
       prop: propName,
       owner:
         kind === 'native' || kind === 'component-prop'
+          || kind === 'text'
           ? element
           : undefined,
     })
@@ -539,12 +666,13 @@ function instrumentTemplateAst(state: InstrumentationState, root: RootNode): voi
   for (const child of root.children) inspectChild(state, child)
 
   for (const [element, bindings] of state.ownerBindings) {
+    const additions: string[] = []
     const alreadyMarked = element.props.some(
       (prop) =>
         prop.type === NodeTypes.ATTRIBUTE &&
         prop.name === 'data-collect-i18n-sink',
     )
-    if (alreadyMarked || bindings.length === 0) continue
+    if (bindings.length === 0) continue
     const source = element.loc.source
     const tagEnd = openingTagEnd(source)
     if (tagEnd < 0) continue
@@ -552,10 +680,56 @@ function instrumentTemplateAst(state: InstrumentationState, root: RootNode): voi
     const insertAt =
       state.templateOffset + element.loc.start.offset + (selfClosingOffset ?? tagEnd)
     const sinkIds = [...new Set(bindings.map((binding) => binding.occurrenceId))].join(' ')
-    state.magic.appendLeft(
-      insertAt,
-      ` data-collect-i18n-sink="${sinkIds}"`,
-    )
+    const isComponent = element.tagType !== ElementTypes.ELEMENT
+    if (!isComponent && !alreadyMarked) {
+      additions.push(` data-collect-i18n-sink="${sinkIds}"`)
+    }
+
+    if (isComponent) {
+      const existingVNodeHooks = new Set(
+        element.props.flatMap((prop) => {
+          if (
+            prop.type !== NodeTypes.DIRECTIVE ||
+            prop.name !== 'on' ||
+            !prop.arg ||
+            prop.arg.type !== NodeTypes.SIMPLE_EXPRESSION ||
+            !prop.arg.isStatic
+          ) {
+            return []
+          }
+          return [prop.arg.content.toLowerCase()]
+        }),
+      )
+      const occurrenceIds = [...new Set(bindings.map((binding) => binding.occurrenceId))]
+        .map(quoteInsideVueAttribute)
+        .join(', ')
+      const hasHookCollision = [
+        'vue:mounted',
+        'vue:updated',
+        'vue:before-unmount',
+      ].some((hook) => existingVNodeHooks.has(hook))
+      if (hasHookCollision && !alreadyMarked) {
+        // Existing user lifecycle hooks are never overwritten. Attribute
+        // fallthrough remains a compatibility fallback for that rare case.
+        additions.push(` data-collect-i18n-sink="${sinkIds}"`)
+      }
+      if (!existingVNodeHooks.has('vue:mounted')) {
+        additions.push(
+          ` @vue:mounted="__collectI18nVNodeMounted($event, [${occurrenceIds}])"`,
+        )
+      }
+      if (!existingVNodeHooks.has('vue:updated')) {
+        additions.push(
+          ` @vue:updated="__collectI18nVNodeUpdated($event, [${occurrenceIds}])"`,
+        )
+      }
+      if (!existingVNodeHooks.has('vue:before-unmount')) {
+        additions.push(
+          ' @vue:before-unmount="__collectI18nVNodeBeforeUnmount($event)"',
+        )
+      }
+    }
+    if (additions.length > 0) state.magic.appendLeft(insertAt, additions.join(''))
   }
 }
 
@@ -594,12 +768,26 @@ function instrumentScriptBlock(state: InstrumentationState, block: SFCBlock | nu
         sinkId: id,
         evidenceGrade: call.service ? 'C' : 'C',
         evidenceProof: call.service ? 'imperative-text-heuristic' : 'descriptor-only',
+        ...(call.inlineTransport
+          ? {
+              inlineTransport: true,
+              canarySafe: true,
+            }
+          : {}),
       },
     })
     state.replacements.push({
       start: absoluteStart,
       end: absoluteEnd,
       occurrenceId: id,
+      keyArgumentStart:
+        call.key === undefined && call.keyArgumentStart !== undefined
+          ? offset + call.keyArgumentStart
+          : undefined,
+      keyArgumentEnd:
+        call.key === undefined && call.keyArgumentEnd !== undefined
+          ? offset + call.keyArgumentEnd
+          : undefined,
       service: call.service,
       invocationStart:
         call.service && call.invocationStart !== undefined ? offset + call.invocationStart : undefined,
@@ -618,7 +806,7 @@ function injectRuntimeScript(
   if (state.occurrences.length === 0) return
   const descriptorJson = JSON.stringify(state.occurrences).replaceAll('<', '\\u003c')
   const runtimeCode =
-    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue, runImperativeInvocation as __collectI18nInvoke } from ${JSON.stringify(runtimeImport)};\n` +
+    `import { enqueueDescriptors as __collectI18nEnqueue, recordRenderedValue as __collectI18nValue, runImperativeInvocation as __collectI18nInvoke, vnodeProvenanceMounted as __collectI18nVNodeMounted, vnodeProvenanceUpdated as __collectI18nVNodeUpdated, vnodeProvenanceBeforeUnmount as __collectI18nVNodeBeforeUnmount } from ${JSON.stringify(runtimeImport)};\n` +
     `__collectI18nEnqueue(${descriptorJson});\n`
 
   if (scriptSetup) {
@@ -729,12 +917,22 @@ export function instrumentScriptModule(
         sinkId: idValue,
         evidenceGrade: 'C',
         evidenceProof: call.service ? 'imperative-text-heuristic' : 'descriptor-only',
+        ...(call.inlineTransport
+          ? {
+              inlineTransport: true,
+              canarySafe: true,
+            }
+          : {}),
       },
     })
     replacements.push({
       start: call.start,
       end: call.end,
       occurrenceId: idValue,
+      keyArgumentStart:
+        call.key === undefined ? call.keyArgumentStart : undefined,
+      keyArgumentEnd:
+        call.key === undefined ? call.keyArgumentEnd : undefined,
       service: call.service,
       invocationStart: call.invocationStart,
       invocationEnd: call.invocationEnd,

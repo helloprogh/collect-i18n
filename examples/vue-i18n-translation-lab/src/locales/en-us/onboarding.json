@@ -1,0 +1,142 @@
+{
+  "title": "New User Onboarding",
+  "subtitle": "Complete account setup in four steps; some fields appear based on your account type",
+  "steps": {
+    "account": "Account",
+    "profile": "Profile",
+    "preferences": "Preferences",
+    "confirm": "Confirm"
+  },
+  "account": {
+    "heading": "Step 1: Create your account",
+    "username": {
+      "label": "Username",
+      "placeholder": "4-20 letters or digits"
+    },
+    "password": {
+      "label": "Password",
+      "placeholder": "At least 8 chars, with letters and digits"
+    },
+    "accountType": {
+      "label": "Account type",
+      "personal": "Personal",
+      "team": "Team",
+      "enterprise": "Enterprise"
+    },
+    "teamName": {
+      "label": "Team name",
+      "placeholder": "Enter the team name"
+    },
+    "company": {
+      "label": "Company name",
+      "placeholder": "Enter the full company name"
+    },
+    "next": "Next"
+  },
+  "validation": {
+    "usernameRequired": "Please enter a username",
+    "usernameLength": "Username must be 4-20 characters",
+    "usernamePattern": "Username may only contain letters and digits",
+    "passwordRequired": "Please enter a password",
+    "passwordWeak": "Password must be at least 8 chars and include both letters and digits",
+    "accountTypeRequired": "Please select an account type",
+    "teamNameRequired": "Please enter the team name",
+    "companyRequired": "Please enter the company name",
+    "fullNameRequired": "Please enter your name",
+    "bioLength": "Bio may not exceed 80 characters",
+    "termsRequired": "Please read and accept the terms first"
+  },
+  "profile": {
+    "heading": "Step 2: Complete your profile",
+    "fullName": {
+      "label": "Full name",
+      "placeholder": "Enter your real name"
+    },
+    "avatar": {
+      "label": "Avatar",
+      "hint": "JPG/PNG, up to 2MB"
+    },
+    "bio": {
+      "label": "Bio",
+      "placeholder": "Describe yourself in one line"
+    },
+    "country": {
+      "label": "Country / Region",
+      "placeholder": "Select a country or region"
+    },
+    "timezone": {
+      "label": "Time zone",
+      "placeholder": "Select a time zone"
+    },
+    "next": "Next",
+    "prev": "Back"
+  },
+  "preferences": {
+    "heading": "Step 3: Set preferences",
+    "language": {
+      "label": "Interface language",
+      "zh": "简体中文",
+      "en": "English"
+    },
+    "theme": {
+      "label": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "auto": "System"
+    },
+    "notifications": {
+      "label": "Notifications",
+      "email": "Email",
+      "sms": "SMS",
+      "inApp": "In-app"
+    },
+    "frequency": {
+      "label": "Sync frequency",
+      "realtime": "Realtime",
+      "hourly": "Hourly",
+      "daily": "Daily",
+      "weekly": "Weekly"
+    },
+    "marketing": {
+      "label": "Receive product update emails",
+      "agree": "Agree",
+      "disagree": "No thanks"
+    },
+    "next": "Next",
+    "prev": "Back"
+  },
+  "confirm": {
+    "heading": "Step 4: Review and submit",
+    "summaryTitle": "Please review the details below",
+    "summary": {
+      "username": "Username",
+      "accountType": "Account type",
+      "teamName": "Team name",
+      "company": "Company",
+      "fullName": "Name",
+      "country": "Country / Region",
+      "timezone": "Time zone",
+      "language": "Language",
+      "theme": "Theme",
+      "frequency": "Sync frequency"
+    },
+    "terms": {
+      "label": "I have read and agree to the Terms of Service and Privacy Policy",
+      "openTerms": "View Terms of Service",
+      "openPrivacy": "View Privacy Policy"
+    },
+    "submit": "Submit application",
+    "prev": "Back"
+  },
+  "termsDialog": {
+    "title": "Terms of Service",
+    "body": "These terms govern your rights and obligations with GDE. Submitting the application means you have read and accepted all terms.",
+    "close": "Got it"
+  },
+  "success": {
+    "title": "Application submitted",
+    "message": "We will review it within 1-3 business days and notify you by email. Application ID: {id}",
+    "done": "Back to dashboard",
+    "resend": "Resubmit"
+  }
+}

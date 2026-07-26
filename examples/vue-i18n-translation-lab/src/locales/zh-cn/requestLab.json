@@ -1,50 +1,98 @@
 {
-  "title": "新建数据同步任务",
-  "subtitle": "配置来源端点、运行环境和失败重试策略",
-  "status": {
-    "ready": "服务可用"
+  "title": "API 调试台",
+  "subtitle": "使用本地请求配置检查加载、成功、失败、部分成功、空结果与重试状态",
+  "scenarioLabel": "响应场景",
+  "scenarioPlaceholder": "请选择场景",
+  "sendBtn": "发送请求",
+  "retryBtn": "重试请求",
+  "clearBtn": "清空结果",
+  "responseTitle": "响应结果",
+  "scenarios": {
+    "success": { "label": "成功", "desc": "返回 200 与完整数据" },
+    "error": { "label": "服务错误", "desc": "返回 500 错误响应" },
+    "partial": { "label": "部分成功", "desc": "部分项失败，返回 206" },
+    "retry": { "label": "可重试失败", "desc": "前两次失败，第三次成功" },
+    "empty": { "label": "空结果", "desc": "返回 200 但数据为空" },
+    "slow": { "label": "慢响应", "desc": "延迟 1.5 秒后返回" }
   },
-  "form": {
-    "name": "任务名称",
-    "namePlaceholder": "请输入以字母开头的任务名称",
-    "email": "通知邮箱",
-    "emailPlaceholder": "例如：owner{'@'}example.com",
-    "endpoint": "服务地址",
-    "endpointPlaceholder": "例如：https://api.example.com/v1",
-    "retries": "重试次数",
-    "environment": "运行环境",
-    "environmentPlaceholder": "请选择一个运行环境",
-    "description": "任务说明",
-    "descriptionPlaceholder": "请描述数据来源、同步频率和失败处理方式",
-    "submit": "继续",
-    "reset": "重置表单"
+  "states": {
+    "loading": "请求发送中…",
+    "loadingHint": "本地适配器正在生成确定性响应",
+    "success": "请求成功",
+    "successDetail": "状态码 200，返回 {count} 条数据",
+    "error": "请求失败",
+    "errorDetail": "服务返回错误，状态码 {code}",
+    "partial": "部分成功",
+    "partialDetail": "成功 {success} 项，失败 {failed} 项",
+    "empty": "结果为空",
+    "emptyHint": "请求成功，但未匹配到任何数据",
+    "retrying": "正在重试",
+    "retryingHint": "第 {attempt} 次重试，剩余 {remaining} 次",
+    "retryExhausted": "重试次数已用尽",
+    "retryExhaustedDetail": "已重试 {max} 次仍失败，请检查后重试",
+    "timeout": "请求超时"
   },
-  "environment": {
-    "development": "开发环境",
-    "staging": "预发布环境",
-    "production": "生产环境"
+  "response": {
+    "status": "状态码",
+    "duration": "耗时",
+    "requestId": "请求编号",
+    "attempt": "尝试次数",
+    "method": "方法",
+    "url": "地址",
+    "requestBody": "请求体",
+    "responseBody": "响应体",
+    "responseHeaders": "响应头",
+    "copy": "复制响应",
+    "empty": "尚未发送请求"
   },
-  "validation": {
-    "nameRequired": "请输入任务名称",
-    "nameLength": "任务名称长度必须为 4 到 24 个字符",
-    "namePattern": "任务名称必须以字母开头，且只能包含字母、数字和连字符",
-    "emailRequired": "请输入通知邮箱",
-    "emailInvalid": "请输入有效的邮箱地址",
-    "endpointRequired": "请输入服务地址",
-    "endpointInvalid": "服务地址必须是有效的 HTTPS URL",
-    "environmentRequired": "请选择运行环境",
-    "descriptionLength": "任务说明不能超过 120 个字符"
+  "statusCodes": {
+    "ok200": "200 OK",
+    "badRequest400": "400 Bad Request",
+    "notFound404": "404 Not Found",
+    "validation422": "422 Unprocessable Entity",
+    "serverError500": "500 Internal Server Error"
   },
-  "confirmation": {
-    "title": "确认创建同步任务",
-    "message": "任务创建后将立即连接来源端点并开始同步，是否继续？",
-    "cancel": "返回修改",
-    "confirm": "确认创建"
+  "controls": {
+    "delayLabel": "延迟（毫秒）",
+    "delayPlaceholder": "例如 800",
+    "statusCodeLabel": "状态码覆盖",
+    "statusCodePlaceholder": "例如 500",
+    "injectErrorLabel": "注入异常",
+    "payloadSizeLabel": "数据量",
+    "payloadOptions": {
+      "small": "少量（5 条）",
+      "medium": "中等（20 条）",
+      "large": "大量（100 条）"
+    }
+  },
+  "retry": {
+    "title": "重试配置",
+    "maxLabel": "最大重试次数",
+    "maxPlaceholder": "例如 3",
+    "delayLabel": "重试间隔（毫秒）",
+    "delayPlaceholder": "例如 500",
+    "backoffLabel": "退避策略",
+    "backoff": {
+      "fixed": "固定间隔",
+      "linear": "线性递增",
+      "exponential": "指数退避"
+    },
+    "onRetry": "重试时通知"
+  },
+  "log": {
+    "title": "请求日志",
+    "empty": "暂无请求记录",
+    "columns": {
+      "time": "时间",
+      "scenario": "场景",
+      "status": "状态码",
+      "duration": "耗时",
+      "attempt": "尝试"
+    },
+    "clear": "清空日志"
   },
   "feedback": {
-    "success": "任务 {name} 已创建，编号为 {id}",
-    "requestFailed": "任务创建失败，请检查后重试",
-    "quotaExceeded": "当前工作区配额不足，请联系管理员扩容",
-    "requestId": "请求编号：{requestId}"
+    "copied": "响应已复制到剪贴板",
+    "cleared": "结果已清空"
   }
 }

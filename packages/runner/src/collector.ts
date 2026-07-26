@@ -36,6 +36,11 @@ export interface CollectedEvidence extends RuntimeTargetSnapshot {
   capturedAt: string;
   source: "deterministic" | "agent" | "manual";
   plan?: ParsedTriggerPlan;
+  causalProbe?: {
+    verified: true;
+    originalGrade: "B";
+    originalProof?: string;
+  };
 }
 
 export interface RuntimeInspection {
@@ -49,6 +54,7 @@ export interface RuntimeInspection {
     kind?: string;
     evidenceGrade?: RuntimeEvidenceGrade;
     evidenceProof?: string;
+    connected?: boolean;
     visible?: boolean;
     anchorType?: string;
     text?: string;
@@ -114,6 +120,20 @@ type RuntimeWindow = Window & {
   };
   __I18N_COLLECTOR__?: RuntimeWindow["__COLLECT_I18N__"];
 };
+
+const CAUSAL_PROBE_STORAGE_KEY = "__collect_i18n_causal_probe_v1";
+const SAFE_CAUSAL_PROBE_STEPS = new Set([
+  "goto",
+  "hover",
+  "wait",
+  "waitForKey",
+  "waitForText",
+  "reload",
+]);
+
+export function isCausalProbeSafe(plan?: ParsedTriggerPlan): boolean {
+  return !plan || plan.steps.every((step) => SAFE_CAUSAL_PROBE_STEPS.has(step.type));
+}
 
 function globToRegExp(glob: string): RegExp {
   const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("**", "§§").replaceAll("*", "[^?]*").replaceAll("§§", ".*");
@@ -220,13 +240,16 @@ export class BrowserCollector {
 
   private locator(value: PlanLocator): Locator {
     const page = this.activePage;
-    switch (value.kind) {
-      case "css": return page.locator(value.value);
-      case "role": return page.getByRole(value.value as never, { name: value.name });
-      case "text": return page.getByText(value.value, { exact: value.exact });
-      case "label": return page.getByLabel(value.value, { exact: value.exact });
-      case "testId": return page.getByTestId(value.value);
-    }
+    const locator = (() => {
+      switch (value.kind) {
+        case "css": return page.locator(value.value);
+        case "role": return page.getByRole(value.value as never, { name: value.name });
+        case "text": return page.getByText(value.value, { exact: value.exact });
+        case "label": return page.getByLabel(value.value, { exact: value.exact });
+        case "testId": return page.getByTestId(value.value);
+      }
+    })();
+    return value.index === undefined ? locator : locator.nth(value.index);
   }
 
   private stepTimeout(timeoutMs?: number): number {
@@ -293,6 +316,69 @@ export class BrowserCollector {
     }
   }
 
+  private async replaySafeProbePlan(plan: ParsedTriggerPlan | undefined, fallbackRoute: string): Promise<void> {
+    if (plan?.route) await this.open(plan.route);
+    else await this.open(fallbackRoute);
+    for (const step of plan?.steps ?? []) {
+      switch (step.type) {
+        case "goto": await this.open(step.path); break;
+        case "hover": await this.locator(step.locator).hover({ timeout: step.timeoutMs }); break;
+        case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
+        case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;
+        case "waitForText": await this.activePage.getByText(step.text).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
+        case "reload": await this.open(this.activePage.url()); break;
+        default: throw new Error(`Unsafe causal probe step: ${step.type}`);
+      }
+      this.assertSameOrigin();
+    }
+  }
+
+  private async verifyCausalBinding(
+    target: RuntimeTargetSnapshot,
+    plan?: ParsedTriggerPlan,
+  ): Promise<boolean> {
+    if (
+      target.evidenceGrade !== "B" ||
+      !target.occurrenceId ||
+      !isCausalProbeSafe(plan) ||
+      !this.context
+    ) {
+      return false;
+    }
+
+    const originalPage = this.activePage;
+    const probePage = await this.context.newPage();
+    await probePage.route("**/*", (route) => this.routeRequest(route));
+    const token = `__COLLECT_CANARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
+    const origin = new URL(this.options.baseUrl).origin;
+    await probePage.addInitScript(
+      ({ expectedOrigin, storageKey, value }) => {
+        if (location.origin === expectedOrigin) {
+          sessionStorage.setItem(storageKey, JSON.stringify(value));
+        }
+      },
+      {
+        expectedOrigin: origin,
+        storageKey: CAUSAL_PROBE_STORAGE_KEY,
+        value: { occurrenceId: target.occurrenceId, token },
+      },
+    );
+
+    this.page = probePage;
+    try {
+      this.setMockRules(plan?.mocks ?? []);
+      await this.replaySafeProbePlan(plan, target.route);
+      const probed = await this.waitForKey(target.key, 15_000, "B");
+      return probed.occurrenceId === target.occurrenceId && probed.text === token;
+    } catch {
+      return false;
+    } finally {
+      this.page = originalPage;
+      await probePage.close().catch(() => undefined);
+      await originalPage.bringToFront().catch(() => undefined);
+    }
+  }
+
   async executePlan(rawPlan: TriggerPlan, source: CollectedEvidence["source"] = "agent"): Promise<CollectedEvidence> {
     const plan = parseTriggerPlan(rawPlan);
     const executingPage = this.activePage;
@@ -339,6 +425,7 @@ export class BrowserCollector {
   }
 
   async open(path = "/"): Promise<void> {
+    const navigationTimeout = Math.max(90_000, (this.options.defaultTimeoutMs ?? 15_000) * 6);
     await this.activePage.goto(this.sameOriginUrl(path), {
       // `domcontentloaded` is allowed to remain pending when a transformed
       // module stalls. Commit first, then perform our own bounded readiness
@@ -347,10 +434,10 @@ export class BrowserCollector {
       // Vite's first transform on a real project is often materially slower
       // than subsequent locator operations. Keep navigation bounded, but do
       // not reuse the short per-action timeout for the initial compilation.
-      timeout: Math.max(45_000, (this.options.defaultTimeoutMs ?? 15_000) * 3),
+      timeout: navigationTimeout,
     });
     const startedAt = Date.now();
-    const readinessTimeout = Math.max(45_000, (this.options.defaultTimeoutMs ?? 15_000) * 3);
+    const readinessTimeout = navigationTimeout;
     while (Date.now() - startedAt < readinessTimeout) {
       const ready = await bounded(this.activePage.evaluate(() => {
         const view = window as RuntimeWindow;
@@ -372,6 +459,7 @@ export class BrowserCollector {
         kind: item.kind,
         evidenceGrade: item.evidenceGrade,
         evidenceProof: item.evidenceProof,
+        connected: "connected" in item ? Boolean(item.connected) : undefined,
         visible: item.visible,
         anchorType: "anchorType" in item ? String(item.anchorType) : undefined,
         text: item.text,
@@ -385,6 +473,43 @@ export class BrowserCollector {
         snapshots,
       };
     }, Math.max(1, Math.min(limit, 2_000))), 3_000, "Runtime inspection timed out while the page was navigating");
+  }
+
+  async inspectRuntimeSettled(
+    limit = 2_000,
+    timeoutMs = 5_000,
+    quietMs = 900,
+  ): Promise<RuntimeInspection> {
+    const deadline = Date.now() + Math.max(quietMs, timeoutMs);
+    let latest = await this.inspectRuntime(limit);
+    let previousSignature = "";
+    let stableSince = Date.now();
+
+    while (Date.now() < deadline) {
+      const signature = latest.snapshots
+        .filter((snapshot) =>
+          snapshot.key &&
+          snapshot.connected !== false &&
+          Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0),
+        )
+        .map((snapshot) =>
+          `${snapshot.occurrenceId ?? ""}:${snapshot.key}:${snapshot.evidenceGrade ?? ""}:${snapshot.visible ? 1 : 0}`,
+        )
+        .sort()
+        .join("|");
+
+      if (signature && signature === previousSignature) {
+        if (Date.now() - stableSince >= quietMs) return latest;
+      } else {
+        previousSignature = signature;
+        stableSince = Date.now();
+      }
+
+      await this.activePage.waitForTimeout(100);
+      latest = await this.inspectRuntime(limit);
+    }
+
+    return latest;
   }
 
   async waitForKey(
@@ -520,6 +645,24 @@ export class BrowserCollector {
       rect.x + rect.width > 0 && rect.y + rect.height > 0,
     );
     if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
+    const shouldProbe =
+      resolvedTarget.evidenceGrade === "B" &&
+      (source === "deterministic" || (source === "agent" && Boolean(plan)));
+    const causalVerified = shouldProbe
+      ? await this.verifyCausalBinding(resolvedTarget, plan)
+      : false;
+    if (
+      source === "deterministic" &&
+      resolvedTarget.evidenceGrade === "B" &&
+      !causalVerified
+    ) {
+      throw new Error(
+        `Deterministic B evidence for ${resolvedTarget.key} did not pass the isolated causal canary`,
+      );
+    }
+    if (causalVerified) {
+      resolvedTarget = await this.waitForKey(target.key, 5_000, "B");
+    }
     const marker = captureMarkerSpec(resolvedTarget.rect);
     await bounded(page.evaluate(({ id, style }) => {
       const runtimeWindow = window as RuntimeWindow;
@@ -555,11 +698,20 @@ export class BrowserCollector {
       .digest("hex");
     return {
       ...resolvedTarget,
+      evidenceGrade: causalVerified ? "A" : resolvedTarget.evidenceGrade,
+      evidenceProof: causalVerified ? "causal-canary" : resolvedTarget.evidenceProof,
       screenshotPath,
       screenshotSha256,
       capturedAt: new Date().toISOString(),
       source,
       plan,
+      causalProbe: causalVerified
+        ? {
+            verified: true,
+            originalGrade: "B",
+            originalProof: resolvedTarget.evidenceProof,
+          }
+        : undefined,
     };
   }
 

@@ -1,0 +1,128 @@
+{
+  "title": "Orders",
+  "subtitle": "Search orders by criteria, view details and run row-level actions",
+  "searchPlaceholder": "Enter order number or customer name",
+  "searchBtn": "Search",
+  "resetBtn": "Reset",
+  "emptyHint": "Enter query criteria and click Search",
+  "columns": {
+    "orderNo": "Order no.",
+    "customer": "Customer",
+    "status": "Status",
+    "amount": "Amount",
+    "actions": "Actions"
+  },
+  "toolbar": {
+    "refresh": "Refresh",
+    "export": "Export",
+    "columnSettings": "Columns",
+    "simulateError": "Simulate server error"
+  },
+  "filters": {
+    "title": "Filters",
+    "status": {
+      "label": "Order status",
+      "placeholder": "All statuses",
+      "pending": "Pending",
+      "paid": "Paid",
+      "shipped": "Shipped",
+      "cancelled": "Cancelled",
+      "refunded": "Refunded",
+      "completed": "Completed"
+    },
+    "customerLevel": {
+      "label": "Customer level",
+      "placeholder": "All levels",
+      "vip": "VIP",
+      "normal": "Normal",
+      "new": "New"
+    },
+    "dateRange": {
+      "label": "Placed at",
+      "start": "Start date",
+      "end": "End date"
+    },
+    "minAmount": {
+      "label": "Min amount",
+      "placeholder": "e.g. 100.00"
+    },
+    "apply": "Apply filters",
+    "clear": "Clear filters"
+  },
+  "states": {
+    "loading": "Loading orders…",
+    "loadFailed": "Failed to load orders, please try again later",
+    "retry": "Reload",
+    "noResults": "No orders match the criteria",
+    "success": "Orders loaded",
+    "quotaExceeded": "Too many queries, please try again later"
+  },
+  "pagination": {
+    "total": "{count} total",
+    "pageSize": "{size} / page",
+    "first": "First",
+    "prev": "Previous",
+    "next": "Next",
+    "last": "Last"
+  },
+  "actions": {
+    "viewDetail": "View detail",
+    "reprint": "Reprint receipt",
+    "cancel": "Cancel order",
+    "export": "Export"
+  },
+  "detail": {
+    "title": "Order detail",
+    "orderNo": "Order no.",
+    "customer": "Customer",
+    "contact": "Contact",
+    "status": "Status",
+    "amount": "Order amount",
+    "paymentMethod": "Payment method",
+    "createdAt": "Placed at",
+    "paidAt": "Paid at",
+    "shippedAt": "Shipped at",
+    "address": "Shipping address",
+    "remark": "Remark",
+    "items": {
+      "title": "Line items",
+      "product": "Product",
+      "quantity": "Qty",
+      "price": "Price",
+      "subtotal": "Subtotal"
+    },
+    "timeline": {
+      "title": "Progress",
+      "created": "Created",
+      "paid": "Paid",
+      "shipped": "Shipped",
+      "delivered": "Delivered"
+    },
+    "close": "Close"
+  },
+  "cancelDialog": {
+    "title": "Cancel order",
+    "message": "The order cannot be restored once cancelled. Continue?",
+    "confirm": "Confirm cancel",
+    "cancel": "Let me think",
+    "success": "Order cancelled",
+    "failed": "Cancel failed, please retry"
+  },
+  "export": {
+    "success": "Orders exported",
+    "failed": "Export failed, please try again later"
+  },
+  "reprint": {
+    "success": "Receipt reprinted",
+    "failed": "Print failed, please check the device"
+  },
+  "batch": {
+    "selected": "{count} selected"
+  },
+  "aria": {
+    "refresh": "Refresh the order list",
+    "filterToggle": "Expand or collapse filters",
+    "closeDrawer": "Close order detail",
+    "rowActions": "Row actions menu"
+  }
+}

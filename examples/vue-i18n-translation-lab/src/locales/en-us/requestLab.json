@@ -1,50 +1,98 @@
 {
-  "title": "New Data Sync Job",
-  "subtitle": "Configure the source endpoint, environment, and retry policy",
-  "status": {
-    "ready": "Service available"
+  "title": "API Console",
+  "subtitle": "Use local request profiles to inspect loading, success, error, partial, empty, and retry states",
+  "scenarioLabel": "Response scenario",
+  "scenarioPlaceholder": "Select a scenario",
+  "sendBtn": "Send request",
+  "retryBtn": "Retry request",
+  "clearBtn": "Clear result",
+  "responseTitle": "Response",
+  "scenarios": {
+    "success": { "label": "Success", "desc": "Returns 200 with full data" },
+    "error": { "label": "Server error", "desc": "Returns a 500 error" },
+    "partial": { "label": "Partial", "desc": "Some items fail, returns 206" },
+    "retry": { "label": "Retryable failure", "desc": "Fails twice then succeeds" },
+    "empty": { "label": "Empty", "desc": "Returns 200 with no data" },
+    "slow": { "label": "Slow", "desc": "Returns after 1.5s" }
   },
-  "form": {
-    "name": "Job name",
-    "namePlaceholder": "Enter a job name beginning with a letter",
-    "email": "Notification email",
-    "emailPlaceholder": "Example: owner{'@'}example.com",
-    "endpoint": "Service endpoint",
-    "endpointPlaceholder": "Example: https://api.example.com/v1",
-    "retries": "Retry count",
-    "environment": "Environment",
-    "environmentPlaceholder": "Select an environment",
-    "description": "Job description",
-    "descriptionPlaceholder": "Describe the data source, schedule, and failure handling",
-    "submit": "Continue",
-    "reset": "Reset form"
+  "states": {
+    "loading": "Sending request…",
+    "loadingHint": "The local adapter is generating a deterministic response",
+    "success": "Request succeeded",
+    "successDetail": "Status 200, returned {count} items",
+    "error": "Request failed",
+    "errorDetail": "Server returned an error, status {code}",
+    "partial": "Partial success",
+    "partialDetail": "{success} succeeded, {failed} failed",
+    "empty": "Empty result",
+    "emptyHint": "Request succeeded but no data matched",
+    "retrying": "Retrying",
+    "retryingHint": "Attempt {attempt}, {remaining} remaining",
+    "retryExhausted": "Retries exhausted",
+    "retryExhaustedDetail": "Failed after {max} retries, please try again",
+    "timeout": "Request timed out"
   },
-  "environment": {
-    "development": "Development",
-    "staging": "Staging",
-    "production": "Production"
+  "response": {
+    "status": "Status",
+    "duration": "Duration",
+    "requestId": "Request ID",
+    "attempt": "Attempt",
+    "method": "Method",
+    "url": "URL",
+    "requestBody": "Request body",
+    "responseBody": "Response body",
+    "responseHeaders": "Headers",
+    "copy": "Copy response",
+    "empty": "No request sent yet"
   },
-  "validation": {
-    "nameRequired": "Enter a job name",
-    "nameLength": "The job name must contain 4 to 24 characters",
-    "namePattern": "The job name must begin with a letter and contain only letters, numbers, and hyphens",
-    "emailRequired": "Enter a notification email",
-    "emailInvalid": "Enter a valid email address",
-    "endpointRequired": "Enter a service endpoint",
-    "endpointInvalid": "The service endpoint must be a valid HTTPS URL",
-    "environmentRequired": "Select an environment",
-    "descriptionLength": "The job description cannot exceed 120 characters"
+  "statusCodes": {
+    "ok200": "200 OK",
+    "badRequest400": "400 Bad Request",
+    "notFound404": "404 Not Found",
+    "validation422": "422 Unprocessable Entity",
+    "serverError500": "500 Internal Server Error"
   },
-  "confirmation": {
-    "title": "Confirm Sync Job Creation",
-    "message": "The job will connect to the source endpoint and begin syncing immediately. Continue?",
-    "cancel": "Back to edit",
-    "confirm": "Confirm creation"
+  "controls": {
+    "delayLabel": "Delay (ms)",
+    "delayPlaceholder": "e.g. 800",
+    "statusCodeLabel": "Status override",
+    "statusCodePlaceholder": "e.g. 500",
+    "injectErrorLabel": "Inject error",
+    "payloadSizeLabel": "Payload size",
+    "payloadOptions": {
+      "small": "Small (5)",
+      "medium": "Medium (20)",
+      "large": "Large (100)"
+    }
+  },
+  "retry": {
+    "title": "Retry config",
+    "maxLabel": "Max retries",
+    "maxPlaceholder": "e.g. 3",
+    "delayLabel": "Retry delay (ms)",
+    "delayPlaceholder": "e.g. 500",
+    "backoffLabel": "Backoff",
+    "backoff": {
+      "fixed": "Fixed",
+      "linear": "Linear",
+      "exponential": "Exponential"
+    },
+    "onRetry": "Notify on retry"
+  },
+  "log": {
+    "title": "Request log",
+    "empty": "No requests recorded",
+    "columns": {
+      "time": "Time",
+      "scenario": "Scenario",
+      "status": "Status",
+      "duration": "Duration",
+      "attempt": "Attempt"
+    },
+    "clear": "Clear log"
   },
   "feedback": {
-    "success": "Job {name} was created with ID {id}",
-    "requestFailed": "Unable to create the job. Review the form and try again",
-    "quotaExceeded": "This workspace has insufficient quota. Contact an administrator to increase it",
-    "requestId": "Request ID: {requestId}"
+    "copied": "Response copied to clipboard",
+    "cleared": "Result cleared"
   }
 }

@@ -1,0 +1,124 @@
+{
+  "title": "Runtime diagnostics",
+  "subtitle": "Review release previews, async modules, service summaries, and task status",
+  "openDialog": "Open release preview",
+  "sections": {
+    "teleport": "Release preview",
+    "lazy": "Release notes",
+    "fragment": "Service overview",
+    "dynamic": "Task status"
+  },
+  "teleport": {
+    "open": "Preview release",
+    "dialog": {
+      "title": "Canary release preview",
+      "body": "The current configuration is ready for the canary environment. Review its scope and checks",
+      "note": "This preview is read-only and does not change the current environment",
+      "confirm": "Looks good",
+      "cancel": "Close"
+    },
+    "footer": "Target environment: canary",
+    "list": {
+      "title": "Release checks",
+      "item1": "Configuration validation passed",
+      "item2": "Dependent services are healthy",
+      "item3": "Rollback plan is ready"
+    },
+    "steps": {
+      "open": "Open preview",
+      "render": "Review configuration",
+      "capture": "Confirm release"
+    }
+  },
+  "lazy": {
+    "open": "View release notes",
+    "loading": "Loading release notes…",
+    "dialog": {
+      "title": "Release notes",
+      "body": "This release improves task scheduling, retry handling, and runtime status visibility",
+      "hint": "The update module loads on demand and may take a moment the first time",
+      "confirm": "Mark as read",
+      "close": "Close"
+    },
+    "loaded": "Release notes loaded",
+    "features": {
+      "item1": "Faster task list loading",
+      "item2": "Clearer error messages",
+      "item3": "Backoff support for request retries",
+      "item4": "Smaller initial page bundle"
+    }
+  },
+  "fragment": {
+    "desc": "The service summary, details, and ownership are shown as separate sections below",
+    "wrapper": {
+      "title": "Order synchronization service",
+      "lead": "Health: healthy",
+      "body": "The latest run processed 1,248 records",
+      "footer": "On-call team: Data Platform"
+    },
+    "props": {
+      "label": "Service labels",
+      "hint": "Runtime information refreshes from the monitoring API"
+    },
+    "slots": {
+      "title": "Runtime summary",
+      "header": "Service details",
+      "default": "All current service metrics are within normal ranges",
+      "footer": "Ownership"
+    }
+  },
+  "dynamic": {
+    "desc": "The information below changes with task status, progress, and message count",
+    "statusLabel": "Current status",
+    "statuses": {
+      "idle": "Idle",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "interpolation": {
+      "greeting": "Hello, {name}, welcome to {product}",
+      "count": "{count} tasks in total",
+      "progress": "{done}/{total} completed"
+    },
+    "plurals": {
+      "messages": "one new message | {count} new messages",
+      "label": "Pending messages",
+      "hint": "The count updates as task results arrive",
+      "examples": "Example quantity"
+    },
+    "operations": {
+      "title": "Task actions",
+      "create": "Create",
+      "read": "View",
+      "update": "Edit",
+      "delete": "Delete"
+    },
+    "templates": {
+      "title": "Notification template",
+      "default": "Use the system notification template"
+    }
+  },
+  "duplicates": {
+    "desc": "Common quick actions",
+    "confirm": "OK",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "export": "Export",
+    "import": "Import",
+    "edit": "Edit"
+  },
+  "aria": {
+    "teleportOpen": "Open canary release preview",
+    "lazyOpen": "Open release notes",
+    "fragmentInfo": "Expand service overview",
+    "dynamicInfo": "Expand task status details"
+  },
+  "titles": {
+    "teleportCard": "Release preview",
+    "lazyCard": "Release notes",
+    "statusBadge": "Current task status",
+    "helpLink": "View task help"
+  }
+}

@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  CAUSAL_PROBE_STORAGE_KEY,
+  createDerivedOccurrenceId,
   createElementPlusCommandAdapter,
   enqueueDescriptors,
   installCollectorRuntime,
   recordRenderedValue,
   runImperativeInvocation,
   uninstallGlobalCollector,
+  vnodeProvenanceMounted,
 } from './index.js'
 
 function testRect(
@@ -38,10 +41,97 @@ afterEach(() => {
   if (window.__COLLECT_I18N__) uninstallGlobalCollector(window)
   delete window.__COLLECT_I18N_PENDING__
   document.body.replaceChildren()
+  window.sessionStorage.clear()
   vi.restoreAllMocks()
 })
 
 describe('CollectorRegistry', () => {
+  it('substitutes a canary only for compiler-approved visual occurrences', () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'safe-label',
+        key: 'form.label',
+        kind: 'text',
+        metadata: { canarySafe: true },
+      },
+      {
+        occurrenceId: 'unsafe-service',
+        key: 'message.saved',
+        kind: 'imperative-service',
+        metadata: { canarySafe: false },
+      },
+    ])
+    installCollectorRuntime({ overlay: false })
+    window.sessionStorage.setItem(
+      CAUSAL_PROBE_STORAGE_KEY,
+      JSON.stringify({ occurrenceId: 'safe-label', token: '__COLLECT_CANARY_SAFE__' }),
+    )
+
+    expect(recordRenderedValue('Original', 'safe-label')).toBe('__COLLECT_CANARY_SAFE__')
+    expect(recordRenderedValue('Saved', 'unsafe-service')).toBe('Saved')
+  })
+
+  it('substitutes a canary for only one actual key at a dynamic call site', () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'dynamic-label',
+        keyExpression: '`actions.${action}`',
+        kind: 'text',
+        component: 'el-button',
+        metadata: { canarySafe: false },
+      },
+    ])
+    installCollectorRuntime({ overlay: false })
+    window.sessionStorage.setItem(
+      CAUSAL_PROBE_STORAGE_KEY,
+      JSON.stringify({
+        occurrenceId: createDerivedOccurrenceId('dynamic-label', 'actions.delete'),
+        token: '__COLLECT_DYNAMIC_CANARY__',
+      }),
+    )
+
+    expect(recordRenderedValue('Create', 'dynamic-label', 'actions.create')).toBe('Create')
+    expect(recordRenderedValue('Delete', 'dynamic-label', 'actions.delete')).toBe(
+      '__COLLECT_DYNAMIC_CANARY__',
+    )
+  })
+
+  it('transports script display provenance through an invisible string marker', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'role-name-required',
+        key: 'permissions.validation.nameRequired',
+        kind: 'virtual',
+        metadata: {
+          inlineTransport: true,
+          canarySafe: true,
+        },
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const transported = recordRenderedValue(
+      '请输入角色名称',
+      'role-name-required',
+    )
+    expect(String(transported).length - '请输入角色名称'.length).toBeLessThanOrEqual(6)
+    expect(String(transported)).not.toMatch(/[\u{e0000}-\u{e007f}]/u)
+    const error = document.createElement('div')
+    error.textContent = transported
+    document.body.append(error)
+
+    await mutationsSettled()
+
+    expect(error.textContent).toContain('请输入角色名称')
+    expect(error.textContent).not.toContain('role-name-required')
+    expect(registry.getOccurrence('role-name-required')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'A',
+      evidenceProof: 'compiler-inline-transport',
+      connected: true,
+      text: '请输入角色名称',
+    })
+  })
+
   it('discovers native markers and publishes a visible target event', () => {
     const button = document.createElement('button')
     button.dataset.i18nKey = 'actions.save'
@@ -358,6 +448,146 @@ describe('CollectorRegistry', () => {
     })
   })
 
+  it('uses VNode provenance across fragment and Teleport host roots', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'fragment-placeholder',
+        key: 'form.email.placeholder',
+        kind: 'component-prop',
+        component: 'multi-root-input',
+        prop: 'placeholder',
+      },
+      {
+        occurrenceId: 'teleported-label',
+        key: 'dialog.confirm',
+        kind: 'text',
+        component: 'teleported-dialog',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const unrelatedInput = document.createElement('input')
+    unrelatedInput.placeholder = 'Enter email'
+    const unrelatedText = document.createElement('span')
+    unrelatedText.textContent = 'Confirm'
+    const fragmentRoot = document.createElement('section')
+    const input = document.createElement('input')
+    input.placeholder = 'Enter email'
+    fragmentRoot.append(input)
+    const teleportedRoot = document.createElement('div')
+    teleportedRoot.textContent = 'Confirm'
+    document.body.append(unrelatedInput, unrelatedText, fragmentRoot, teleportedRoot)
+
+    registry.recordRenderedValue('fragment-placeholder', 'Enter email')
+    registry.recordRenderedValue('teleported-label', 'Confirm')
+    vnodeProvenanceMounted(
+      {
+        component: {
+          subTree: {
+            el: document.createComment('fragment'),
+            children: [{ el: fragmentRoot }, { el: teleportedRoot }],
+          },
+        },
+      },
+      ['fragment-placeholder', 'teleported-label'],
+    )
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('fragment-placeholder')).toMatchObject({
+      anchorType: 'element',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-vnode-provenance',
+      connected: true,
+    })
+    expect(registry.getOccurrence('teleported-label')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-vnode-provenance',
+      connected: true,
+      text: 'Confirm',
+    })
+  })
+
+  it('selects one valid component instance when a v-for repeats the same occurrence', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'repeated-row-label',
+        key: 'orders.actions.open',
+        kind: 'text',
+        component: 'el-button',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const first = document.createElement('button')
+    const second = document.createElement('button')
+    first.textContent = second.textContent = 'Open'
+    document.body.append(first, second)
+
+    registry.recordRenderedValue('repeated-row-label', 'Open')
+    vnodeProvenanceMounted(
+      { component: { subTree: { el: first } } },
+      ['repeated-row-label'],
+    )
+    vnodeProvenanceMounted(
+      { component: { subTree: { el: second } } },
+      ['repeated-row-label'],
+    )
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('repeated-row-label')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-vnode-provenance',
+      connected: true,
+      text: 'Open',
+    })
+  })
+
+  it('keeps each actual key rendered by one dynamic v-for occurrence', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'dynamic-action',
+        keyExpression: '`actions.${action}`',
+        kind: 'text',
+        component: 'el-button',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const createButton = document.createElement('button')
+    const deleteButton = document.createElement('button')
+    createButton.textContent = 'Create'
+    deleteButton.textContent = 'Delete'
+    document.body.append(createButton, deleteButton)
+
+    registry.recordRenderedValue('dynamic-action', 'Create', 'actions.create')
+    registry.recordRenderedValue('dynamic-action', 'Delete', 'actions.delete')
+    vnodeProvenanceMounted(
+      { component: { subTree: { el: createButton } } },
+      ['dynamic-action'],
+    )
+    vnodeProvenanceMounted(
+      { component: { subTree: { el: deleteButton } } },
+      ['dynamic-action'],
+    )
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('dynamic-action')?.key).toBeUndefined()
+    expect(registry.getDerivedOccurrences('dynamic-action')).toHaveLength(2)
+    expect(registry.getSnapshot().find((item) => item.key === 'actions.create')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-vnode-provenance',
+      connected: true,
+      text: 'Create',
+    })
+    expect(registry.getSnapshot().find((item) => item.key === 'actions.delete')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'compiler-vnode-provenance',
+      connected: true,
+      text: 'Delete',
+    })
+  })
+
   it('abstains when two occurrences share the same text inside one compiler owner', async () => {
     enqueueDescriptors([
       { occurrenceId: 'same-owner-a', key: 'labels.a', kind: 'text' },
@@ -435,7 +665,33 @@ describe('CollectorRegistry', () => {
     unique.setAttribute('label', '唯一标签')
     registry.rescan(document)
     await mutationsSettled()
-    expect(registry.getOccurrence('unique-component-label')?.anchorType).toBe('element')
+    expect(registry.getOccurrence('unique-component-label')?.anchorType).toBe('virtual')
+  })
+
+  it('does not expose title-only component props as visible screenshot targets', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'card-title',
+        key: 'card.tooltip',
+        kind: 'component-prop',
+        component: 'el-card',
+        prop: 'title',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const card = document.createElement('section')
+    card.title = 'Release preview'
+    document.body.append(card)
+
+    registry.recordRenderedValue('card-title', 'Release preview')
+    vnodeProvenanceMounted({ component: { subTree: { el: card } } }, ['card-title'])
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('card-title')).toMatchObject({
+      anchorType: 'owner',
+      connected: true,
+      visible: false,
+    })
   })
 
   it('binds multiple instrumented descriptors inside real ElNotification Teleport DOM', async () => {
@@ -509,6 +765,46 @@ describe('CollectorRegistry', () => {
     })
   })
 
+  it('promotes the actual derived key for a dynamic Element Plus invocation', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'compiled-dynamic-message',
+        keyExpression: '`messages.${messageType}.text`',
+        kind: 'imperative-service',
+        service: 'ElMessage',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    const derivedId = createDerivedOccurrenceId(
+      'compiled-dynamic-message',
+      'messages.warning.text',
+    )
+
+    runImperativeInvocation('ElMessage', ['compiled-dynamic-message'], () => {
+      recordRenderedValue(
+        'Check required fields',
+        'compiled-dynamic-message',
+        'messages.warning.text',
+      )
+      const message = document.createElement('div')
+      message.className = 'el-message'
+      message.textContent = 'Check required fields'
+      document.body.append(message)
+    })
+    await mutationsSettled()
+
+    expect(registry.getOccurrence(derivedId)).toMatchObject({
+      key: 'messages.warning.text',
+      anchorType: 'element',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      text: 'Check required fields',
+    })
+    expect(registry.getOccurrence('compiled-dynamic-message')).toMatchObject({
+      anchorType: 'virtual',
+    })
+  })
+
   it('retries an initially unmatched ElMessageBox when it is rescanned after rendering', async () => {
     enqueueDescriptors([
       {
@@ -551,6 +847,84 @@ describe('CollectorRegistry', () => {
     expect(registry.getOccurrence('messagebox-message')).toMatchObject({
       anchorType: 'range',
       connected: true,
+    })
+  })
+
+  it('pairs repeated ElMessageBox nodes when they come from the same key', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'prompt-title-a',
+        key: 'prompt.title',
+        kind: 'imperative-service',
+        service: 'ElMessageBox',
+      },
+      {
+        occurrenceId: 'prompt-title-b',
+        key: 'prompt.title',
+        kind: 'imperative-service',
+        service: 'ElMessageBox',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    runImperativeInvocation('ElMessageBox', ['prompt-title-a'], () => {
+      recordRenderedValue('Enter a reason', 'prompt-title-a')
+    })
+    runImperativeInvocation('ElMessageBox', ['prompt-title-b'], () => {
+      recordRenderedValue('Enter a reason', 'prompt-title-b')
+    })
+
+    const messageBox = document.createElement('div')
+    messageBox.className = 'el-message-box'
+    const title = document.createElement('span')
+    title.textContent = 'Enter a reason'
+    const message = document.createElement('p')
+    message.textContent = 'Enter a reason'
+    messageBox.append(title, message)
+    document.body.append(messageBox)
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('prompt-title-a')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      connected: true,
+    })
+    expect(registry.getOccurrence('prompt-title-b')).toMatchObject({
+      anchorType: 'range',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      connected: true,
+    })
+  })
+
+  it('binds an invoked ElMessageBox input placeholder to its painted input', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'prompt-placeholder',
+        key: 'prompt.placeholder',
+        kind: 'imperative-service',
+        service: 'ElMessageBox',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    runImperativeInvocation('ElMessageBox', ['prompt-placeholder'], () => {
+      recordRenderedValue('Enter a reason', 'prompt-placeholder')
+    })
+
+    const messageBox = document.createElement('div')
+    messageBox.className = 'el-message-box'
+    const input = document.createElement('input')
+    input.placeholder = 'Enter a reason'
+    messageBox.append(input)
+    document.body.append(messageBox)
+    await mutationsSettled()
+
+    expect(registry.getOccurrence('prompt-placeholder')).toMatchObject({
+      anchorType: 'element',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      connected: true,
+      text: 'Enter a reason',
     })
   })
 

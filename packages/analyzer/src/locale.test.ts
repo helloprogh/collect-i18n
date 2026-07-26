@@ -63,6 +63,40 @@ describe('locale discovery and catalog construction', () => {
     })
   })
 
+  it('preserves a same-named root object inside the file namespace', async () => {
+    const root = await createWorkspace()
+    const zh = path.join(root, 'src', 'locales', 'zh-cn')
+    const en = path.join(root, 'src', 'locales', 'en-us')
+    await mkdir(zh, { recursive: true })
+    await mkdir(en, { recursive: true })
+    await writeFile(
+      path.join(zh, 'notifications.json'),
+      JSON.stringify({
+        title: '消息通知',
+        notifications: { success: { title: '同步完成' } },
+      }),
+    )
+    await writeFile(
+      path.join(en, 'notifications.json'),
+      JSON.stringify({
+        title: 'Notifications',
+        notifications: { success: { title: 'Sync complete' } },
+      }),
+    )
+
+    const catalog = await buildLocaleCatalog({ projectRoot: root })
+
+    expect(catalog.keys.map((key) => key.keyPath)).toEqual([
+      'notifications.notifications.success.title',
+      'notifications.title',
+    ])
+    expect(catalog.keys[0]).toMatchObject({
+      jsonPath: ['notifications', 'success', 'title'],
+      sourceText: '同步完成',
+      targetText: 'Sync complete',
+    })
+  })
+
   it('round-trips nested objects and arrays', () => {
     const input = {
       common: { actions: ['保存', '取消'], prompt: '继续吗？' },

@@ -1,0 +1,124 @@
+{
+  "title": "运行诊断",
+  "subtitle": "检查发布预览、异步模块、服务摘要与任务状态",
+  "openDialog": "打开发布预览",
+  "sections": {
+    "teleport": "发布预览",
+    "lazy": "版本更新",
+    "fragment": "服务概览",
+    "dynamic": "任务状态"
+  },
+  "teleport": {
+    "open": "预览发布内容",
+    "dialog": {
+      "title": "灰度发布预览",
+      "body": "即将把当前配置发布到灰度环境，请核对影响范围与检查项",
+      "note": "预览为只读状态，不会修改当前环境",
+      "confirm": "确认无误",
+      "cancel": "关闭"
+    },
+    "footer": "目标环境：灰度",
+    "list": {
+      "title": "发布检查",
+      "item1": "配置校验已通过",
+      "item2": "依赖服务运行正常",
+      "item3": "回滚方案已经就绪"
+    },
+    "steps": {
+      "open": "打开预览",
+      "render": "核对配置",
+      "capture": "确认发布"
+    }
+  },
+  "lazy": {
+    "open": "查看更新说明",
+    "loading": "正在加载更新说明…",
+    "dialog": {
+      "title": "版本更新说明",
+      "body": "本次更新优化了任务调度、异常重试和运行状态展示",
+      "hint": "更新模块按需加载，首次打开可能需要短暂等待",
+      "confirm": "标记为已读",
+      "close": "关闭"
+    },
+    "loaded": "更新说明已加载",
+    "features": {
+      "item1": "任务列表加载更快",
+      "item2": "错误提示更加清晰",
+      "item3": "请求重试支持退避策略",
+      "item4": "页面首屏体积进一步降低"
+    }
+  },
+  "fragment": {
+    "desc": "下方按摘要、详情和页脚分别展示当前服务信息",
+    "wrapper": {
+      "title": "订单同步服务",
+      "lead": "运行状态：健康",
+      "body": "最近一次同步已处理 1,248 条记录",
+      "footer": "值班团队：数据平台组"
+    },
+    "props": {
+      "label": "服务标签",
+      "hint": "运行信息由监控接口实时刷新"
+    },
+    "slots": {
+      "title": "运行摘要",
+      "header": "基础信息",
+      "default": "当前服务指标均在正常范围内",
+      "footer": "负责人信息"
+    }
+  },
+  "dynamic": {
+    "desc": "下列信息会随任务状态、进度和消息数量实时变化",
+    "statusLabel": "当前状态",
+    "statuses": {
+      "idle": "空闲",
+      "running": "运行中",
+      "done": "已完成",
+      "failed": "已失败"
+    },
+    "interpolation": {
+      "greeting": "你好，{name}，欢迎使用 {product}",
+      "count": "当前共 {count} 个任务",
+      "progress": "已完成 {done}/{total}"
+    },
+    "plurals": {
+      "messages": "您有 {count} 条新消息",
+      "label": "待处理消息",
+      "hint": "消息数量会根据任务执行结果实时更新",
+      "examples": "示例数量"
+    },
+    "operations": {
+      "title": "任务操作",
+      "create": "新增",
+      "read": "查看",
+      "update": "编辑",
+      "delete": "删除"
+    },
+    "templates": {
+      "title": "通知模板",
+      "default": "使用系统默认通知模板"
+    }
+  },
+  "duplicates": {
+    "desc": "常用快捷操作",
+    "confirm": "确定",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "export": "导出",
+    "import": "导入",
+    "edit": "编辑"
+  },
+  "aria": {
+    "teleportOpen": "打开灰度发布预览",
+    "lazyOpen": "打开版本更新说明",
+    "fragmentInfo": "展开服务运行概览",
+    "dynamicInfo": "展开任务状态详情"
+  },
+  "titles": {
+    "teleportCard": "发布预览",
+    "lazyCard": "版本更新",
+    "statusBadge": "当前任务状态",
+    "helpLink": "查看任务说明"
+  }
+}

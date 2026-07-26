@@ -2,8 +2,32 @@
   "product": "GDE Admin Console",
   "title": "Data Sync Center",
   "switchLocale": "Switch to Chinese",
+  "localeLabel": "Language",
   "nav": {
-    "createJob": "New Job",
-    "jobs": "Sync Jobs"
+    "onboarding": "Onboarding",
+    "orders": "Orders",
+    "permissions": "Permissions",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "requestLab": "API Console",
+    "diagnostics": "Runtime diagnostics"
+  },
+  "userMenu": {
+    "label": "Account",
+    "profile": "Profile",
+    "settings": "Preferences",
+    "logout": "Log out"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "help": {
+    "tooltip": "Open the help docs"
+  },
+  "footer": {
+    "copyright": "© 2026 GDE Data Sync Center",
+    "version": "Console 3.8.0"
   }
 }
