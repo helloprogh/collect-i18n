@@ -89,6 +89,7 @@ collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 ```text
 collect-i18n start --background
 collect-i18n start --foreground
+collect-i18n start --session <session-id> --background
 ```
 
 后台是默认模式，要求 CLI 已构建。命令启动或复用：
@@ -98,7 +99,7 @@ collect-i18n start --foreground
 - 使用独立 profile 的 Chrome；
 - 当前会话的确定性采集队列。
 
-返回 `sessionId`、`serviceUrl`、`studioUrl`、`appUrl`，复用时还返回 `reused: true`。同一项目不要并行启动多个实例。
+返回 `sessionId`、`serviceUrl`、`studioUrl`、`appUrl`，复用时还返回 `reused: true`。`--session` 只恢复指定的 `stopped`/`interrupted` 会话，保留原任务 ID、计划和证据；被中断的确定性任务会重新进入 `pending`，被中断的 Agent 任务会按重试次数安全回到 Agent 或人工队列。不带 `--session` 的 `start` 会创建新会话，不能用于恢复。若另一个会话的服务仍在运行，命令拒绝切换。同一项目不要并行启动多个实例。
 
 ### `status`
 
@@ -133,10 +134,10 @@ collect-i18n status --session <session-id>
 ### `stop`
 
 ```text
-collect-i18n stop
+collect-i18n stop --session <session-id>
 ```
 
-停止目标项目当前服务并删除服务描述。它不删除 SQLite、截图或浏览器 profile。
+停止与指定 ID 匹配的目标项目当前服务并删除服务描述；若另一个会话已经接管服务则拒绝停止。省略 `--session` 只为兼容人工诊断场景，不建议 Agent 使用。命令不删除 SQLite、截图或浏览器 profile。
 
 ## Agent 命令
 
@@ -166,7 +167,7 @@ collect-i18n agent execute --session <session-id> --task <task-id>
 collect-i18n agent execute --session <session-id> --task <task-id> --plan-file <absolute-plan-json>
 ```
 
-默认执行已提交的计划，也可临时提供计划文件。执行期间 CLI 独占项目浏览器。首次失败保留在 Agent 队列供一次基于证据的修正；再次失败进入人工队列。
+默认执行已提交的计划，也可临时提供计划文件。执行期间 CLI 独占项目浏览器。若目标会话的服务已停止且没有其他活动服务，命令会自动恢复同一会话；若另一个会话仍在运行则拒绝劫持。首次失败保留在 Agent 队列供一次基于证据的修正；再次失败进入人工队列。
 
 ### `finalize`
 

@@ -25,6 +25,7 @@ Run `--version` before touching the target project. Treat `<skill-directory>` as
 - Treat successful runtime evidence as completion. Static text matches and Agent claims are hints, not evidence.
 - Do not manipulate the project browser while `agent execute` is running. Wait for the CLI result, then analyze its evidence or error.
 - Do not use arbitrary browser evaluation, shell steps, external navigation, or unbounded waits in a TriggerPlan.
+- If `init` or `scan` reports an active session, do not stop it merely to obtain a fresh run. Use `run`/`status` to reuse it, or report the conflicting owner when its session ID differs from the one returned to this workflow.
 - Treat the capability embedded in `studioUrl` as a local session secret. Show or open it only for the requesting user; never copy it into TriggerPlans, project files, commits, issues, or shared logs, and redact it from summaries.
 - Keep English equal to Chinese in a newly exported workbook. Do not create a status column or annotate untranslated cells.
 - When importing a return, treat empty English or English equal to Chinese as untranslated and leave the target JSON unchanged.
@@ -36,13 +37,15 @@ Read [CLI protocol](references/cli-protocol.md) before operating the tool. Read 
 
 ### 1. Prepare and start with one command
 
-Run `run --output <absolute-xlsx-path> --deadline-minutes 120`. This checks the environment, initializes or refreshes the real project index, starts or reuses the collector, waits for deterministic work, and writes an immediately usable four-column workbook. Record `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, and the workbook path.
+Run `run --output <absolute-xlsx-path> --deadline-minutes 120 --deterministic-timeout-minutes 8`. Give the command an execution-tool timeout of at least 10 minutes; do not let a short default shell timeout terminate its collector. This checks the environment, initializes or refreshes the real project index, starts or reuses the collector, waits for deterministic work, and writes an immediately usable four-column workbook. Record `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, and the workbook path.
 
 Stop on a failed required check and report the concrete project prerequisite. Do not replace an invalid existing configuration automatically. Report actual counts from JSON; never invent coverage.
 
 The returned workbook is a valid progress delivery. Missing runtime evidence leaves only its screenshot cell empty; Chinese and English remain populated. Never delay the first workbook until every screenshot exists.
 
-If `nextAction` is `failed`, stop the workflow and report the collector startup or infrastructure error. Do not reinterpret an unavailable browser as 100% Agent work.
+If `nextAction` is `restart`, or the returned session `status` is not `running` while unresolved tasks remain, run `start --session <same-sessionId> --background`. Never recover with an unqualified `start`: that creates a new session, invalidates task IDs and plans, and can associate screenshots with the wrong run. Poll `status` until `pending` and `running` are both zero, then run `export` again to refresh the progress workbook before entering the Agent queue.
+
+If `nextAction` is `failed`, stop the workflow and report the collector startup or infrastructure error. Do not reinterpret an unavailable browser as 100% Agent work. Do not treat the session-level `status: stopped` or `status: interrupted` as an automatic-phase result; `automatic.phase` is the automatic-phase field.
 
 Present progress using only returned fields, for example:
 
@@ -70,6 +73,8 @@ For each returned task:
 
 `agent next` is already ordered to favor retryable, actionable, and high-fan-out tasks. Process tasks sequentially so browser state and failure evidence remain attributable. Never alter source code to make an Agent plan succeed.
 
+`agent execute` automatically restores its own stopped/interrupted session when no service is alive. If it reports that another session is active, stop and report the conflicting session ID; never create or switch to another session behind the user's back.
+
 ### 3. Finalize, deliver on time, and hand off the irreducible remainder
 
 Poll `status` between tasks. When `deadlineAt` is reached, or when `agent next` returns `done`, first require `pending` and `running` to be zero, then run `finalize --session <id>` exactly once. Do not classify keys from prose or coverage targets. The command records locale keys with no source occurrence and source-only non-visual `aria-*`/native `title` keys as `skipped`; every other unresolved key becomes `needs_manual`.
@@ -91,5 +96,7 @@ For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm t
 For a translated return, run `import --file <absolute-xlsx-path> --session <id> --dry-run` first. Report duplicate, unknown, missing, or modified-Chinese issues from the JSON response. Run the same command with `--apply` only when validation has no fatal issues and the user's request authorizes importing the return.
 
 ## Completion
+
+Stop the collector only with `stop --session <id>` so a concurrent or newer workflow cannot be terminated accidentally.
 
 Finish with session totals, unique screenshot count, duplicate evidence count, coverage, skipped count and reasons, remaining manual count, deadline result, workbook path or written en-us files, and nonfatal diagnostics. If manual items remain, state that the workbook has been delivered with blank screenshot cells and hand those keys to the Studio queue; do not describe screenshot collection as complete.

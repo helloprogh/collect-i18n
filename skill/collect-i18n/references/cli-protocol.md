@@ -28,12 +28,17 @@ Failed output is written to stderr and has `ok: false`, `error.code`, `error.mes
 <CLI> scan
 <CLI> run --output <absolute-xlsx> --deadline-minutes 120
 <CLI> start --background
+<CLI> start --session <session-id> --background
 <CLI> status --session <session-id>
 <CLI> finalize --session <session-id>
-<CLI> stop
+<CLI> stop --session <session-id>
 ```
 
-`run` is the Skill default. It diagnoses, initializes or refreshes, starts or reuses the service, waits for deterministic work, and exports a progress workbook. It returns `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, status, and workbook details. Lower-level lifecycle commands remain available for recovery and diagnostics.
+`run` is the Skill default. It diagnoses, initializes or refreshes, starts or reuses the service, waits for deterministic work, and exports a progress workbook. It returns `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, status, and workbook details. Give it an execution-tool timeout longer than its deterministic timeout.
+
+`nextAction: restart` means the service stopped or was interrupted while unresolved work remains. Recover only with `start --session <same-session-id> --background`; an unqualified `start` creates a different session with different task IDs. Resuming restores interrupted deterministic work to `pending` and safely returns an interrupted Agent task to the appropriate Agent/manual state.
+
+Use `stop --session <session-id>` for workflow cleanup. It refuses to stop a different live session. Never stop an active session merely because `init` or `scan` reports it; reuse it through `run`/`status` unless the user explicitly asks to discard it.
 
 Status counts are authoritative:
 
@@ -61,7 +66,7 @@ Status counts are authoritative:
 
 `agent next` returns `done`, `task`, and current status. The task contains only bounded facts: key path, Chinese text, locale file, source occurrences, route/action hints, attempts, saved plan, and last error.
 
-`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected.
+`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction and automatically resumes the requested stopped/interrupted session when no service is alive. It refuses to hijack a different live session. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected.
 
 The queue prioritizes retryable tasks, source-evidenced actions, imperative services, and reliable routes. After a successful plan, `additionalEvidence` lists other visible A/B-grade keys captured from the same browser state. Treat those keys as complete and continue with a fresh `agent next`; do not replay the same interaction once per key.
 

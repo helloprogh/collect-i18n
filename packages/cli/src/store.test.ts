@@ -202,6 +202,67 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("resumes an interrupted session and recovers in-flight tasks by stage", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const deterministicProject = store.syncProject(
+      projectRoot,
+      {},
+      analysisWithOccurrence("native_dom", 0.99),
+    );
+    const deterministicSession = store.createSession(
+      deterministicProject,
+      "http://127.0.0.1:5173",
+    );
+    const deterministicTask = store.taskByKey(deterministicSession, "form.save");
+    if (!deterministicTask) throw new Error("missing deterministic fixture task");
+    store.markTask(deterministicTask.id, "running");
+    store.closeSession(deterministicSession, "interrupted");
+
+    store.resumeSession(deterministicSession);
+    expect(store.session(deterministicSession)?.status).toBe("running");
+    expect(store.task(deterministicTask.id)).toMatchObject({
+      status: "pending",
+      stage: "deterministic",
+      lastError: undefined,
+    });
+    store.closeSession(deterministicSession);
+
+    const agentProject = store.syncProject(projectRoot, {}, analysis());
+    const agentSession = store.createSession(agentProject, "http://127.0.0.1:5173");
+    const agentTask = store.taskByKey(agentSession, "form.save");
+    if (!agentTask) throw new Error("missing Agent fixture task");
+    store.submitPlan(agentTask.id, { version: 1 });
+    store.closeSession(agentSession, "interrupted");
+
+    store.resumeSession(agentSession);
+    expect(store.task(agentTask.id)).toMatchObject({
+      status: "needs_agent",
+      stage: "agent",
+      attempts: 1,
+      lastError: "Agent 执行被中断；重试前请检查已保存的计划",
+    });
+    expect(store.events(agentSession).find((event) => event.type === "session.resumed")).toMatchObject({
+      origin: "system",
+      data: { previousStatus: "interrupted", origin: "system" },
+    });
+    store.close();
+  });
+
+  it("does not resume a failed session or displace another active session", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const firstSession = store.createSession(projectId, "http://127.0.0.1:5173");
+    store.closeSession(firstSession);
+    const activeSession = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    expect(() => store.resumeSession(firstSession)).toThrow(activeSession);
+    store.closeSession(activeSession, "failed");
+    expect(() => store.resumeSession(activeSession)).toThrow("不能恢复");
+    store.close();
+  });
+
   it("rolls back a catalog refresh and protects an active session snapshot", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);

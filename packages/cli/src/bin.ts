@@ -130,6 +130,40 @@ async function startBackground(projectRoot: string, sessionId: string): Promise<
   return waitForDescriptor(projectRoot, sessionId);
 }
 
+async function resumeStoredSession(projectRoot: string, sessionId: string): Promise<void> {
+  const store = await StateStore.open(projectRoot);
+  try {
+    const session = store.session(sessionId);
+    if (!session) throw new Error(`会话不存在：${sessionId}`);
+    if (resolve(String(session.project_root)).toLowerCase() !== resolve(projectRoot).toLowerCase()) {
+      throw new Error(`会话不属于当前项目：${sessionId}`);
+    }
+    store.resumeSession(sessionId);
+  } finally {
+    store.close();
+  }
+}
+
+async function ensureSessionService(projectRoot: string, sessionId: string): Promise<ServiceDescriptor> {
+  const existing = await descriptorAlive(projectRoot);
+  if (existing) {
+    if (existing.sessionId !== sessionId) {
+      throw new Error(`当前服务正在管理另一采集会话：${existing.sessionId}`);
+    }
+    return existing;
+  }
+
+  await retireStaleDescriptor(projectRoot);
+  await resumeStoredSession(projectRoot, sessionId);
+  try {
+    return await startBackground(projectRoot, sessionId);
+  } catch (error) {
+    const store = await StateStore.open(projectRoot);
+    try { store.closeSession(sessionId, "interrupted"); } finally { store.close(); }
+    throw error;
+  }
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try { await access(path); return true; }
   catch { return false; }
@@ -220,6 +254,7 @@ async function waitForDeterministicQueue(
       onProgress?.(progress);
     }
     const counts = status.counts as Record<string, number>;
+    if (String(status.status) !== "running") return { ...status, serviceInterrupted: true };
     if (counts.pending === 0 && counts.running === 0) return status;
     if (Date.now() >= deadline) return { ...status, deterministicWaitTimedOut: true };
     await new Promise((done) => setTimeout(done, 500));
@@ -230,7 +265,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.3.0")
+  .version("0.3.1")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -281,22 +316,45 @@ program.command("start")
   .description("启动后台采集服务、项目 Vite 服务和本地工作台")
   .option("--background", "后台运行", true)
   .option("--foreground", "前台运行")
-  .action(async (options: { foreground?: boolean }, command) => {
+  .option("--session <id>", "恢复指定的已停止或中断会话")
+  .action(async (options: { foreground?: boolean; session?: string }, command) => {
     const projectRoot = projectOf(command);
     const existing = await descriptorAlive(projectRoot);
-    if (existing) { output(command, "start", { ...existing, reused: true }); return; }
+    if (existing) {
+      if (options.session && existing.sessionId !== options.session) {
+        throw new Error(`当前服务正在管理另一采集会话：${existing.sessionId}`);
+      }
+      output(command, "start", { ...existing, reused: true });
+      return;
+    }
     await new Promise((done) => setTimeout(done, 250));
     const recovered = await descriptorAlive(projectRoot);
-    if (recovered) { output(command, "start", { ...recovered, reused: true }); return; }
+    if (recovered) {
+      if (options.session && recovered.sessionId !== options.session) {
+        throw new Error(`当前服务正在管理另一采集会话：${recovered.sessionId}`);
+      }
+      output(command, "start", { ...recovered, reused: true });
+      return;
+    }
     await retireStaleDescriptor(projectRoot);
     const config = await loadConfig(projectRoot);
     if (!config.instrumentation.enabled) throw new Error("运行时采集要求 instrumentation.enabled=true，请修改 .collect-i18n/config.json");
-    const analysis = await analyze(config);
     const store = await StateStore.open(projectRoot);
     let sessionId: string;
     try {
-      const projectId = store.syncProject(projectRoot, config, analysis);
-      sessionId = store.createSession(projectId, config.app.baseUrl);
+      if (options.session) {
+        const session = store.session(options.session);
+        if (!session) throw new Error(`会话不存在：${options.session}`);
+        if (resolve(String(session.project_root)).toLowerCase() !== resolve(projectRoot).toLowerCase()) {
+          throw new Error(`会话不属于当前项目：${options.session}`);
+        }
+        store.resumeSession(options.session);
+        sessionId = options.session;
+      } else {
+        const analysis = await analyze(config);
+        const projectId = store.syncProject(projectRoot, config, analysis);
+        sessionId = store.createSession(projectId, config.app.baseUrl);
+      }
     } finally { store.close(); }
     if (options.foreground) {
       let descriptor: ServiceDescriptor | undefined;
@@ -320,7 +378,7 @@ program.command("start")
       } catch (error) {
         await service.stop().catch(() => undefined);
         const failedStore = await StateStore.open(projectRoot);
-        try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
+        try { failedStore.closeSession(sessionId, options.session ? "interrupted" : "failed"); } finally { failedStore.close(); }
         await removeDescriptorIfMatches(projectRoot, descriptor);
         throw error;
       }
@@ -337,7 +395,7 @@ program.command("start")
       output(command, "start", await startBackground(projectRoot, sessionId));
     } catch (error) {
       const failedStore = await StateStore.open(projectRoot);
-      try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
+      try { failedStore.closeSession(sessionId, options.session ? "interrupted" : "failed"); } finally { failedStore.close(); }
       throw error;
     }
   });
@@ -378,7 +436,16 @@ program.command("run")
     const outputPath = resolve(options.output ?? join(projectRoot, ".collect-i18n", "collect-i18n-translations.xlsx"));
     const exported = await exportTranslationWorkbook(rows, outputPath);
     const counts = status.counts as Record<string, number>;
-    const nextAction = counts.failed > 0 ? "failed" : counts.needs_agent > 0 ? "agent" : counts.needs_manual > 0 ? "manual" : "complete";
+    const unresolved = counts.pending + counts.running + counts.needs_agent + counts.needs_manual + counts.failed;
+    const nextAction = counts.failed > 0 || String(status.status) === "failed"
+      ? "failed"
+      : String(status.status) !== "running" && unresolved > 0
+        ? "restart"
+        : counts.needs_agent > 0
+          ? "agent"
+          : counts.needs_manual > 0
+            ? "manual"
+            : "complete";
     output(command, "run", {
       sessionId: workflow.descriptor.sessionId,
       studioUrl: workflow.descriptor.studioUrl,
@@ -483,6 +550,7 @@ agent.command("execute")
     if (!task || task.sessionId !== options.session) throw new Error(`任务不属于会话：${options.task}`);
     const plan = options.planFile ? parseTriggerPlan(JSON.parse(await readFile(resolve(options.planFile), "utf8"))) : task.plan;
     if (!plan) throw new Error("任务尚未提交 TriggerPlan");
+    await ensureSessionService(projectRoot, options.session);
     const result = await callService(projectRoot, "/api/agent/execute", { method: "POST", body: JSON.stringify({ taskId: task.id, plan }) });
     output(command, "agent.execute", result);
   });
@@ -498,6 +566,7 @@ manual.command("open")
     const task = options.key ? store.taskByKey(options.session, options.key) : (store.nextTask(options.session, ["needs_manual", "needs_agent", "failed"]));
     store.close();
     if (!task) { output(command, "manual.open", { done: true }); return; }
+    await ensureSessionService(projectRoot, options.session);
     const listening = await callService(projectRoot, "/api/manual/open", { method: "POST", body: JSON.stringify({ sessionId: options.session, keyPath: task.keyPath, route: options.route }) });
     const descriptor = await readServiceDescriptor(projectRoot);
     output(command, "manual.open", { done: false, studioUrl: descriptor.studioUrl, ...listening as object });
@@ -529,7 +598,8 @@ program.command("import")
 
 program.command("stop")
   .description("停止后台服务")
-  .action(async (_options, command) => {
+  .option("--session <id>", "只停止匹配的会话，避免终止其他执行者的服务")
+  .action(async (options: { session?: string }, command) => {
     const projectRoot = projectOf(command);
     let descriptor: ServiceDescriptor;
     try { descriptor = await readServiceDescriptor(projectRoot); }
@@ -537,6 +607,9 @@ program.command("stop")
       await retireStaleDescriptor(projectRoot);
       output(command, "stop", { stopped: false, alreadyStopped: true });
       return;
+    }
+    if (options.session && descriptor.sessionId !== options.session) {
+      throw new Error(`拒绝停止另一活动会话：${descriptor.sessionId}`);
     }
     try {
       const accepted = await callService<{ stopping: boolean; sessionId: string }>(projectRoot, "/api/shutdown", {

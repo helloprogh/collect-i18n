@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.0`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.1`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -63,7 +63,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.0.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.1.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -208,6 +208,8 @@ stop
 
 成功结果必须同时满足进程退出码为零且 JSON 中 `ok` 为 `true`。完整字段和命令参数见 [CLI JSON 协议](skill/collect-i18n/references/cli-protocol.md)。
 
+采集命令若因调用方超时或进程退出而返回 `nextAction: restart`，Skill 会使用原 `sessionId` 执行 `start --session <session-id> --background`。不要直接运行无 `--session` 的 `start` 恢复工作；它会创建新会话，使既有任务 ID 和计划失效。`agent execute` 与 `manual open` 在没有其他活动会话时也会自动恢复自己的会话。
+
 ## Excel 导出规则
 
 - 只有一个可见工作表。
@@ -303,4 +305,4 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
-- [v0.3.0 发布说明](docs/release-notes-v0.3.0.md)
+- [v0.3.1 发布说明](docs/release-notes-v0.3.1.md)

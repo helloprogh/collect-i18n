@@ -436,6 +436,10 @@ export class LocalService {
                 const evidence = await collector.capture(target, "deterministic");
                 store.addEvidence(task.id, evidence);
               } catch (error) {
+                if (this.stopping) {
+                  store.markTask(task.id, "pending", "Deterministic capture was interrupted");
+                  break;
+                }
                 store.markTask(task.id, "needs_agent", error instanceof Error ? error.message : String(error));
               }
             }
@@ -444,8 +448,15 @@ export class LocalService {
           const message = error instanceof Error ? error.message : String(error);
           for (const task of group.filter((candidate) => candidate.status === "pending" || candidate.status === "running")) {
             const current = store.task(task.id);
-            if (current?.status === "pending" || current?.status === "running") store.markTask(task.id, "needs_agent", `Route ${route} failed: ${message}`);
+            if (current?.status === "pending" || current?.status === "running") {
+              store.markTask(
+                task.id,
+                this.stopping ? "pending" : "needs_agent",
+                this.stopping ? "Deterministic capture was interrupted" : `Route ${route} failed: ${message}`,
+              );
+            }
           }
+          if (this.stopping) break;
           console.error(`[collect-i18n] deterministic route ${route} failed`, error);
         }
       }

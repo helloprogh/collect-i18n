@@ -325,6 +325,43 @@ export class StateStore {
     });
   }
 
+  resumeSession(sessionId: string): void {
+    this.transaction(() => {
+      const session = this.session(sessionId);
+      if (!session) throw new Error(`会话不存在：${sessionId}`);
+      if (session.status === "failed") throw new Error(`失败会话不能恢复：${sessionId}`);
+      if (session.status === "running") return;
+
+      const active = this.db.prepare(
+        "SELECT id FROM sessions WHERE project_id=? AND status='running' AND id<>? LIMIT 1",
+      ).get(String(session.project_id), sessionId) as { id: string } | undefined;
+      if (active) throw new Error(`项目已存在活动采集会话：${active.id}`);
+
+      const now = new Date().toISOString();
+      this.db.prepare(`
+        UPDATE tasks
+        SET status='pending',last_error=NULL,updated_at=?
+        WHERE session_id=? AND status='running' AND stage='deterministic'
+      `).run(now, sessionId);
+      this.db.prepare(`
+        UPDATE tasks
+        SET status=CASE WHEN attempts>=? THEN 'needs_manual' ELSE 'needs_agent' END,
+            last_error='Agent 执行被中断；重试前请检查已保存的计划',
+            updated_at=?
+        WHERE session_id=? AND status='running' AND stage='agent'
+      `).run(MAX_AGENT_ATTEMPTS, now, sessionId);
+      this.db.prepare(`
+        UPDATE tasks
+        SET status='needs_manual',last_error=NULL,updated_at=?
+        WHERE session_id=? AND status='running' AND stage='manual'
+      `).run(now, sessionId);
+      this.db.prepare(
+        "UPDATE sessions SET status='running',service_url=NULL,updated_at=? WHERE id=?",
+      ).run(now, sessionId);
+      this.addEvent(sessionId, "session.resumed", { previousStatus: session.status, origin: "system" });
+    });
+  }
+
   interruptProjectSessions(projectRoot: string): string[] {
     const projectId = stableId("project", resolve(projectRoot).toLowerCase());
     return this.transaction(() => {
