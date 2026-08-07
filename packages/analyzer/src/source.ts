@@ -208,13 +208,30 @@ function walkAst(
   }
 }
 
-function translationMatches(expression: string): TranslationMatch[] {
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function catalogTemplateCandidates(
+  quasis: string[],
+  catalogKeys?: ReadonlySet<string>,
+): string[] {
+  if (!catalogKeys?.size || quasis.length < 2) return []
+  const pattern = new RegExp(`^${quasis.map(escapeRegularExpression).join('.+?')}$`, 'u')
+  return [...catalogKeys].filter((key) => pattern.test(key)).slice(0, 200)
+}
+
+function translationMatches(
+  expression: string,
+  catalogKeys?: ReadonlySet<string>,
+): TranslationMatch[] {
   const matches: TranslationMatch[] = []
   const staticCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(\s*(['"`])([^'"`]*?)\2/g
   let match: RegExpExecArray | null
   while ((match = staticCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
     if (!isTranslationCallee(match[1])) continue
+    if (match[2] === '`' && match[3].includes('${')) continue
     matches.push({
       keyPath: match[3],
       expression: match[0].slice(match[0].indexOf(match[1])).trim(),
@@ -222,6 +239,32 @@ function translationMatches(expression: string): TranslationMatch[] {
       dynamic: false,
       confidence: match[1].includes('.') ? 0.98 : 0.92,
     })
+  }
+
+  const templateCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(\s*`([^`]*)`/g
+  while ((match = templateCall.exec(expression))) {
+    const callOffset = match.index + match[0].indexOf(match[1])
+    if (!isTranslationCallee(match[1]) || !match[2].includes('${')) continue
+    const quasis = match[2].split(/\$\{[^}]+\}/gu)
+    const candidates = catalogTemplateCandidates(quasis, catalogKeys)
+    if (candidates.length) {
+      for (const keyPath of candidates) {
+        matches.push({
+          keyPath,
+          expression: match[0].slice(match[0].indexOf(match[1])).trim(),
+          offset: callOffset,
+          dynamic: true,
+          confidence: 0.82,
+        })
+      }
+    } else {
+      matches.push({
+        expression: match[0].slice(match[0].indexOf(match[1])).trim(),
+        offset: callOffset,
+        dynamic: true,
+        confidence: 0.55,
+      })
+    }
   }
 
   const anyCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(/g
@@ -342,6 +385,7 @@ interface TemplateScanContext {
   occurrences: Occurrence[]
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
+  catalogKeys?: ReadonlySet<string>
 }
 
 function templateService(expression: string):
@@ -362,7 +406,7 @@ function scanTemplateExpression(
   descriptor: { component?: string; property?: string } = {},
 ): void {
   const service = templateService(expression)
-  for (const match of translationMatches(expression)) {
+  for (const match of translationMatches(expression, context.catalogKeys)) {
     const location = sourceLocation(
       context.file,
       context.source,
@@ -390,7 +434,7 @@ function scanTemplateExpression(
         service: service?.service,
         serviceMethod: service?.method,
         teleported: Boolean(service),
-        dynamic: false,
+        dynamic: match.dynamic,
         confidence: match.confidence,
         routeHints: context.routeHints,
         actionHints: inheritedActions,
@@ -552,6 +596,143 @@ function findObjectProperty(node: AstNode, name: string): AstNode | undefined {
   )
 }
 
+interface StaticBinding {
+  values: Set<string>
+  properties: Map<string, StaticBinding>
+}
+
+function emptyStaticBinding(): StaticBinding {
+  return { values: new Set(), properties: new Map() }
+}
+
+function mergeStaticBindings(bindings: Array<StaticBinding | undefined>): StaticBinding | undefined {
+  const merged = emptyStaticBinding()
+  for (const binding of bindings) {
+    if (!binding) continue
+    for (const value of binding.values) merged.values.add(value)
+    for (const [name, child] of binding.properties) {
+      const existing = merged.properties.get(name)
+      merged.properties.set(name, mergeStaticBindings([existing, child]) ?? child)
+    }
+  }
+  return merged.values.size || merged.properties.size ? merged : undefined
+}
+
+function unwrapStaticNode(node: unknown): AstNode | undefined {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return undefined
+  let current = node as AstNode
+  while (
+    ['TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'ParenthesizedExpression'].includes(
+      current.type,
+    ) &&
+    current.expression &&
+    typeof current.expression === 'object'
+  ) {
+    current = current.expression as AstNode
+  }
+  return current
+}
+
+function resolveStaticBinding(
+  node: unknown,
+  bindings: Map<string, StaticBinding>,
+  depth = 0,
+): StaticBinding | undefined {
+  if (depth > 12) return undefined
+  const current = unwrapStaticNode(node)
+  if (!current) return undefined
+
+  const literal = staticString(current)
+  if (literal !== undefined) {
+    return { values: new Set([literal]), properties: new Map() }
+  }
+  if (current.type === 'Identifier') {
+    const name = propertyName(current)
+    return name ? bindings.get(name) : undefined
+  }
+  if (current.type === 'ObjectExpression') {
+    const result = emptyStaticBinding()
+    for (const property of objectProperties(current)) {
+      if (property.type !== 'ObjectProperty') continue
+      const name = propertyName(property.key)
+      const child = resolveStaticBinding(property.value, bindings, depth + 1)
+      if (!name || !child) continue
+      result.properties.set(name, child)
+      for (const value of child.values) result.values.add(value)
+    }
+    return result.values.size || result.properties.size ? result : undefined
+  }
+  if (current.type === 'ArrayExpression') {
+    const elements = Array.isArray(current.elements) ? current.elements : []
+    const result = mergeStaticBindings(
+      elements.map((element) => resolveStaticBinding(element, bindings, depth + 1)),
+    )
+    if (!result) return undefined
+    elements.forEach((element, index) => {
+      const child = resolveStaticBinding(element, bindings, depth + 1)
+      if (child) result.properties.set(String(index), child)
+    })
+    return result
+  }
+  if (current.type === 'MemberExpression' || current.type === 'OptionalMemberExpression') {
+    const object = resolveStaticBinding(current.object, bindings, depth + 1)
+    if (!object) return undefined
+    const staticProperty = current.computed
+      ? staticString(current.property)
+      : propertyName(current.property)
+    if (staticProperty !== undefined) return object.properties.get(staticProperty)
+    return mergeStaticBindings([...object.properties.values()])
+  }
+  if (current.type === 'ConditionalExpression') {
+    return mergeStaticBindings([
+      resolveStaticBinding(current.consequent, bindings, depth + 1),
+      resolveStaticBinding(current.alternate, bindings, depth + 1),
+    ])
+  }
+  if (current.type === 'LogicalExpression') {
+    return mergeStaticBindings([
+      resolveStaticBinding(current.left, bindings, depth + 1),
+      resolveStaticBinding(current.right, bindings, depth + 1),
+    ])
+  }
+  if (current.type === 'TemplateLiteral') {
+    const expressions = Array.isArray(current.expressions) ? current.expressions : []
+    const quasis = Array.isArray(current.quasis) ? current.quasis : []
+    if (!expressions.length || quasis.length !== expressions.length + 1) return undefined
+    let candidates = ['']
+    for (let index = 0; index < expressions.length; index += 1) {
+      const quasi = quasis[index] as AstNode | undefined
+      const value = quasi && typeof quasi.value === 'object' && quasi.value !== null
+        ? String((quasi.value as Record<string, unknown>).cooked ?? '')
+        : ''
+      const expression = resolveStaticBinding(expressions[index], bindings, depth + 1)
+      if (!expression?.values.size || expression.values.size > 100) return undefined
+      candidates = candidates.flatMap((prefix) =>
+        [...expression.values].map((part) => `${prefix}${value}${part}`),
+      )
+      if (candidates.length > 200) return undefined
+    }
+    const tail = quasis.at(-1) as AstNode | undefined
+    const tailValue = tail && typeof tail.value === 'object' && tail.value !== null
+      ? String((tail.value as Record<string, unknown>).cooked ?? '')
+      : ''
+    return { values: new Set(candidates.map((value) => `${value}${tailValue}`)), properties: new Map() }
+  }
+  return undefined
+}
+
+function collectStaticBindings(ast: unknown): Map<string, StaticBinding> {
+  const bindings = new Map<string, StaticBinding>()
+  walkAst(ast, [], (node) => {
+    if (node.type !== 'VariableDeclarator') return
+    const name = propertyName(node.id)
+    if (!name) return
+    const binding = resolveStaticBinding(node.init, bindings)
+    if (binding) bindings.set(name, binding)
+  })
+  return bindings
+}
+
 function jsxElementName(ancestors: AstNode[]): string | undefined {
   const opening = [...ancestors]
     .reverse()
@@ -574,14 +755,21 @@ interface ScriptScanContext {
   baseOffset: number
   routeHints: RouteHint[]
   componentRouteLinks: ComponentRouteLink[]
+  sourceImports: SourceImportLink[]
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
   occurrences: Occurrence[]
+  catalogKeys?: ReadonlySet<string>
 }
 
 interface ComponentRouteLink {
   componentCandidates: string[]
   routeHint: RouteHint
+}
+
+interface SourceImportLink {
+  importer: string
+  importedCandidates: string[]
 }
 
 function routePath(parentPath: string, childPath: string): string {
@@ -686,6 +874,17 @@ function importedComponentBindings(
     }
   })
   return bindings
+}
+
+function extractSourceImports(ast: unknown, context: ScriptScanContext): void {
+  walkAst(ast, [], (node) => {
+    if (node.type !== 'ImportDeclaration') return
+    const specifier = staticString(node.source)
+    if (!specifier) return
+    const importedCandidates = componentFileCandidates(specifier, context)
+    if (!importedCandidates.length) return
+    context.sourceImports.push({ importer: context.file, importedCandidates })
+  })
 }
 
 function isRouteObject(node: AstNode): boolean {
@@ -859,6 +1058,8 @@ function scanScript(
   }
 
   extractComponentRouteLinks(ast, context)
+  extractSourceImports(ast, context)
+  const staticBindings = collectStaticBindings(ast)
 
   walkAst(ast, [], (node, ancestors) => {
     const route = routeHintFromNode(node, context)
@@ -907,11 +1108,34 @@ function scanScript(
 
     if (!isTranslationCallee(currentCallee)) return
     const firstArgument = Array.isArray(node.arguments) ? node.arguments[0] : undefined
-    const keyPath = staticString(firstArgument)
+    const staticKeyPath = staticString(firstArgument)
+    const resolvedBinding = staticKeyPath === undefined
+      ? resolveStaticBinding(firstArgument, staticBindings)
+      : undefined
+    const argumentNode = unwrapStaticNode(firstArgument)
+    const templateCandidates = argumentNode?.type === 'TemplateLiteral' &&
+      Array.isArray(argumentNode.expressions) && argumentNode.expressions.length > 0 &&
+      Array.isArray(argumentNode.quasis)
+      ? catalogTemplateCandidates(
+          argumentNode.quasis.map((quasi) => {
+            if (!quasi || typeof quasi !== 'object') return ''
+            const value = (quasi as AstNode).value
+            return value && typeof value === 'object'
+              ? String((value as Record<string, unknown>).cooked ?? '')
+              : ''
+          }),
+          context.catalogKeys,
+        )
+      : []
+    const keyPaths = staticKeyPath !== undefined
+      ? [staticKeyPath]
+      : [...new Set([...(resolvedBinding?.values ?? []), ...templateCandidates])]
+          .filter(Boolean)
+          .slice(0, 200)
     const start = context.baseOffset + (node.start ?? 0)
     const end = context.baseOffset + (node.end ?? node.start ?? 0)
     const location = sourceLocation(context.file, context.source, start, end)
-    if (!keyPath) {
+    if (!keyPaths.length) {
       context.diagnostics.push({
         code: 'dynamic_translation_key',
         severity: 'warning',
@@ -967,8 +1191,9 @@ function scanScript(
       context.actionHints.push(serviceAction)
     }
 
-    context.occurrences.push(
-      makeOccurrence({
+    for (const keyPath of keyPaths) {
+      context.occurrences.push(
+        makeOccurrence({
         keyPath,
         kind,
         location,
@@ -978,17 +1203,19 @@ function scanScript(
         service: service?.service,
         serviceMethod: service?.method,
         teleported: Boolean(service),
-        dynamic: false,
-        confidence:
-          currentCallee === 't' || currentCallee === '$t'
+        dynamic: staticKeyPath === undefined,
+        confidence: staticKeyPath === undefined
+          ? 0.82
+          : currentCallee === 't' || currentCallee === '$t'
             ? 0.92
             : currentCallee?.includes('i18n')
               ? 0.99
               : 0.78,
         routeHints: context.routeHints,
         actionHints,
-      }),
-    )
+        }),
+      )
+    }
   })
 }
 
@@ -996,6 +1223,7 @@ interface FileScanResult {
   occurrences: Occurrence[]
   routeHints: RouteHint[]
   componentRouteLinks: ComponentRouteLink[]
+  sourceImports: SourceImportLink[]
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
 }
@@ -1003,12 +1231,14 @@ interface FileScanResult {
 async function scanSourceFile(
   projectRoot: string,
   absoluteFile: string,
+  catalogKeys?: ReadonlySet<string>,
 ): Promise<FileScanResult> {
   const source = await readFile(absoluteFile, 'utf8')
   const file = portable(path.relative(projectRoot, absoluteFile))
   const occurrences: Occurrence[] = []
   const routeHints: RouteHint[] = []
   const componentRouteLinks: ComponentRouteLink[] = []
+  const sourceImports: SourceImportLink[] = []
   const actionHints: ActionHint[] = []
   const diagnostics: AnalysisDiagnostic[] = []
   const filenameRoute = inferFilenameRoute(projectRoot, absoluteFile)
@@ -1037,9 +1267,11 @@ async function scanSourceFile(
           baseOffset,
           routeHints,
           componentRouteLinks,
+          sourceImports,
           actionHints,
           diagnostics,
           occurrences,
+          catalogKeys,
         },
         [
           ...(scriptBlock.lang === 'ts' || scriptBlock.lang === 'tsx'
@@ -1070,6 +1302,7 @@ async function scanSourceFile(
           occurrences,
           actionHints,
           diagnostics,
+          catalogKeys,
         })
       } catch (error) {
         diagnostics.push({
@@ -1091,9 +1324,11 @@ async function scanSourceFile(
         baseOffset: 0,
         routeHints,
         componentRouteLinks,
+        sourceImports,
         actionHints,
         diagnostics,
         occurrences,
+        catalogKeys,
       },
       [
         ...(['.ts', '.tsx'].includes(extension)
@@ -1118,6 +1353,33 @@ async function scanSourceFile(
       ]),
     ).values(),
   )
+  if (catalogKeys?.size) {
+    const existingKeys = new Set(occurrences.map((occurrence) => occurrence.keyPath))
+    for (const keyPath of catalogKeys) {
+      if (existingKeys.has(keyPath)) continue
+      const quotedCandidates = [`'${keyPath}'`, `"${keyPath}"`, `\`${keyPath}\``]
+      const offset = quotedCandidates
+        .map((candidate) => source.indexOf(candidate))
+        .filter((candidate) => candidate >= 0)
+        .sort((left, right) => left - right)[0]
+      if (offset === undefined) continue
+      occurrences.push(
+        makeOccurrence({
+          keyPath,
+          kind: 'text_range',
+          location: sourceLocation(file, source, offset, offset + keyPath.length + 2),
+          expression: source.slice(offset, offset + keyPath.length + 2),
+          teleported: false,
+          dynamic: true,
+          confidence: 0.72,
+          routeHints,
+          actionHints: [],
+        }),
+      )
+      existingKeys.add(keyPath)
+    }
+  }
+
   const normalizedOccurrences = occurrences.map((occurrence) => ({
     ...occurrence,
     routeHints: dedupedRoutes,
@@ -1129,6 +1391,7 @@ async function scanSourceFile(
     ),
     routeHints: dedupedRoutes,
     componentRouteLinks,
+    sourceImports,
     actionHints: dedupedActions,
     diagnostics,
   }
@@ -1138,12 +1401,16 @@ export interface ScanProjectSourcesOptions {
   projectRoot: string
   include?: string[]
   exclude?: string[]
+  catalogKeys?: string[]
 }
 
 export async function scanProjectSources(
   options: ScanProjectSourcesOptions,
 ): Promise<SourceScanResult> {
   const projectRoot = path.resolve(options.projectRoot)
+  const catalogKeys = options.catalogKeys?.length
+    ? new Set(options.catalogKeys)
+    : undefined
   const files = await fg(
     options.include?.length
       ? options.include
@@ -1165,7 +1432,7 @@ export async function scanProjectSources(
   )
 
   const results = await Promise.all(
-    files.sort().map((file) => scanSourceFile(projectRoot, path.resolve(file))),
+    files.sort().map((file) => scanSourceFile(projectRoot, path.resolve(file), catalogKeys)),
   )
   const actualFileByCandidate = new Map(
     files.map((file) => [
@@ -1183,6 +1450,42 @@ export async function scanProjectSources(
     const current = routesByComponentFile.get(key) ?? []
     current.push(link.routeHint)
     routesByComponentFile.set(key, current)
+  }
+
+  const importsByFile = new Map<string, Set<string>>()
+  for (const link of results.flatMap((result) => result.sourceImports)) {
+    const imported = link.importedCandidates
+      .map((candidate) => actualFileByCandidate.get(candidate.toLowerCase()))
+      .filter((candidate): candidate is string => candidate !== undefined)
+    if (!imported.length) continue
+    const importer = link.importer.toLowerCase()
+    const current = importsByFile.get(importer) ?? new Set<string>()
+    for (const file of imported) current.add(file.toLowerCase())
+    importsByFile.set(importer, current)
+  }
+
+  // A route belongs not only to its Vue component but also to local modules
+  // imported by that component. Propagate only statically resolved project
+  // imports, preserving the router-derived confidence and avoiding package
+  // imports. This gives ordinary JS/TS translation helpers a real route
+  // without guessing one from their filename.
+  for (let pass = 0; pass < files.length; pass += 1) {
+    let changed = false
+    for (const [importer, importedFiles] of importsByFile) {
+      const importerRoutes = routesByComponentFile.get(importer)
+      if (!importerRoutes?.length) continue
+      for (const imported of importedFiles) {
+        const current = routesByComponentFile.get(imported) ?? []
+        const known = new Set(current.map((hint) => `${hint.source}:${hint.path}`))
+        const additions = importerRoutes.filter(
+          (hint) => !known.has(`${hint.source}:${hint.path}`),
+        )
+        if (!additions.length) continue
+        routesByComponentFile.set(imported, [...current, ...additions])
+        changed = true
+      }
+    }
+    if (!changed) break
   }
 
   const occurrences = results.flatMap((result) => result.occurrences).map(

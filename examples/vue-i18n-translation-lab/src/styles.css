@@ -37,6 +37,10 @@ body { margin: 0; min-width: 1100px; min-height: 100vh; }
 .summary-grid { display: grid; grid-template-columns: 140px 1fr; row-gap: 8px; column-gap: 12px; margin: 12px 0; }
 .status-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.metric-grid .el-card { border: 0; box-shadow: 0 5px 18px rgba(35, 55, 80, .07); }
+.legend-row { margin: 14px 0; }
+.action-strip { margin-top: 14px; }
 .response-grid { display: grid; grid-template-columns: 120px 1fr; row-gap: 6px; column-gap: 12px; }
 .log-table { margin-top: 12px; }
 .duplicate-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }

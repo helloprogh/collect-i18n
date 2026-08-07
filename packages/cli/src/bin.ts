@@ -265,7 +265,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.3.1")
+  .version("0.3.2")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -406,12 +406,17 @@ program.command("run")
   .option("--deadline-minutes <minutes>", "完整工作流截止时间", "120")
   .option("--deterministic-timeout-minutes <minutes>", "等待静态队列的最长时间", "15")
   .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes: string }, command) => {
+    const workflowStartedAt = Date.now();
     const projectRoot = projectOf(command);
     const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
+    const deadlineAt = new Date(workflowStartedAt + deadlineMinutes * 60_000).toISOString();
     const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || 15);
     const jsonMode = Boolean((command.optsWithGlobals() as GlobalOptions).json);
     if (!jsonMode) process.stderr.write("[collect-i18n] 正在检查项目并启动采集服务…\n");
     const workflow = await prepareWorkflow(projectRoot);
+    const deadlineStore = await StateStore.open(projectRoot);
+    deadlineStore.setDeadline(workflow.descriptor.sessionId, deadlineAt);
+    deadlineStore.close();
     if (!jsonMode) process.stderr.write("[collect-i18n] 自动处理已开始。\n");
     const status = await waitForDeterministicQueue(
       projectRoot,
@@ -451,7 +456,7 @@ program.command("run")
       studioUrl: workflow.descriptor.studioUrl,
       appUrl: workflow.descriptor.appUrl,
       reused: workflow.reused,
-      deadlineAt: new Date(Date.now() + deadlineMinutes * 60_000).toISOString(),
+      deadlineAt,
       nextAction,
       status,
       workbook: exported,
@@ -525,8 +530,23 @@ agent.command("next")
   .requiredOption("--session <id>")
   .action(async (options: { session: string }, command) => {
     const store = await StateStore.open(projectOf(command));
-    const task = store.nextAgentTask(options.session); const status = store.status(options.session); store.close();
-    output(command, "agent.next", { done: !task, task, status });
+    const session = store.session(options.session);
+    if (!session) throw new Error(`Session does not exist: ${options.session}`);
+    const deadlineAt = typeof session.deadline_at === "string" ? session.deadline_at : undefined;
+    const remainingSeconds = deadlineAt ? Math.max(0, Math.floor((Date.parse(deadlineAt) - Date.now()) / 1_000)) : undefined;
+    const deadlineReached = remainingSeconds === 0;
+    const task = deadlineReached ? undefined : store.nextAgentTask(options.session);
+    const routeBatch = task ? store.agentRouteBatch(options.session, task) : undefined;
+    const status = store.status(options.session); store.close();
+    output(command, "agent.next", {
+      done: !task,
+      reason: deadlineReached ? "deadline_reached" : !task ? "queue_empty" : undefined,
+      deadlineAt,
+      remainingSeconds,
+      task,
+      routeBatch,
+      status,
+    });
   });
 agent.command("submit")
   .requiredOption("--session <id>")

@@ -1,0 +1,128 @@
+{
+  "page": {
+    "title": "账单与对账中心",
+    "subtitle": "跟踪发票、收款、退款与财务对账差异",
+    "periodHint": "当前展示本财务周期内的应收数据",
+    "recordPayment": "登记客户收款",
+    "refresh": "刷新账单数据"
+  },
+  "metrics": {
+    "receivable": "应收账款余额",
+    "overdue": "逾期账款金额",
+    "receivedToday": "今日到账金额",
+    "unapplied": "待核销收款",
+    "refundPending": "待处理退款",
+    "invoiceCount": "本月发票数量",
+    "difference": "对账差异金额",
+    "collectionRate": "账款回收率"
+  },
+  "filters": {
+    "invoiceLabel": "发票或客户",
+    "invoicePlaceholder": "搜索发票编号或客户名称",
+    "statusLabel": "发票状态",
+    "statusPlaceholder": "请选择发票状态",
+    "methodLabel": "付款方式",
+    "methodPlaceholder": "请选择付款方式",
+    "reconcileLabel": "对账状态",
+    "reconcilePlaceholder": "请选择对账状态",
+    "periodLabel": "开票日期",
+    "periodStart": "开始开票日期",
+    "periodEnd": "结束开票日期",
+    "apply": "查询账单"
+  },
+  "columns": {
+    "invoiceNo": "发票编号",
+    "customer": "开票客户",
+    "amount": "发票金额",
+    "received": "已收金额",
+    "dueDate": "付款到期日",
+    "status": "发票状态",
+    "method": "付款方式",
+    "reconcile": "对账状态",
+    "owner": "财务负责人",
+    "actions": "账单操作"
+  },
+  "invoiceStatus": {
+    "draft": "发票草稿",
+    "issued": "发票已开具",
+    "partial": "部分款项到账",
+    "paid": "发票已结清",
+    "overdue": "发票已经逾期",
+    "voided": "发票已作废"
+  },
+  "paymentMethods": {
+    "bank": "银行转账",
+    "card": "企业信用卡",
+    "wallet": "企业电子钱包",
+    "cash": "线下现金收款",
+    "credit": "客户余额抵扣"
+  },
+  "reconcileStatus": {
+    "pending": "等待自动对账",
+    "matched": "账款匹配完成",
+    "difference": "存在对账差异",
+    "manual": "等待人工确认"
+  },
+  "actions": {
+    "view": "查看账单详情",
+    "send": "发送付款提醒",
+    "payment": "登记到账款项",
+    "refund": "发起客户退款",
+    "void": "作废当前发票",
+    "reconcile": "执行账款核销",
+    "download": "下载电子发票",
+    "export": "导出账单明细"
+  },
+  "detail": {
+    "title": "账单详情",
+    "invoiceInfo": "发票基本信息",
+    "customerInfo": "客户开票信息",
+    "lineItems": "计费项目明细",
+    "paymentHistory": "历史收款记录",
+    "taxSummary": "税额汇总",
+    "contract": "关联销售合同",
+    "collectionNotes": "催收跟进记录",
+    "auditTrail": "财务审计轨迹",
+    "close": "关闭账单详情"
+  },
+  "payment": {
+    "title": "登记到账款项",
+    "invoice": "关联发票",
+    "amount": "本次到账金额",
+    "amountPlaceholder": "输入实际到账金额",
+    "method": "实际付款方式",
+    "methodPlaceholder": "选择实际付款方式",
+    "reference": "银行流水编号",
+    "receivedAt": "实际到账时间",
+    "cancel": "取消收款登记",
+    "submit": "确认登记收款"
+  },
+  "validation": {
+    "invoiceRequired": "请选择关联发票",
+    "amountRequired": "请输入本次到账金额",
+    "amountPositive": "到账金额必须大于零",
+    "amountExceeded": "到账金额不能超过发票未收余额",
+    "methodRequired": "请选择实际付款方式",
+    "referenceRequired": "请输入银行流水或业务参考编号"
+  },
+  "messages": {
+    "refreshed": "账单数据刷新成功",
+    "reminderSent": "付款提醒发送成功",
+    "paymentRecorded": "客户收款登记成功",
+    "refundCreated": "客户退款申请已创建",
+    "invoiceVoided": "发票作废成功",
+    "reconciled": "账款核销完成",
+    "downloaded": "电子发票下载成功",
+    "exported": "账单明细导出成功",
+    "noteSaved": "催收跟进记录已保存"
+  },
+  "errors": {
+    "loadFailed": "账单数据加载失败",
+    "paymentFailed": "客户收款登记失败",
+    "duplicatePayment": "该银行流水已经登记",
+    "invoiceLocked": "发票正在执行其他财务操作",
+    "reconcileFailed": "账款自动核销失败",
+    "permissionDenied": "当前账号无权修改该账单",
+    "serviceUnavailable": "财务服务暂时不可用"
+  }
+}

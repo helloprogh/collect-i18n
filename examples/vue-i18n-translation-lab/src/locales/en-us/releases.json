@@ -1,0 +1,127 @@
+{
+  "page": {
+    "title": "发布与审批中心",
+    "subtitle": "协调应用发布、风险评估与变更审批",
+    "windowHint": "生产发布仅允许在批准的变更窗口执行",
+    "createRelease": "创建发布申请",
+    "refresh": "刷新发布计划"
+  },
+  "metrics": {
+    "planned": "计划中发布",
+    "awaiting": "等待审批",
+    "approved": "已批准发布",
+    "running": "正在执行发布",
+    "failed": "发布执行失败",
+    "rollback": "已触发回滚",
+    "successRate": "发布成功率",
+    "leadTime": "平均交付周期"
+  },
+  "filters": {
+    "applicationLabel": "应用或版本",
+    "applicationPlaceholder": "搜索应用名称或版本号",
+    "environmentLabel": "目标环境",
+    "environmentPlaceholder": "请选择目标环境",
+    "statusLabel": "发布状态",
+    "statusPlaceholder": "请选择发布状态",
+    "riskLabel": "变更风险",
+    "riskPlaceholder": "请选择风险等级",
+    "ownerLabel": "发布负责人",
+    "ownerPlaceholder": "请选择发布负责人",
+    "apply": "查询发布计划",
+    "reset": "重置发布条件"
+  },
+  "columns": {
+    "releaseNo": "发布编号",
+    "application": "应用名称",
+    "version": "目标版本",
+    "environment": "目标环境",
+    "window": "计划窗口",
+    "risk": "风险等级",
+    "status": "发布状态",
+    "owner": "发布负责人",
+    "approvers": "审批进度",
+    "actions": "发布操作"
+  },
+  "environments": {
+    "development": "开发环境",
+    "testing": "测试环境",
+    "staging": "预生产环境",
+    "production": "生产环境"
+  },
+  "statuses": {
+    "draft": "发布草稿",
+    "reviewing": "正在审批",
+    "approved": "审批已通过",
+    "scheduled": "等待发布窗口",
+    "running": "发布执行中",
+    "succeeded": "发布执行成功",
+    "failed": "发布执行失败"
+  },
+  "risk": {
+    "low": "低风险变更",
+    "medium": "中风险变更",
+    "high": "高风险变更",
+    "critical": "重大风险变更"
+  },
+  "actions": {
+    "view": "查看发布详情",
+    "submit": "提交发布审批",
+    "approve": "批准发布申请",
+    "reject": "驳回发布申请",
+    "schedule": "安排发布窗口",
+    "start": "开始执行发布",
+    "rollback": "执行版本回滚",
+    "export": "导出发布记录"
+  },
+  "detail": {
+    "title": "发布申请详情",
+    "summary": "变更内容摘要",
+    "commits": "代码提交范围",
+    "dependencies": "依赖服务清单",
+    "database": "数据库变更",
+    "verification": "发布验证方案",
+    "rollbackPlan": "故障回滚方案",
+    "approvals": "审批意见记录",
+    "executionLog": "发布执行日志",
+    "close": "关闭发布详情"
+  },
+  "approval": {
+    "title": "处理发布审批",
+    "decision": "审批决定",
+    "decisionPlaceholder": "请选择审批决定",
+    "comment": "审批意见",
+    "commentPlaceholder": "输入风险判断与审批说明",
+    "conditions": "附加发布条件",
+    "notifyOwner": "通知发布负责人",
+    "confirmRisk": "我已核对变更风险",
+    "cancel": "取消审批处理",
+    "submit": "提交审批结果"
+  },
+  "validation": {
+    "applicationRequired": "请选择需要发布的应用",
+    "versionRequired": "请输入目标版本号",
+    "environmentRequired": "请选择目标发布环境",
+    "windowRequired": "请选择计划发布窗口",
+    "decisionRequired": "请选择审批决定",
+    "commentLength": "审批意见至少需要八个字符"
+  },
+  "messages": {
+    "refreshed": "发布计划刷新成功",
+    "created": "发布申请创建成功",
+    "submitted": "发布申请已提交审批",
+    "approved": "发布申请审批通过",
+    "rejected": "发布申请已被驳回",
+    "scheduled": "发布窗口安排成功",
+    "started": "发布任务已经启动",
+    "rollbackStarted": "版本回滚任务已经启动"
+  },
+  "errors": {
+    "loadFailed": "发布计划加载失败",
+    "createFailed": "发布申请创建失败",
+    "approvalConflict": "审批结果已被其他审批人更新",
+    "windowConflict": "所选发布窗口存在冲突",
+    "dependencyBlocked": "依赖服务尚未满足发布条件",
+    "permissionDenied": "当前账号无权审批该发布",
+    "serviceUnavailable": "发布服务暂时不可用"
+  }
+}

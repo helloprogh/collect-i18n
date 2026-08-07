@@ -64,11 +64,11 @@ Status counts are authoritative:
 <CLI> agent execute --session <id> --task <task-id>
 ```
 
-`agent next` returns `done`, `task`, and current status. The task contains only bounded facts: key path, Chinese text, locale file, source occurrences, route/action hints, attempts, saved plan, and last error.
+`agent next` returns `done`, `reason`, persisted `deadlineAt`, exact `remainingSeconds`, `task`, `routeBatch`, and current status. Stop Agent planning on `reason: deadline_reached`; finalize and export immediately. The task is the required evidence anchor. `routeBatch` summarizes all unresolved keys sharing its preferred route with total/returned counts, section/kind/service counts and source files, plus a small representative sample of key paths, Chinese text, locations, and source-proven action hints. It is deliberately capped and reports `truncated` when runtime checkpoints should discover additional keys.
 
-`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction and automatically resumes the requested stopped/interrupted session when no service is alive. It refuses to hijack a different live session. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected.
+`agent submit` performs schema and task/key correlation checks. `agent execute` owns the real browser interaction and automatically resumes the requested stopped/interrupted session when no service is alive. It refuses to hijack a different live session. Do not use a separate browser tool during execution. A task receives at most two Agent executions; after the second failure it enters `needs_manual`, and further Agent submissions or executions are rejected. A `capture` step records all currently visible A/B-grade unresolved keys at that checkpoint; the final target capture remains mandatory.
 
-The queue prioritizes retryable tasks, source-evidenced actions, imperative services, and reliable routes. After a successful plan, `additionalEvidence` lists other visible A/B-grade keys captured from the same browser state. Treat those keys as complete and continue with a fresh `agent next`; do not replay the same interaction once per key.
+The queue prioritizes the largest reliable route batch, then retryable/source-evidenced actions inside it. After a successful plan, `additionalEvidence` combines keys captured at explicit checkpoints and in the final browser state. Treat those keys as complete and continue with a fresh `agent next`; do not replay the same interaction once per key.
 
 ## Finalization
 

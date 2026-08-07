@@ -299,6 +299,7 @@ watch(activeTab, async (tab) => {
       </el-tab-pane>
 
       <el-tab-pane :label="t('permissions.tabs.tree')" name="tree">
+        <h3>{{ t('permissions.tree.title') }}</h3>
         <div class="toolbar">
           <el-input v-model="treeSearch" data-testid="permissions-tree-search" :placeholder="t('permissions.tree.searchPlaceholder')" :aria-label="t('permissions.aria.treeSearch')" style="max-width: 280px" clearable />
           <el-button data-testid="permissions-expand-all" @click="expandAll">{{ t('permissions.tree.expandAll') }}</el-button>

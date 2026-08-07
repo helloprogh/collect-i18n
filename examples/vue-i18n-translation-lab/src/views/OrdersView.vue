@@ -218,6 +218,10 @@ async function exportAll() {
       </div>
 
       <el-alert v-if="errorMsg" data-testid="orders-error" type="error" show-icon :closable="false" :title="errorMsg" class="result-panel" />
+      <el-button v-if="errorMsg" data-testid="orders-retry" type="primary" @click="loadOrders">{{ t('orders.states.retry') }}</el-button>
+      <div v-if="loading" class="muted" data-testid="orders-loading-text">{{ t('orders.states.loading') }}</div>
+      <el-alert v-else-if="hasSearched && !errorMsg && total > 0" data-testid="orders-success" type="success" show-icon
+        :closable="false" :title="t('orders.states.success')" class="result-panel" />
       <el-alert v-else-if="hasSearched && total === 0" data-testid="orders-empty" type="info" show-icon :closable="false" :title="t('orders.states.noResults')" class="result-panel" />
 
       <div v-if="!hasSearched" class="muted" data-testid="orders-initial-empty">{{ t('orders.emptyHint') }}</div>
@@ -250,7 +254,18 @@ async function exportAll() {
       <div v-if="hasSearched && total > 0" class="pager" data-testid="orders-pagination">
         <span>{{ t('orders.pagination.total', { count: total }) }}</span>
         <span v-if="selected.length" class="muted">{{ t('orders.batch.selected', { count: selected.length }) }}</span>
+        <el-button v-if="selected.length" data-testid="orders-export-selected" @click="exportAll">{{ t('orders.actions.export') }}</el-button>
         <div class="toolbar">
+          <el-dropdown data-testid="orders-column-settings">
+            <el-button>{{ t('orders.toolbar.columnSettings') }}</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-for="key in ['orderNo', 'customer', 'status', 'amount']" :key="key">
+                  {{ t(`orders.columns.${key}`) }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-select :model-value="pageSize" data-testid="orders-page-size" style="width: 130px" @change="changePageSize">
             <el-option v-for="size in pageSizeOptions" :key="size" :label="t('orders.pagination.pageSize', { size })" :value="size" />
           </el-select>
@@ -273,6 +288,8 @@ async function exportAll() {
           <dt>{{ t('orders.detail.amount') }}</dt><dd>{{ drawerOrder.amount }}</dd>
           <dt>{{ t('orders.detail.paymentMethod') }}</dt><dd>{{ drawerOrder.paymentMethod }}</dd>
           <dt>{{ t('orders.detail.createdAt') }}</dt><dd>{{ drawerOrder.createdAt }}</dd>
+          <dt>{{ t('orders.detail.paidAt') }}</dt><dd>{{ ['paid', 'shipped', 'completed'].includes(drawerOrder.status) ? drawerOrder.createdAt : '-' }}</dd>
+          <dt>{{ t('orders.detail.shippedAt') }}</dt><dd>{{ ['shipped', 'completed'].includes(drawerOrder.status) ? drawerOrder.createdAt : '-' }}</dd>
           <dt>{{ t('orders.detail.address') }}</dt><dd>{{ drawerOrder.address }}</dd>
           <dt>{{ t('orders.detail.remark') }}</dt><dd>{{ drawerOrder.remark || '-' }}</dd>
         </dl>
@@ -292,6 +309,9 @@ async function exportAll() {
           <el-step :title="t('orders.detail.timeline.shipped')" />
           <el-step :title="t('orders.detail.timeline.delivered')" />
         </el-steps>
+        <div class="dialog-actions">
+          <el-button data-testid="orders-detail-close" @click="drawerOrder = undefined">{{ t('orders.detail.close') }}</el-button>
+        </div>
       </template>
     </el-drawer>
 

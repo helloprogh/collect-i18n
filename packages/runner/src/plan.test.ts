@@ -9,11 +9,13 @@ describe("TriggerPlan", () => {
       route: "/users/create",
       mocks: [{ id: "save-error", url: "/api/users", method: "post", status: 500 }],
       steps: [
+        { type: "capture" },
         { type: "click", locator: { kind: "role", value: "button", name: "保存" } },
         { type: "waitForKey", key: "users.form.required" },
       ],
     });
     expect(plan.mocks[0]!.method).toBe("POST");
+    expect(plan.steps[0]).toEqual({ type: "capture" });
   });
 
   it("accepts a bounded zero-based index for intentionally repeated locators", () => {

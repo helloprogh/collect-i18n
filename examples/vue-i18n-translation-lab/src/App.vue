@@ -19,6 +19,10 @@ const navItems = [
   { index: '/settings', testid: 'nav-settings', key: 'common.nav.settings' },
   { index: '/request-lab', testid: 'nav-request-lab', key: 'common.nav.requestLab' },
   { index: '/diagnostics', testid: 'nav-diagnostics', key: 'common.nav.diagnostics' },
+  { index: '/support', testid: 'nav-support', key: 'support.page.title' },
+  { index: '/inventory', testid: 'nav-inventory', key: 'inventory.page.title' },
+  { index: '/billing', testid: 'nav-billing', key: 'billing.page.title' },
+  { index: '/releases', testid: 'nav-releases', key: 'releases.page.title' },
 ] as const
 
 const themeOptions = ['light', 'dark'] as const

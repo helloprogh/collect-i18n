@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
 import { afterEach, describe, expect, it } from "vitest";
-import { agentTaskPriority, StateStore, type StoredTask } from "./store.js";
+import { agentTaskPriority, preferredAgentRoute, representativeRouteTasks, StateStore, type StoredTask } from "./store.js";
 
 const temporaryRoots: string[] = [];
 
@@ -186,6 +186,68 @@ describe("StateStore transactions", () => {
     expect(agentTaskPriority({ ...base, attempts: 1 })).toBeGreaterThan(
       agentTaskPriority(actionable),
     );
+  });
+
+  it("prefers an explicit router route over a component fallback route", () => {
+    const task = {
+      id: "task",
+      sessionId: "session",
+      keyPath: "orders.title",
+      status: "needs_agent",
+      stage: "agent",
+      chinese: "Orders",
+      relativeFile: "orders.json",
+      occurrences: [],
+      routeHints: [
+        { path: "/components/OrdersView.vue", source: "component_usage", confidence: 0.9 },
+        { path: "/orders", source: "router_config", confidence: 0.8 },
+      ],
+      actionHints: [],
+      attempts: 0,
+    } satisfies StoredTask;
+
+    expect(preferredAgentRoute(task)).toBe("/orders");
+  });
+
+  it("keeps route planning context small, anchored, and representative", () => {
+    const makeTask = (index: number, section: string, kind: string): StoredTask => ({
+      id: `task_${index}`,
+      sessionId: "session",
+      keyPath: `permissions.${section}.key${index}`,
+      status: "needs_agent",
+      stage: "agent",
+      chinese: `Text ${index}`,
+      relativeFile: "permissions.json",
+      occurrences: [{ kind, service: kind === "imperative_service" ? "ElMessage" : undefined }],
+      routeHints: [{ path: "/permissions", source: "router_config", confidence: 0.99 }],
+      actionHints: kind === "imperative_service" ? [{ kind: "click" }] : [],
+      attempts: 0,
+    });
+    const tasks = Array.from({ length: 40 }, (_, index) =>
+      makeTask(index, ["dialog", "members", "tree", "log"][index % 4]!, ["text_range", "component_prop", "native_dom", "imperative_service"][index % 4]!),
+    );
+    const anchor = tasks[37]!;
+
+    const selected = representativeRouteTasks(tasks, anchor);
+
+    expect(selected).toHaveLength(12);
+    expect(selected[0]).toBe(anchor);
+    expect(new Set(selected.map((task) => task.keyPath.split(".")[1])).size).toBeGreaterThan(1);
+    expect(new Set(selected.flatMap((task) => task.occurrences.map((item) => (item as { kind: string }).kind))).size).toBeGreaterThan(1);
+  });
+
+  it("persists the end-to-end workflow deadline on the session", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const deadlineAt = "2030-01-02T03:04:05.000Z";
+
+    store.setDeadline(sessionId, deadlineAt);
+
+    expect(store.session(sessionId)?.deadline_at).toBe(deadlineAt);
+    expect(store.status(sessionId).deadline_at).toBe(deadlineAt);
+    store.close();
   });
 
   it("probes routed component props in the deterministic stage", async () => {

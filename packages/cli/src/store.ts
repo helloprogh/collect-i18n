@@ -25,6 +25,94 @@ export interface StoredTask {
   plan?: unknown;
 }
 
+interface AgentRouteHint {
+  path: string
+  confidence: number
+  source: string | undefined
+}
+
+export interface AgentRouteBatch {
+  route?: string
+  total: number
+  returned: number
+  truncated: boolean
+  sourceFiles: string[]
+  sections: Array<{ name: string; count: number }>
+  countsByKind: Record<string, number>
+  countsByService: Record<string, number>
+  tasks: Array<{
+    id: string
+    keyPath: string
+    chinese: string
+    relativeFile: string
+    attempts: number
+    kinds: string[]
+    services: string[]
+    locations: Array<{ file?: string; line?: number }>
+    actionHints: unknown[]
+  }>
+}
+
+export function representativeRouteTasks(
+  candidates: StoredTask[],
+  anchor: StoredTask,
+  limit = 12,
+): StoredTask[] {
+  const bounded = Math.max(1, Math.trunc(limit));
+  const ordered = [anchor, ...candidates.filter((task) => task.id !== anchor.id)]
+    .sort((left, right) => {
+      if (left.id === anchor.id) return -1;
+      if (right.id === anchor.id) return 1;
+      return agentTaskPriority(right) - agentTaskPriority(left) || left.keyPath.localeCompare(right.keyPath);
+    });
+  const selected: StoredTask[] = [];
+  const signatures = new Set<string>();
+  for (const task of ordered) {
+    const section = task.keyPath.split(".").slice(0, 2).join(".");
+    const kinds = task.occurrences
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => `${String(item.kind ?? "unknown")}:${String(item.service ?? "")}`)
+      .sort()
+      .join("+");
+    const signature = `${section}|${kinds}`;
+    if (task.id !== anchor.id && signatures.has(signature)) continue;
+    signatures.add(signature);
+    selected.push(task);
+    if (selected.length >= bounded) return selected;
+  }
+  for (const task of ordered) {
+    if (selected.some((item) => item.id === task.id)) continue;
+    selected.push(task);
+    if (selected.length >= bounded) break;
+  }
+  return selected;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+export function preferredAgentRoute(task: StoredTask): string | undefined {
+  const hints = task.routeHints
+    .map(asRecord)
+    .filter((hint): hint is Record<string, unknown> => Boolean(hint))
+    .map((hint) => ({
+      path: typeof hint.path === "string" ? hint.path : "",
+      confidence: Number(hint.confidence ?? 0),
+      source: typeof hint.source === "string" ? hint.source : undefined,
+    }))
+    .filter((hint): hint is AgentRouteHint => hint.path.startsWith("/"))
+    .sort((left, right) =>
+      (right.source === "router_config" ? 1 : 0) - (left.source === "router_config" ? 1 : 0)
+      || right.confidence - left.confidence
+      || left.path.localeCompare(right.path),
+    );
+  return hints[0]?.path;
+}
+
 export function agentTaskPriority(task: StoredTask): number {
   const actionableHints = task.actionHints.filter(
     (hint) => typeof hint === "object" && hint !== null,
@@ -180,6 +268,7 @@ export class StateStore {
         status TEXT NOT NULL,
         service_url TEXT,
         base_url TEXT NOT NULL,
+        deadline_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -240,6 +329,10 @@ export class StateStore {
       JOIN sessions s ON s.id=t.session_id
       JOIN locale_keys k ON k.project_id=s.project_id AND k.key_path=t.key_path;
     `);
+    const sessionColumns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+    if (!sessionColumns.some((column) => column.name === "deadline_at")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN deadline_at TEXT");
+    }
   }
 
   syncProject(projectRoot: string, config: unknown, analysis: ProjectAnalysis): string {
@@ -313,6 +406,12 @@ export class StateStore {
 
   updateService(sessionId: string, serviceUrl: string): void {
     this.db.prepare("UPDATE sessions SET service_url=?,updated_at=? WHERE id=?").run(serviceUrl, new Date().toISOString(), sessionId);
+  }
+
+  setDeadline(sessionId: string, deadlineAt: string): void {
+    if (!Number.isFinite(Date.parse(deadlineAt))) throw new Error(`Invalid workflow deadline: ${deadlineAt}`);
+    this.db.prepare("UPDATE sessions SET deadline_at=?,updated_at=? WHERE id=?")
+      .run(deadlineAt, new Date().toISOString(), sessionId);
   }
 
   closeSession(sessionId: string, status: "stopped" | "interrupted" | "failed" = "stopped"): void {
@@ -454,9 +553,80 @@ export class StateStore {
   }
 
   nextAgentTask(sessionId: string): StoredTask | undefined {
-    return this.listTasks(sessionId, ["needs_agent"], 2_000)
-      .map((task, index) => ({ task, index, priority: agentTaskPriority(task) }))
+    const tasks = this.listTasks(sessionId, ["needs_agent"], 2_000);
+    const routeCounts = new Map<string, number>();
+    for (const task of tasks) {
+      const route = preferredAgentRoute(task);
+      if (route) routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
+    }
+    return tasks
+      .map((task, index) => {
+        const route = preferredAgentRoute(task);
+        const routeFanout = route ? routeCounts.get(route) ?? 1 : 0;
+        return { task, index, priority: routeFanout * 10_000 + agentTaskPriority(task) };
+      })
       .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
+  }
+
+  agentRouteBatch(sessionId: string, anchor: StoredTask, limit = 12): AgentRouteBatch {
+    const route = preferredAgentRoute(anchor);
+    const candidates = this.listTasks(sessionId, ["needs_agent"], 2_000)
+      .filter((task) => route ? preferredAgentRoute(task) === route : task.relativeFile === anchor.relativeFile);
+    const selected = representativeRouteTasks(candidates, anchor, limit);
+    const sourceFiles = new Set<string>();
+    const sections = new Map<string, number>();
+    const countsByKind = new Map<string, number>();
+    const countsByService = new Map<string, number>();
+    for (const task of candidates) {
+      const section = task.keyPath.split(".").slice(0, 2).join(".");
+      sections.set(section, (sections.get(section) ?? 0) + 1);
+      for (const occurrence of task.occurrences) {
+        const record = asRecord(occurrence);
+        if (!record) continue;
+        if (typeof record.kind === "string") countsByKind.set(record.kind, (countsByKind.get(record.kind) ?? 0) + 1);
+        if (typeof record.service === "string") countsByService.set(record.service, (countsByService.get(record.service) ?? 0) + 1);
+        const location = asRecord(record.location);
+        if (typeof location?.file === "string") sourceFiles.add(location.file);
+      }
+    }
+    const tasks = selected.map((task) => {
+      const kinds = new Set<string>();
+      const services = new Set<string>();
+      const locations: Array<{ file?: string; line?: number }> = [];
+      for (const occurrence of task.occurrences) {
+        const record = asRecord(occurrence);
+        if (!record) continue;
+        if (typeof record.kind === "string") kinds.add(record.kind);
+        if (typeof record.service === "string") services.add(record.service);
+        const location = asRecord(record.location);
+        const file = typeof location?.file === "string" ? location.file : undefined;
+        const line = typeof location?.line === "number" ? location.line : undefined;
+        if (file) sourceFiles.add(file);
+        if (locations.length < 3 && (file || line !== undefined)) locations.push({ file, line });
+      }
+      return {
+        id: task.id,
+        keyPath: task.keyPath,
+        chinese: task.chinese,
+        relativeFile: task.relativeFile,
+        attempts: task.attempts,
+        kinds: [...kinds],
+        services: [...services],
+        locations,
+        actionHints: task.actionHints.slice(0, 5),
+      };
+    });
+    return {
+      route,
+      total: candidates.length,
+      returned: tasks.length,
+      truncated: candidates.length > tasks.length,
+      sourceFiles: [...sourceFiles].sort(),
+      sections: [...sections].map(([name, count]) => ({ name, count })).sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+      countsByKind: Object.fromEntries([...countsByKind].sort()),
+      countsByService: Object.fromEntries([...countsByService].sort()),
+      tasks,
+    };
   }
 
   private hydrateTask(row: Record<string, unknown>): StoredTask {

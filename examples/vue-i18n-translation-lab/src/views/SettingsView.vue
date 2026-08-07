@@ -65,7 +65,12 @@ const passwordStrength = computed<{ level: 'weak' | 'medium' | 'strong'; key: st
   if (/\d/u.test(password)) score += 1
   if (/[^A-Za-z0-9]/u.test(password)) score += 1
   const level = score >= 4 ? 'strong' : score >= 3 ? 'medium' : 'weak'
-  return { level, key: `settings.security.password.strength.${level}` }
+  const keys = {
+    weak: 'settings.security.password.strength.weak',
+    medium: 'settings.security.password.strength.medium',
+    strong: 'settings.security.password.strength.strong',
+  } as const
+  return { level, key: keys[level] }
 })
 
 const themeOptions = [
@@ -100,6 +105,16 @@ function toggleMfa(value: boolean) {
 }
 
 function save() {
+  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(form.email)) {
+    ElMessage.error(t('settings.validation.emailInvalid'))
+    activeTab.value = 'profile'
+    return
+  }
+  if (form.phone && !/^\+?[0-9\s-]{7,20}$/u.test(form.phone)) {
+    ElMessage.error(t('settings.validation.phoneInvalid'))
+    activeTab.value = 'profile'
+    return
+  }
   ElMessage.success(t('settings.feedback.saved'))
 }
 
@@ -244,6 +259,7 @@ function reset() {
       <el-tab-pane :label="t('settings.tabs.advanced')" name="advanced">
         <el-collapse v-model="activeCollapse" data-testid="settings-advanced-collapse">
           <el-collapse-item name="sync" :title="t('settings.advanced.sync.title')">
+            <h4>{{ t('settings.advanced.sync.retry.label') }}</h4>
             <el-form-item :label="t('settings.advanced.sync.frequency.label')">
               <el-radio-group v-model="form.frequency" data-testid="settings-frequency">
                 <el-radio value="realtime">{{ t('settings.advanced.sync.frequency.realtime') }}</el-radio>

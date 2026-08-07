@@ -20,6 +20,74 @@ async function eventually(assertion: () => void): Promise<void> {
 }
 
 describe("collector scheduling", () => {
+  it("captures unresolved keys at every route-plan checkpoint and the final state", async () => {
+    const checkpointCalls: number[] = [];
+    const primaryEvidence = {
+      key: "route.finalTarget",
+      evidenceGrade: "A" as const,
+      evidenceProof: "compiler-text-sink",
+      text: "Final target",
+      route: "http://127.0.0.1:5173/route",
+      rect: { x: 10, y: 10, width: 100, height: 24 },
+      screenshotPath: "D:/evidence/final.png",
+      screenshotSha256: "0".repeat(64),
+      capturedAt: new Date().toISOString(),
+      source: "agent" as const,
+    };
+    const fakeStore = {
+      task: () => ({ id: "task_final", sessionId: "session_test", keyPath: "route.finalTarget", attempts: 0 }),
+      submitPlan: () => undefined,
+      addEvidence: () => "evidence_primary",
+      markTask: () => undefined,
+    };
+    const fakeCollector = {
+      executePlan: async (_plan: unknown, _source: unknown, checkpoint?: () => Promise<void>) => {
+        await checkpoint?.();
+        await checkpoint?.();
+        return primaryEvidence;
+      },
+    };
+    const config = {
+      version: 1,
+      projectRoot: "D:/project",
+      stateDirectory: ".collect-i18n",
+      source: { include: [], exclude: [] },
+      locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
+      app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
+      browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
+      instrumentation: { enabled: true, devOnly: true },
+    } as ProjectConfig;
+    const service = new LocalService({ config, sessionId: "session_test", capability: "c".repeat(43) });
+    const internals = service as unknown as {
+      store: typeof fakeStore;
+      collector: () => Promise<typeof fakeCollector>;
+      executeAgent: (taskId: string, plan: unknown) => Promise<{ additionalEvidence: Array<{ keyPath: string }> }>;
+      captureVisibleBatch: () => Promise<Array<{ taskId: string; keyPath: string; evidenceId: string }>>;
+      runDeterministicQueue: () => Promise<void>;
+    };
+    internals.store = fakeStore;
+    internals.collector = async () => fakeCollector;
+    internals.captureVisibleBatch = async () => {
+      const index = checkpointCalls.push(checkpointCalls.length + 1);
+      return [{ taskId: `task_${index}`, keyPath: `checkpoint.${index}`, evidenceId: `evidence_${index}` }];
+    };
+    internals.runDeterministicQueue = async () => undefined;
+
+    const result = await internals.executeAgent("task_final", {
+      version: 1,
+      targetKey: "route.finalTarget",
+      route: "/route",
+      steps: [{ type: "capture" }, { type: "waitForKey", key: "route.finalTarget" }],
+    });
+
+    expect(checkpointCalls).toHaveLength(3);
+    expect(result.additionalEvidence.map((item) => item.keyPath)).toEqual([
+      "checkpoint.1",
+      "checkpoint.2",
+      "checkpoint.3",
+    ]);
+  });
+
   it("captures other mounted A/B tasks after one Agent state transition", async () => {
     const added: string[] = [];
     const tasks = [

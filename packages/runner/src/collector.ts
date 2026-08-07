@@ -135,6 +135,27 @@ export function isCausalProbeSafe(plan?: ParsedTriggerPlan): boolean {
   return !plan || plan.steps.every((step) => SAFE_CAUSAL_PROBE_STEPS.has(step.type));
 }
 
+/**
+ * Click a resolved control by its semantic wrapper when the accessible role
+ * points at a covered native radio/checkbox input. Component libraries often
+ * render the visible control as a label around that input; clicking the label
+ * preserves normal application events without framework-specific selectors.
+ */
+export async function clickResolvedLocator(locator: Locator, timeoutMs: number): Promise<void> {
+  const target = locator.first();
+  const inputType = await target.getAttribute("type", { timeout: timeoutMs }).catch(() => null);
+  if (inputType === "radio" || inputType === "checkbox") {
+    const wrappingLabel = target.locator("xpath=ancestor::label[1]");
+    if ((await wrappingLabel.count().catch(() => 0)) > 0) {
+      await wrappingLabel.click({ timeout: timeoutMs });
+      return;
+    }
+    await target.check({ timeout: timeoutMs, force: true });
+    return;
+  }
+  await target.click({ timeout: timeoutMs });
+}
+
 function globToRegExp(glob: string): RegExp {
   const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("**", "§§").replaceAll("*", "[^?]*").replaceAll("§§", ".*");
   return new RegExp(`^${escaped}$`);
@@ -379,7 +400,11 @@ export class BrowserCollector {
     }
   }
 
-  async executePlan(rawPlan: TriggerPlan, source: CollectedEvidence["source"] = "agent"): Promise<CollectedEvidence> {
+  async executePlan(
+    rawPlan: TriggerPlan,
+    source: CollectedEvidence["source"] = "agent",
+    onCheckpoint?: () => Promise<void>,
+  ): Promise<CollectedEvidence> {
     const plan = parseTriggerPlan(rawPlan);
     const executingPage = this.activePage;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -392,7 +417,7 @@ export class BrowserCollector {
         this.assertSameOrigin();
         switch (step.type) {
           case "goto": await this.open(step.path); break;
-          case "click": await this.locator(step.locator).click({ timeout: step.timeoutMs }); break;
+          case "click": await clickResolvedLocator(this.locator(step.locator), this.stepTimeout(step.timeoutMs)); break;
           case "fill": await this.fillInput(this.locator(step.locator), step.value, step.timeoutMs); break;
           case "press": await (await this.resolveEditable(this.locator(step.locator), this.stepTimeout(step.timeoutMs))).press(step.key, { timeout: step.timeoutMs }); break;
           case "select": await this.selectOption(this.locator(step.locator), step.value, step.timeoutMs); break;
@@ -400,6 +425,7 @@ export class BrowserCollector {
           case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
           case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;
           case "waitForText": await this.activePage.getByText(step.text).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
+          case "capture": await onCheckpoint?.(); break;
           case "reload": await this.open(this.activePage.url()); break;
         }
         this.assertSameOrigin();
