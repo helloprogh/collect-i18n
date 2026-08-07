@@ -89,6 +89,94 @@ const label = t(resolveKey())`,
     )
   })
 
+  it('enumerates bounded message-key maps and propagates the importing view route', async () => {
+    const root = await createWorkspace()
+    await mkdir(path.join(root, 'src', 'services'), { recursive: true })
+    await mkdir(path.join(root, 'src', 'router'), { recursive: true })
+    await writeFile(
+      path.join(root, 'src', 'services', 'ticketMessages.js'),
+      `const MESSAGE_KEYS = {
+  assigned: 'tickets.messages.assigned',
+  closed: 'tickets.messages.closed',
+}
+const ERROR_KEYS = {
+  conflict: 'tickets.errors.conflict',
+  unavailable: 'tickets.errors.unavailable',
+}
+export const messageFor = (t, action) => t(MESSAGE_KEYS[action])
+export const errorFor = (t, code) => t(ERROR_KEYS[code])`,
+    )
+    await writeFile(
+      path.join(root, 'src', 'views', 'TicketsView.vue'),
+      `<script setup>import { messageFor } from '../services/ticketMessages.js'</script>
+<template><button @click="messageFor(t, 'assigned')">{{ t('tickets.title') }}</button></template>`,
+    )
+    await writeFile(
+      path.join(root, 'src', 'router', 'index.ts'),
+      `import TicketsView from '../views/TicketsView.vue'
+const routes = [{ path: '/tickets', component: TicketsView }]`,
+    )
+
+    const result = await scanProjectSources({ projectRoot: root })
+    const mapped = result.occurrences.filter((occurrence) =>
+      occurrence.keyPath.startsWith('tickets.messages.') ||
+      occurrence.keyPath.startsWith('tickets.errors.'),
+    )
+
+    expect(mapped.map((occurrence) => occurrence.keyPath).sort()).toEqual([
+      'tickets.errors.conflict',
+      'tickets.errors.unavailable',
+      'tickets.messages.assigned',
+      'tickets.messages.closed',
+    ])
+    expect(mapped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dynamic: true,
+          routeHints: expect.arrayContaining([
+            expect.objectContaining({ path: '/tickets', confidence: 0.99 }),
+          ]),
+        }),
+      ]),
+    )
+    expect(result.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'dynamic_translation_key' }),
+      ]),
+    )
+  })
+
+  it('uses the locale catalog to expand template prefixes and exact key literals', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'src', 'views', 'users', 'Create.vue'),
+      `<script setup>
+const status = 'pending'
+const options = [{ key: 'orders.actions.approve' }, { key: 'orders.actions.reject' }]
+</script>
+<template><p>{{ t(\`orders.status.\${status}\`) }}</p><button v-for="item in options">{{ t(item.key) }}</button></template>`,
+    )
+
+    const result = await scanProjectSources({
+      projectRoot: root,
+      catalogKeys: [
+        'orders.status.pending',
+        'orders.status.completed',
+        'orders.actions.approve',
+        'orders.actions.reject',
+        'other.unrelated',
+      ],
+    })
+    const keys = new Set(result.occurrences.map((occurrence) => occurrence.keyPath))
+    expect([...keys]).toEqual(expect.arrayContaining([
+      'orders.status.pending',
+      'orders.status.completed',
+      'orders.actions.approve',
+      'orders.actions.reject',
+    ]))
+    expect(keys.has('other.unrelated')).toBe(false)
+  })
+
   it('attaches a statically imported route to occurrences in its Vue component', async () => {
     const root = await createWorkspace()
     await mkdir(path.join(root, 'src', 'router'), { recursive: true })

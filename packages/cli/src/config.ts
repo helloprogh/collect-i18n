@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { ProjectConfigSchema, type ProjectConfig } from "@collect-i18n/core";
 
@@ -33,6 +34,29 @@ async function detectDevCommand(projectRoot: string): Promise<string> {
   }
 }
 
+async function canBindLocalPort(port: number): Promise<boolean> {
+  return await new Promise<boolean>((resolveAvailable) => {
+    const server = createServer();
+    server.unref();
+    server.once("error", () => resolveAvailable(false));
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+      server.close(() => resolveAvailable(true));
+    });
+  });
+}
+
+/**
+ * Select a predictable local Vite port without attaching to an unrelated app.
+ * The service itself still uses Vite's strict-port mode, so a later race fails
+ * safely instead of collecting evidence from the wrong project.
+ */
+export async function findAvailablePort(preferredPort = 5173, attempts = 100): Promise<number> {
+  for (let port = preferredPort; port < preferredPort + attempts; port += 1) {
+    if (await canBindLocalPort(port)) return port;
+  }
+  throw new Error(`No available local port in ${preferredPort}-${preferredPort + attempts - 1}`);
+}
+
 async function detectLocaleCookies(projectRoot: string): Promise<Array<{ name: string; value: string }>> {
   const sourceRoot = join(projectRoot, "src");
   const files: string[] = [];
@@ -65,6 +89,7 @@ async function detectLocaleCookies(projectRoot: string): Promise<Array<{ name: s
 
 export async function createDefaultConfig(projectRootInput: string): Promise<ProjectConfig> {
   const projectRoot = resolve(projectRootInput);
+  const appPort = await findAvailablePort();
   return ProjectConfigSchema.parse({
     version: 1,
     projectRoot,
@@ -72,7 +97,7 @@ export async function createDefaultConfig(projectRootInput: string): Promise<Pro
     source: {},
     locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
     app: {
-      baseUrl: "http://127.0.0.1:5173",
+      baseUrl: `http://127.0.0.1:${appPort}`,
       devCommand: await detectDevCommand(projectRoot),
       workingDirectory: projectRoot,
       healthPath: "/",

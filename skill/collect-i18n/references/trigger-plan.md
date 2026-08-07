@@ -9,6 +9,7 @@ TriggerPlan is a bounded JSON DSL. It cannot execute JavaScript, shell commands,
   "route": "/users/create",
   "mocks": [],
   "steps": [
+    { "type": "capture" },
     {
       "type": "click",
       "locator": { "kind": "role", "value": "button", "name": "保存" }
@@ -42,7 +43,7 @@ Use zero-based `index` only when the source proves that the same stable locator 
 ## Steps
 
 - `goto`: `{ "type": "goto", "path": "/users/create" }`; same project origin only.
-- `click`: locator plus optional `timeoutMs`.
+- `click`: locator plus optional `timeoutMs`. A semantic role locator that resolves to a covered native radio/checkbox is activated through its visible wrapping label, so prefer `role: radio` / `role: checkbox` over component-library CSS.
 - `fill`: locator and a literal `value`. Resolves to the inner editable control when the locator targets a component-library wrapper (for example an Element Plus `.el-input` whose `data-testid` sits on the wrapper div). Never place credentials or secrets in a plan.
 - `press`: locator and `key`; also resolves to the inner editable control for wrapped inputs.
 - `select`: locator and `value`, where `value` is the visible option label. Works with native `<select>` and with custom dropdowns (for example Element Plus `el-select`): it opens the dropdown and clicks the option whose label matches.
@@ -50,11 +51,12 @@ Use zero-based `index` only when the source proves that the same stable locator 
 - `wait`: `milliseconds`, maximum 5000.
 - `waitForKey`: target key and optional timeout, maximum 60000.
 - `waitForText`: exact visible-source text hint and optional timeout.
+- `capture`: `{ "type": "capture" }`; record every currently visible A/B-grade unresolved key before continuing. Use after the initial route state and after each source-proven high-fan-out state. It does not replace the final target capture.
 
 The engine may replay a read-only plan (`goto`, `reload`, `hover`, and bounded waits) in an isolated page to causally verify B-grade component evidence. Plans containing `click`, `fill`, `press`, or `select` are not replayed for this probe, so business side effects are never duplicated by Canary verification.
 - `reload`: no additional fields.
 
-A plan has at most 40 steps. Keep it short and end with `waitForKey` for the task target.
+A plan has at most 40 steps. Use the budget for one coherent route coverage path with checkpoints. Keep the anchor target visible in the final state and end with `waitForKey` for that target.
 
 ## Request mocks
 
@@ -84,6 +86,6 @@ Do not invent UI copy in the mock. Use response shape/value evidence from the pr
 - Element Plus message/notification: perform the source-identified command; runtime service binding and document observer locate the Teleport node.
 - HTTP error: install the smallest matching mock, perform the request action, wait for the error key.
 
-Prefer a source-proven state transition that reveals several related pending keys at once. The service captures other visible A/B-grade keys after the target succeeds, including custom Vue component props, fragment/slot/Teleport host text, and Element Plus service text. A TriggerPlan still has exactly one `targetKey`; never add extra actions solely to expose unrelated pages.
+Prefer a source-proven route path that reveals several related pending keys at each checkpoint. The service captures visible A/B-grade keys at every `capture` step and after the target succeeds, including custom Vue component props, fragment/slot/Teleport host text, and Element Plus service text. A TriggerPlan still has exactly one `targetKey`; checkpoints may cover related states on the same route, never unrelated pages.
 
 Never add a page or phrase to the project to make these patterns succeed.

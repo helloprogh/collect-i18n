@@ -9,10 +9,11 @@ export * from './types.js'
 export async function analyzeProject(
   options: BuildLocaleCatalogOptions & ScanProjectSourcesOptions,
 ): Promise<ProjectAnalysis> {
-  const [catalog, source] = await Promise.all([
-    buildLocaleCatalog(options),
-    scanProjectSources(options),
-  ])
+  const catalog = await buildLocaleCatalog(options)
+  const source = await scanProjectSources({
+    ...options,
+    catalogKeys: catalog.keys.map((key) => key.keyPath),
+  })
   const occurrenceKeys = new Set(
     source.occurrences.map((occurrence) => occurrence.keyPath),
   )

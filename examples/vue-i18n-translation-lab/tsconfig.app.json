@@ -7,6 +7,8 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "jsx": "preserve",
+    "allowJs": true,
+    "checkJs": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
@@ -15,5 +17,5 @@
     "types": ["vite/client"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.vue"]
 }

@@ -117,6 +117,8 @@ async function send() {
       duration: response.duration,
       attempt: response.attempt,
     })
+  } catch {
+    ElMessage.error(t('requestLab.states.timeout'))
   } finally {
     loading.value = false
     retryingInfo.value = null
@@ -177,12 +179,14 @@ function clearLog() {
           </el-col>
           <el-col :span="6">
             <el-form-item :label="t('requestLab.controls.delayLabel')">
-              <el-input-number v-model="delay" data-testid="request-lab-delay" :min="0" :step="100" style="width: 100%" />
+              <el-input-number v-model="delay" data-testid="request-lab-delay" :min="0" :step="100" style="width: 100%"
+                :placeholder="t('requestLab.controls.delayPlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item :label="t('requestLab.controls.statusCodeLabel')">
-              <el-input-number v-model="statusCode" data-testid="request-lab-status-code" :min="100" :max="599" :step="1" style="width: 100%" />
+              <el-input-number v-model="statusCode" data-testid="request-lab-status-code" :min="100" :max="599" :step="1" style="width: 100%"
+                :placeholder="t('requestLab.controls.statusCodePlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
@@ -197,12 +201,14 @@ function clearLog() {
           <el-row :gutter="16">
             <el-col :span="6">
               <el-form-item :label="t('requestLab.retry.maxLabel')">
-                <el-input-number v-model="maxRetries" data-testid="request-lab-max-retries" :min="0" :max="5" style="width: 100%" />
+                <el-input-number v-model="maxRetries" data-testid="request-lab-max-retries" :min="0" :max="5" style="width: 100%"
+                  :placeholder="t('requestLab.retry.maxPlaceholder')" />
               </el-form-item>
             </el-col>
             <el-col :span="6">
               <el-form-item :label="t('requestLab.retry.delayLabel')">
-                <el-input-number v-model="retryDelay" data-testid="request-lab-retry-delay" :min="0" :step="100" style="width: 100%" />
+                <el-input-number v-model="retryDelay" data-testid="request-lab-retry-delay" :min="0" :step="100" style="width: 100%"
+                  :placeholder="t('requestLab.retry.delayPlaceholder')" />
               </el-form-item>
             </el-col>
             <el-col :span="6">
@@ -241,6 +247,7 @@ function clearLog() {
         <dt>{{ t('requestLab.response.method') }}</dt><dd>{{ result.method }}</dd>
         <dt>{{ t('requestLab.response.url') }}</dt><dd>{{ result.url }}</dd>
         <dt>{{ t('requestLab.response.requestBody') }}</dt><dd><pre>{{ JSON.stringify(requestParams, null, 2) }}</pre></dd>
+        <dt>{{ t('requestLab.response.responseHeaders') }}</dt><dd><pre>{{ JSON.stringify({ 'content-type': 'application/json', 'x-request-id': result.requestId }, null, 2) }}</pre></dd>
         <dt>{{ t('requestLab.response.responseBody') }}</dt><dd><pre>{{ JSON.stringify(result.responseBody, null, 2) }}</pre></dd>
       </div>
       <div v-else-if="!loading" class="muted">{{ t('requestLab.response.empty') }}</div>

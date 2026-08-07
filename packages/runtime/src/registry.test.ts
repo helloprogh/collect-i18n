@@ -928,6 +928,46 @@ describe('CollectorRegistry', () => {
     })
   })
 
+  it('keeps invocation provenance for an asynchronous MessageBox validator', async () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'prompt-validation',
+        key: 'prompt.validation',
+        kind: 'imperative-service',
+        service: 'ElMessageBox',
+      },
+    ])
+    const registry = installCollectorRuntime({ overlay: false })
+    let validate!: () => void
+    let settle!: () => void
+    const pending = new Promise<void>((resolve) => { settle = resolve })
+
+    runImperativeInvocation('ElMessageBox', ['prompt-validation'], () => {
+      validate = () => {
+        const rendered = recordRenderedValue('Reason is required', 'prompt-validation')
+        const messageBox = document.createElement('div')
+        messageBox.className = 'el-message-box'
+        const error = document.createElement('div')
+        error.textContent = rendered
+        messageBox.append(error)
+        document.body.append(messageBox)
+      }
+      return pending
+    })
+
+    validate()
+    await mutationsSettled()
+    expect(registry.getOccurrence('prompt-validation')).toMatchObject({
+      anchorType: 'element',
+      evidenceGrade: 'B',
+      evidenceProof: 'element-plus-invocation',
+      connected: true,
+      text: 'Reason is required',
+    })
+    settle()
+    await pending
+  })
+
   it('matches a wrapped ElMessage invocation to Teleport DOM and cleans it up', async () => {
     const registry = installCollectorRuntime({ overlay: false })
     const service = vi.fn((options: unknown) => options)

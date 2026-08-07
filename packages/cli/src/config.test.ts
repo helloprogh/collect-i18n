@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultConfig } from "./config.js";
+import { createDefaultConfig, findAvailablePort } from "./config.js";
 
 const roots: string[] = [];
 
@@ -21,6 +22,21 @@ async function project(source: string): Promise<string> {
 }
 
 describe("default project configuration", () => {
+  it("moves to the next port when the preferred Vite port belongs to another app", async () => {
+    const occupied = createServer();
+    await new Promise<void>((resolveListen, reject) => {
+      occupied.once("error", reject);
+      occupied.listen({ host: "127.0.0.1", port: 0 }, () => resolveListen());
+    });
+    const address = occupied.address();
+    if (!address || typeof address === "string") throw new Error("missing fixture port");
+    try {
+      await expect(findAvailablePort(address.port, 2)).resolves.toBe(address.port + 1);
+    } finally {
+      await new Promise<void>((resolveClose) => occupied.close(() => resolveClose()));
+    }
+  });
+
   it("detects a source-declared Chinese locale cookie", async () => {
     const root = await project(`
       export const LOCALE_COOKIE = 'x-gde-locale'

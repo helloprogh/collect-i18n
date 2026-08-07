@@ -6,6 +6,10 @@ import NotificationsView from '../views/NotificationsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import RequestLabView from '../views/RequestLabView.vue'
 import DiagnosticsView from '../views/DiagnosticsView.vue'
+import SupportView from '../views/SupportView.vue'
+import InventoryView from '../views/InventoryView.vue'
+import BillingView from '../views/BillingView.vue'
+import ReleasesView from '../views/ReleasesView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -18,5 +22,9 @@ export const router = createRouter({
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/request-lab', name: 'request-lab', component: RequestLabView },
     { path: '/diagnostics', name: 'diagnostics', component: DiagnosticsView },
+    { path: '/support', name: 'support', component: SupportView },
+    { path: '/inventory', name: 'inventory', component: InventoryView },
+    { path: '/billing', name: 'billing', component: BillingView },
+    { path: '/releases', name: 'releases', component: ReleasesView },
   ],
 })

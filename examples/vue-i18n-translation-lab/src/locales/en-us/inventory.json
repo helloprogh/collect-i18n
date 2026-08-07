@@ -1,0 +1,128 @@
+{
+  "page": {
+    "title": "库存作业中心",
+    "subtitle": "管理多仓库存、批次追踪与异常调整",
+    "stockHint": "库存数量每五分钟与仓储系统同步",
+    "createAdjustment": "新建库存调整",
+    "refresh": "刷新库存数据"
+  },
+  "metrics": {
+    "totalSku": "库存商品总数",
+    "lowStock": "低库存商品",
+    "outOfStock": "缺货商品",
+    "reserved": "已预留库存",
+    "inTransit": "在途库存",
+    "expiring": "临期批次",
+    "blocked": "冻结库存",
+    "turnover": "库存周转天数"
+  },
+  "filters": {
+    "skuLabel": "商品编码",
+    "skuPlaceholder": "输入商品编码或名称",
+    "warehouseLabel": "所属仓库",
+    "warehousePlaceholder": "请选择所属仓库",
+    "statusLabel": "库存状态",
+    "statusPlaceholder": "请选择库存状态",
+    "typeLabel": "商品类型",
+    "typePlaceholder": "请选择商品类型",
+    "zoneLabel": "库区位置",
+    "zonePlaceholder": "请选择库区位置",
+    "apply": "查询库存",
+    "reset": "重置库存条件"
+  },
+  "columns": {
+    "sku": "商品编码",
+    "product": "商品名称",
+    "warehouse": "所属仓库",
+    "zone": "库区位置",
+    "available": "可用数量",
+    "reserved": "预留数量",
+    "status": "库存状态",
+    "batch": "最新批次",
+    "updatedAt": "盘点更新时间",
+    "actions": "库存操作"
+  },
+  "types": {
+    "finished": "产成品",
+    "material": "原材料",
+    "spare": "备品备件",
+    "consumable": "低值耗材",
+    "virtual": "虚拟商品"
+  },
+  "status": {
+    "healthy": "库存充足",
+    "low": "库存偏低",
+    "out": "当前缺货",
+    "reserved": "全部预留",
+    "blocked": "库存冻结",
+    "counting": "正在盘点"
+  },
+  "zones": {
+    "receiving": "收货暂存区",
+    "storage": "标准存储区",
+    "picking": "订单拣货区",
+    "quarantine": "质量隔离区"
+  },
+  "actions": {
+    "view": "查看库存详情",
+    "adjust": "调整库存数量",
+    "transfer": "创建仓库调拨",
+    "reserve": "预留库存",
+    "release": "释放预留库存",
+    "count": "发起循环盘点",
+    "freeze": "冻结库存",
+    "export": "导出库存清单"
+  },
+  "detail": {
+    "title": "库存详情",
+    "basic": "商品基本信息",
+    "quantities": "库存数量分布",
+    "batches": "批次与效期",
+    "movement": "库存移动记录",
+    "supplier": "默认供应商",
+    "safetyStock": "安全库存",
+    "reorderPoint": "补货触发点",
+    "lastCount": "最近盘点结果",
+    "close": "关闭库存详情"
+  },
+  "adjust": {
+    "title": "库存数量调整",
+    "reason": "调整原因",
+    "reasonPlaceholder": "请选择库存调整原因",
+    "quantity": "调整数量",
+    "quantityPlaceholder": "正数增加，负数减少",
+    "reference": "业务参考单号",
+    "referencePlaceholder": "输入关联单据编号",
+    "remark": "调整备注",
+    "cancel": "取消库存调整",
+    "submit": "提交库存调整"
+  },
+  "validation": {
+    "warehouseRequired": "请选择调整仓库",
+    "skuRequired": "请选择需要调整的商品",
+    "reasonRequired": "请选择库存调整原因",
+    "quantityRequired": "请输入库存调整数量",
+    "quantityRange": "调整数量必须在负一万到一万之间",
+    "remarkLength": "调整备注不能超过二百个字符"
+  },
+  "messages": {
+    "refreshed": "库存数据刷新成功",
+    "adjusted": "库存数量调整成功",
+    "transferred": "仓库调拨单创建成功",
+    "reserved": "库存预留成功",
+    "released": "预留库存释放成功",
+    "countStarted": "循环盘点任务已创建",
+    "frozen": "库存冻结成功",
+    "exported": "库存清单导出成功",
+    "replenishmentCreated": "补货建议已生成"
+  },
+  "errors": {
+    "loadFailed": "库存数据加载失败",
+    "adjustFailed": "库存数量调整失败",
+    "insufficient": "可用库存不足，无法完成操作",
+    "locked": "库存正在被其他作业占用",
+    "batchExpired": "所选库存批次已经过期",
+    "warehouseOffline": "目标仓库当前离线",
+    "serviceUnavailable": "库存服务暂时不可用"
+  }
+}

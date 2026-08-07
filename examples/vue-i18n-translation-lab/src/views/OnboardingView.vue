@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { submitOnboarding } from '../api/client'
@@ -162,6 +162,7 @@ function prev() {
 
 async function submit() {
   if (!acceptedTerms.value) {
+    ElMessage.warning(t('onboarding.validation.termsRequired'))
     return
   }
   if (!(await validateStep())) return
@@ -324,10 +325,14 @@ function resend() {
       </el-form>
 
       <div v-if="step < 4" class="step-actions">
-        <el-button v-if="step > 0" data-testid="onboarding-prev" @click="prev">{{ t('onboarding.confirm.prev') }}</el-button>
+        <el-button v-if="step === 1" data-testid="onboarding-prev" @click="prev">{{ t('onboarding.profile.prev') }}</el-button>
+        <el-button v-else-if="step === 2" data-testid="onboarding-prev" @click="prev">{{ t('onboarding.preferences.prev') }}</el-button>
+        <el-button v-else-if="step === 3" data-testid="onboarding-prev" @click="prev">{{ t('onboarding.confirm.prev') }}</el-button>
         <div class="form-actions">
-          <el-button v-if="step < 3" type="primary" data-testid="onboarding-next" @click="next">{{ t('onboarding.account.next') }}</el-button>
-          <el-button v-else type="primary" :loading="submitting" :disabled="!acceptedTerms" data-testid="onboarding-submit" @click="submit">
+          <el-button v-if="step === 0" type="primary" data-testid="onboarding-next" @click="next">{{ t('onboarding.account.next') }}</el-button>
+          <el-button v-else-if="step === 1" type="primary" data-testid="onboarding-next" @click="next">{{ t('onboarding.profile.next') }}</el-button>
+          <el-button v-else-if="step === 2" type="primary" data-testid="onboarding-next" @click="next">{{ t('onboarding.preferences.next') }}</el-button>
+          <el-button v-else type="primary" :loading="submitting" data-testid="onboarding-submit" @click="submit">
             {{ t('onboarding.confirm.submit') }}
           </el-button>
         </div>

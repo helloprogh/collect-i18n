@@ -1,0 +1,128 @@
+{
+  "page": {
+    "title": "客户支持工作台",
+    "subtitle": "统一处理客户咨询、服务等级与协同记录",
+    "queueHint": "当前队列按服务等级到期时间排序",
+    "createTicket": "新建工单",
+    "refresh": "刷新工单队列"
+  },
+  "metrics": {
+    "open": "待处理工单",
+    "waitingCustomer": "等待客户回复",
+    "breached": "已超服务等级",
+    "dueToday": "今日即将到期",
+    "firstResponse": "平均首次响应",
+    "avgResolve": "平均解决时长",
+    "satisfaction": "客户满意度",
+    "backlog": "积压工单"
+  },
+  "filters": {
+    "keywordLabel": "工单关键词",
+    "keywordPlaceholder": "搜索编号、主题或客户",
+    "statusLabel": "处理状态",
+    "statusPlaceholder": "请选择处理状态",
+    "priorityLabel": "优先级",
+    "priorityPlaceholder": "请选择优先级",
+    "channelLabel": "来源渠道",
+    "channelPlaceholder": "请选择来源渠道",
+    "ownerLabel": "当前负责人",
+    "ownerPlaceholder": "请选择负责人",
+    "apply": "应用工单筛选",
+    "reset": "重置工单筛选"
+  },
+  "columns": {
+    "ticketNo": "工单编号",
+    "subject": "工单主题",
+    "customer": "客户名称",
+    "priority": "优先级",
+    "status": "处理状态",
+    "channel": "来源渠道",
+    "owner": "负责人",
+    "updatedAt": "最近更新时间",
+    "sla": "服务等级剩余时间",
+    "actions": "工单操作"
+  },
+  "priority": {
+    "urgent": "紧急优先级",
+    "high": "高优先级",
+    "normal": "普通优先级",
+    "low": "低优先级"
+  },
+  "status": {
+    "new": "新建待受理",
+    "assigned": "已分配处理人",
+    "working": "正在处理中",
+    "waiting": "等待客户信息",
+    "resolved": "已解决待确认",
+    "closed": "工单已关闭"
+  },
+  "channels": {
+    "portal": "客户门户提交",
+    "email": "客户邮件提交",
+    "phone": "客服热线创建",
+    "monitor": "监控告警转入"
+  },
+  "actions": {
+    "view": "查看工单详情",
+    "assign": "分配处理人",
+    "reply": "回复客户",
+    "escalate": "升级工单",
+    "resolve": "标记为已解决",
+    "close": "关闭工单",
+    "merge": "合并重复工单",
+    "export": "导出工单记录"
+  },
+  "detail": {
+    "title": "工单详情",
+    "summary": "问题摘要",
+    "description": "问题描述",
+    "environment": "发生环境",
+    "contact": "客户联系人",
+    "contract": "服务合同",
+    "timeline": "协同时间线",
+    "internalNote": "内部处理备注",
+    "attachments": "客户附件",
+    "close": "关闭详情抽屉"
+  },
+  "reply": {
+    "title": "回复客户工单",
+    "recipient": "回复收件人",
+    "template": "回复模板",
+    "templatePlaceholder": "请选择回复模板",
+    "content": "回复内容",
+    "contentPlaceholder": "输入面向客户的处理说明",
+    "internal": "仅作为内部备注",
+    "sendCopy": "同时抄送客户经理",
+    "cancel": "取消回复",
+    "send": "发送工单回复"
+  },
+  "validation": {
+    "subjectRequired": "请输入工单主题",
+    "subjectLength": "工单主题长度应为六到八十个字符",
+    "customerRequired": "请选择工单客户",
+    "descriptionRequired": "请输入问题详细描述",
+    "recipientRequired": "请输入有效的回复收件人",
+    "replyLength": "回复内容不能少于十个字符"
+  },
+  "messages": {
+    "created": "工单创建成功",
+    "refreshed": "工单队列已刷新",
+    "assigned": "工单负责人已更新",
+    "replied": "客户回复发送成功",
+    "escalated": "工单已升级至专家组",
+    "resolved": "工单已标记为解决",
+    "closed": "工单关闭成功",
+    "merged": "重复工单合并成功",
+    "exported": "工单记录导出成功",
+    "noteSaved": "内部处理备注已保存"
+  },
+  "errors": {
+    "loadFailed": "工单队列加载失败，请稍后重试",
+    "createFailed": "工单创建失败，请检查输入内容",
+    "assignFailed": "负责人分配失败，请重新选择",
+    "replyFailed": "客户回复发送失败",
+    "conflict": "工单已被其他客服更新",
+    "permissionDenied": "当前账号无权处理该工单",
+    "serviceUnavailable": "客服服务暂时不可用"
+  }
+}

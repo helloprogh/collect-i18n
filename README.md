@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.1`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.2`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -25,6 +25,9 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 安全的 B 级组件证据会在隔离页面执行一次性 Canary 因果验证，通过后提升为 A 级；有副作用的动作不会被自动重放。
 - 自动处理期间，命令行和工作台持续显示已处理数、可信截图数、转交数、失败数和当前 Key。
 - 一次 Agent 或人工操作建立业务状态后，会批量采集该状态中已挂载的其他 A/B 级词条；每个词条仍单独重新定位、标记和截图。
+- Agent 按路由批量规划：返回全量 section/kind/service 统计、相关源码文件和最多 12 条代表样本，并可在一个 TriggerPlan 的多个 `capture` 检查点连续采集初始页、校验、弹窗、抽屉、表格和消息状态。
+- 语义 radio/checkbox 会自动通过可见 label 激活被组件库包装的原生控件；通常无需为 Element Plus 编写专用选择器。
+- 初始化会避开已占用的本机 Vite 端口；用户提供的端到端截止时间会持久化，Agent 到期后停止领取新任务并立即进入定案导出。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
 - Agent 队列结束后会进行可审计定案：源码无引用或仅用于 `aria-*` / 原生 `title` 的非可视词条明确留空，其余未解决词条进入人工辅助，不伪造截图。
 - 人工只需完成正常业务操作。目标 key 出现后，工具自动高亮、截图并保存证据。
@@ -63,7 +66,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.1.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.2.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -305,4 +308,5 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.2 发布说明](docs/release-notes-v0.3.2.md)
 - [v0.3.1 发布说明](docs/release-notes-v0.3.1.md)

@@ -37,7 +37,7 @@ Read [CLI protocol](references/cli-protocol.md) before operating the tool. Read 
 
 ### 1. Prepare and start with one command
 
-Run `run --output <absolute-xlsx-path> --deadline-minutes 120 --deterministic-timeout-minutes 8`. Give the command an execution-tool timeout of at least 10 minutes; do not let a short default shell timeout terminate its collector. This checks the environment, initializes or refreshes the real project index, starts or reuses the collector, waits for deterministic work, and writes an immediately usable four-column workbook. Record `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, and the workbook path.
+Run `run --output <absolute-xlsx-path> --deadline-minutes <user-budget> --deterministic-timeout-minutes 8`. Use 120 minutes only when the user supplied no deadline. Give the command an execution-tool timeout of at least 10 minutes; do not let a short default shell timeout terminate its collector. This checks the environment, initializes or refreshes the real project index, starts or reuses the collector, waits for deterministic work, and writes an immediately usable four-column workbook. Record `sessionId`, `studioUrl`, `appUrl`, `deadlineAt`, `nextAction`, and the workbook path.
 
 Stop on a failed required check and report the concrete project prerequisite. Do not replace an invalid existing configuration automatically. Report actual counts from JSON; never invent coverage.
 
@@ -59,19 +59,19 @@ Present progress using only returned fields, for example:
 
 ### 2. Process the Agent queue
 
-Call `agent next --session <id>`. If `done` is true, leave the loop.
+Call `agent next --session <id>`. It returns the persisted end-to-end `deadlineAt` and `remainingSeconds`; do not estimate the budget from wall-clock memory. If `done` is true, leave the loop. `reason: deadline_reached` means finalize and export immediately. The response includes `routeBatch`: section/kind/service counts and source files for all unresolved tasks on the selected route, plus a deliberately small representative task sample.
 
 For each returned task:
 
-1. Begin with the task's Chinese text, source file, occurrences, route hints, action hints, attempts, and last error. Read only a bounded region around the reported occurrence lines and, when needed, the directly referenced template handler, validation rule, request client, or local mock fixture. Do not scan or summarize unrelated project files.
-2. Trace the source-defined state transition from the translated call to the smallest stable control that exposes it. Prefer a plan that opens a state containing several unresolved keys (for example a dialog, drawer, tab, validation group, or request result); the engine will capture every additional visible A/B-grade key after the target succeeds.
-3. Create one strict version-1 TriggerPlan. Prefer stable role, label, test-id, or exact source-derived CSS locators. Use a zero-based locator `index` only when the source proves the same stable locator is intentionally repeated. Use request mocks only when the target is an API success/error state and the response contract is source-evidenced.
+1. Treat `routeBatch` as the unit of work, not the single anchor key. Use its aggregate counts to understand the route; do not enumerate or classify every key in the representative sample. Read each listed source file at most once for that route, using reported occurrence lines and only directly referenced handlers, validation rules, request clients, or local mock fixtures. When `truncated` is true, let runtime checkpoints discover the omitted keys rather than requesting or reconstructing a complete static list.
+2. Build a source-evidenced route coverage path. Start from the route's initial state, then visit the smallest set of high-fan-out states: tabs, drawers, dialogs, validation groups, table loads, request outcomes, and Element Plus services. Insert a `capture` checkpoint after the initial state and after every state transition; each checkpoint records every visible A/B-grade unresolved key before the next transition changes the page.
+3. Create one strict version-1 TriggerPlan for the route batch, within the 40-step limit. Keep the returned task as `targetKey` and make its state the final state so primary evidence remains attributable. Prefer stable role, label, test-id, or exact source-derived CSS locators. Prefer role locators for semantic radio and checkbox controls: the executor clicks their visible wrapping label even when a component library covers the native input. Use a zero-based locator `index` only when the source proves the same stable locator is intentionally repeated. Use request mocks only when the target is an API success/error state and the response contract is source-evidenced.
 4. Save the JSON below `.collect-i18n/plans/`.
 5. Run `agent submit`, then `agent execute`.
-6. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path. Count `additionalEvidence` as completed work from the same state transition; do not create separate plans for those keys.
+6. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path. Count checkpoint and final-state `additionalEvidence` as completed work. A successful route plan should normally remove dozens of keys; do not create separate plans for keys captured at checkpoints.
 7. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. After the second failure the service moves it to `needs_manual` and rejects further Agent execution. Never bypass that state with a saved task id.
 
-`agent next` is already ordered to favor retryable, actionable, and high-fan-out tasks. Process tasks sequentially so browser state and failure evidence remain attributable. Never alter source code to make an Agent plan succeed.
+`agent next` prioritizes the unresolved route with the largest fan-out, then an actionable anchor inside that route. Process one route plan at a time so browser state and failure evidence remain attributable. If the same route remains, make one focused follow-up plan only for states the first route plan missed; do not restart source analysis. Never alter source code to make an Agent plan succeed.
 
 `agent execute` automatically restores its own stopped/interrupted session when no service is alive. If it reports that another session is active, stop and report the conflicting session ID; never create or switch to another session behind the user's back.
 

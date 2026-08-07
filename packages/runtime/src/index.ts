@@ -22,7 +22,7 @@ interface ActiveImperativeInvocation {
   invokedAt: number
 }
 
-let activeImperativeInvocation: ActiveImperativeInvocation | undefined
+const activeImperativeInvocations: ActiveImperativeInvocation[] = []
 let imperativeInvocationSequence = 0
 const vnodeScopeDisposers = new WeakMap<object, Array<() => void>>()
 export const CAUSAL_PROBE_STORAGE_KEY = '__collect_i18n_causal_probe_v1'
@@ -214,7 +214,9 @@ export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey
     (typeof value === 'string' || typeof value === 'number')
   const renderedValue = canSubstitute ? probe.token : value
   registry?.recordRenderedValue(occurrenceId, renderedValue, actualKey)
-  const invocation = activeImperativeInvocation
+  const invocation = [...activeImperativeInvocations]
+    .reverse()
+    .find((candidate) => candidate.occurrenceIds.has(occurrenceId))
   const invocationOccurrenceId = dynamicOccurrenceId ?? occurrenceId
   if (
     registry &&
@@ -266,18 +268,34 @@ export function runImperativeInvocation<T>(
   invoke: () => T,
 ): T {
   if (typeof window === 'undefined') return invoke()
-  const previous = activeImperativeInvocation
-  activeImperativeInvocation = {
+  const invocation: ActiveImperativeInvocation = {
     invocationId: `invocation:${service}:${Date.now()}:${++imperativeInvocationSequence}`,
     service,
     occurrenceIds: new Set(occurrenceIds),
     registered: new Set(),
     invokedAt: Date.now(),
   }
+  activeImperativeInvocations.push(invocation)
+  const dispose = () => {
+    const index = activeImperativeInvocations.lastIndexOf(invocation)
+    if (index >= 0) activeImperativeInvocations.splice(index, 1)
+  }
   try {
-    return invoke()
-  } finally {
-    activeImperativeInvocation = previous
+    const result = invoke()
+    if (
+      typeof result === 'object' &&
+      result !== null &&
+      'then' in result &&
+      typeof (result as { then?: unknown }).then === 'function'
+    ) {
+      void Promise.resolve(result).then(dispose, dispose)
+    } else {
+      dispose()
+    }
+    return result
+  } catch (error) {
+    dispose()
+    throw error
   }
 }
 

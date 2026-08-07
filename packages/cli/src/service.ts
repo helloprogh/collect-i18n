@@ -472,11 +472,23 @@ export class LocalService {
     this.cancelManual();
     store.submitPlan(taskId, plan);
     try {
-      const evidence = await this.exclusive(async () => (await this.collector(task.sessionId)).executePlan(plan, "agent"));
+      const additionalEvidence: Array<{ taskId: string; keyPath: string; evidenceId: string }> = [];
+      const evidence = await this.exclusive(async () => {
+        const collector = await this.collector(task.sessionId);
+        const captureCheckpoint = async () => {
+          additionalEvidence.push(...await this.captureVisibleBatch(
+            task.sessionId,
+            task.keyPath,
+            "agent",
+            () => true,
+            collector,
+          ));
+        };
+        const primary = await collector.executePlan(plan, "agent", captureCheckpoint);
+        await captureCheckpoint();
+        return primary;
+      });
       const evidenceId = store.addEvidence(taskId, evidence);
-      const additionalEvidence = await this.exclusive(async () =>
-        this.captureVisibleBatch(task.sessionId, task.keyPath, "agent"),
-      ).catch(() => []);
       return { taskId, evidenceId, evidence, additionalEvidence };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -493,9 +505,10 @@ export class LocalService {
     primaryKey: string,
     source: "agent" | "manual",
     shouldContinue: () => boolean = () => true,
+    collectorOverride?: BrowserCollector,
   ): Promise<Array<{ taskId: string; keyPath: string; evidenceId: string }>> {
     const store = this.store!;
-    const collector = await this.collector(sessionId);
+    const collector = collectorOverride ?? await this.collector(sessionId);
     const inspection = await collector.inspectRuntime(2_000);
     const gradeRank = (grade: string | undefined): number =>
       grade === "A" ? 3 : grade === "B" ? 2 : 1;

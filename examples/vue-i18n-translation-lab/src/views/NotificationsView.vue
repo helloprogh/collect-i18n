@@ -107,7 +107,8 @@ async function triggerConfirm() {
         <el-select v-model="messageType" data-testid="notifications-message-type" style="width: 180px">
           <el-option v-for="type in messageTypes" :key="type" :label="t(`notifications.messages.${type}.label`)" :value="type" />
         </el-select>
-        <el-input-number v-model="duration" data-testid="notifications-duration" :min="0" :step="500" />
+        <el-input-number v-model="duration" data-testid="notifications-duration" :min="0" :step="500"
+          :placeholder="t('notifications.messages.duration.placeholder')" />
         <el-switch v-model="closable" data-testid="notifications-closable" :active-text="t('notifications.messages.closable')" inline-prompt />
       </div>
       <div class="dialog-actions">

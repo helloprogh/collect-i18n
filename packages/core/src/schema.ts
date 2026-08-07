@@ -269,6 +269,7 @@ export const PlanStepSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('wait'), milliseconds: z.number().int().min(0).max(5_000) }).strict(),
   z.object({ type: z.literal('waitForKey'), key: z.string().min(1).max(500), timeoutMs: z.number().int().min(100).max(60_000).optional() }).strict(),
   z.object({ type: z.literal('waitForText'), text: z.string().min(1).max(500), timeoutMs: z.number().int().min(100).max(30_000).optional() }).strict(),
+  z.object({ type: z.literal('capture') }).strict(),
   z.object({ type: z.literal('reload') }).strict(),
 ])
 
