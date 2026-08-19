@@ -273,4 +273,42 @@ const routes = [{
       ]),
     )
   })
+
+  it('resolves many top-level lazy component bindings without rescanning large literals', async () => {
+    const root = await createWorkspace()
+    await mkdir(path.join(root, 'src', 'views'), { recursive: true })
+    const viewCount = 12
+    await Promise.all(
+      Array.from({ length: viewCount }, (_, index) =>
+        writeFile(
+          path.join(root, 'src', 'views', `View${index}.vue`),
+          `<template><span>{{ t('v${index}.title') }}</span></template>`,
+        ),
+      ),
+    )
+    const bindings = Array.from(
+      { length: viewCount },
+      (_, index) => `const View${index} = () => import('./views/View${index}.vue')`,
+    ).join('\n')
+    const routeEntries = Array.from(
+      { length: viewCount },
+      (_, index) => `{ path: '/v${index}', component: View${index} },`,
+    ).join('\n')
+    await writeFile(
+      path.join(root, 'src', 'router.ts'),
+      `${bindings}\nconst routes = [\n${routeEntries}\n]`,
+    )
+
+    const result = await scanProjectSources({ projectRoot: root })
+    expect(result.routeHints).toEqual(
+      expect.arrayContaining(
+        Array.from({ length: viewCount }, (_, index) =>
+          expect.objectContaining({ path: `/v${index}` }),
+        ),
+      ),
+    )
+    expect(
+      result.occurrences.find((item) => item.keyPath === 'v3.title')?.routeHints[0]?.path,
+    ).toBe('/v3')
+  })
 })

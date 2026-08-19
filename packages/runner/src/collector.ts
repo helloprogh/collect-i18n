@@ -69,14 +69,29 @@ export function resolveProjectUrl(
   return target.toString();
 }
 
+function basePathFromViteBase(viteBase: string): string {
+  // Vite allows base to be a full URL (for example a CDN origin). Only its
+  // pathname is meaningful for a same-origin dev-server navigation; the
+  // collector origin is fixed by the project's own app base URL.
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(viteBase) || viteBase.startsWith("//")) {
+    try {
+      const parsed = new URL(viteBase);
+      return parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+    } catch {
+      // Fall through to the relative-path interpretation.
+    }
+  }
+  const normalizedBase = viteBase.startsWith("/") ? viteBase : `/${viteBase}`;
+  return normalizedBase === "/" ? "" : normalizedBase.replace(/\/+$/, "");
+}
+
 function buildProjectUrl(
   origin: string,
   path: string,
   viteBase: string,
   hashRouter: boolean,
 ): URL {
-  const normalizedBase = viteBase.startsWith("/") ? viteBase : `/${viteBase}`;
-  const basePath = normalizedBase === "/" ? "" : normalizedBase.replace(/\/+$/, "");
+  const basePath = basePathFromViteBase(viteBase);
   const routePath = path.startsWith("/") ? path : `/${path}`;
   const url = hashRouter
     ? `${origin}${basePath}/#${routePath}`

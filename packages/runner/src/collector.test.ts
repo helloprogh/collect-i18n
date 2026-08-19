@@ -73,6 +73,21 @@ describe("resolveProjectUrl", () => {
     expect(resolveProjectUrl(current, { baseUrl, viteBase: "/admin/", hashRouter: true })).toBe(current);
   });
 
+  it("uses only the pathname of an absolute URL base such as a CDN", () => {
+    expect(resolveProjectUrl("/users", { baseUrl, viteBase: "https://cdn.example.com/foo/" })).toBe(
+      "http://127.0.0.1:5173/foo/users",
+    );
+    expect(resolveProjectUrl("/users", { baseUrl, viteBase: "https://cdn.example.com/" })).toBe(
+      "http://127.0.0.1:5173/users",
+    );
+  });
+
+  it("keeps hash-history routes behind a fragment with an absolute URL base", () => {
+    expect(resolveProjectUrl("/users", { baseUrl, viteBase: "https://cdn.example.com/foo/", hashRouter: true })).toBe(
+      "http://127.0.0.1:5173/foo/#/users",
+    );
+  });
+
   it("rejects cross-origin navigation", () => {
     expect(() => resolveProjectUrl("https://evil.example/x", { baseUrl })).toThrow(
       /outside project origin/,

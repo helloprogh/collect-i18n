@@ -52,7 +52,7 @@ function manifestOutput(
   return undefined
 }
 
-function writeManifest(
+function writeManifestFile(
   destination: string,
   projectRoot: string,
   byFile: Map<string, OccurrenceDescriptor[]>,
@@ -72,12 +72,61 @@ function writeManifest(
   fs.renameSync(temporary, destination)
 }
 
+export interface ManifestScheduler {
+  schedule(): void
+  flush(): void
+}
+
+/**
+ * Collapses the writes triggered by bursts of module transforms (HMR edits,
+ * large builds) into a single debounced disk write. `flush()` guarantees a
+ * final write so the manifest never goes stale when a build ends.
+ */
+export function createManifestScheduler(options: {
+  write: () => void
+  delayMs?: number
+  setTimeoutFn?: (handler: () => void, timeoutMs: number) => unknown
+  clearTimeoutFn?: (timer: unknown) => void
+}): ManifestScheduler {
+  const delayMs = options.delayMs ?? 250
+  const setTimeoutFn =
+    options.setTimeoutFn ??
+    ((handler: () => void, timeoutMs: number) => setTimeout(handler, timeoutMs))
+  const clearTimeoutFn =
+    options.clearTimeoutFn ??
+    ((timer: unknown) => clearTimeout(timer as NodeJS.Timeout))
+  let pending = false
+  let timer: unknown = undefined
+
+  const commit = (): void => {
+    pending = false
+    timer = undefined
+    options.write()
+  }
+
+  return {
+    schedule(): void {
+      if (pending) return
+      pending = true
+      timer = setTimeoutFn(commit, delayMs)
+    },
+    flush(): void {
+      if (!pending) return
+      if (timer !== undefined) clearTimeoutFn(timer)
+      commit()
+    },
+  }
+}
+
 export function collectI18nVuePlugin(options: CollectI18nVuePluginOptions = {}): Plugin {
   const projectRoot = path.resolve(options.projectRoot ?? process.cwd())
   const output = manifestOutput(options, projectRoot)
   const runtimeImport = resolveRuntimeImport(options.runtimeImport)
   const runtimeFile = runtimeImportFilePath(runtimeImport)
   const occurrencesByFile = new Map<string, OccurrenceDescriptor[]>()
+  const scheduler = output
+    ? createManifestScheduler({ write: () => writeManifestFile(output, projectRoot, occurrencesByFile) })
+    : undefined
 
   return {
     name: 'collect-i18n:vue',
@@ -97,6 +146,7 @@ export function collectI18nVuePlugin(options: CollectI18nVuePluginOptions = {}):
       }
     },
     buildStart() {
+      scheduler?.flush()
       occurrencesByFile.clear()
     },
     resolveId(id) {
@@ -127,7 +177,7 @@ export function collectI18nVuePlugin(options: CollectI18nVuePluginOptions = {}):
           : undefined
       if (!result) return undefined
       occurrencesByFile.set(cleanId, result.occurrences)
-      if (output) writeManifest(output, projectRoot, occurrencesByFile)
+      scheduler?.schedule()
       // Rollup accepts a serialized sourcemap and this avoids the historical
       // magic-string 0.30.0 `sourcesContent: null[]` typing incompatibility.
       return { code: result.code, map: result.map.toString() }
@@ -146,7 +196,7 @@ export function collectI18nVuePlugin(options: CollectI18nVuePluginOptions = {}):
       },
     },
     buildEnd() {
-      if (output) writeManifest(output, projectRoot, occurrencesByFile)
+      scheduler?.flush()
     },
   }
 }

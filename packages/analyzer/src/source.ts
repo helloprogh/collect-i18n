@@ -813,11 +813,15 @@ function componentFileCandidates(
   )
 }
 
-function dynamicImportSpecifier(node: unknown): string | undefined {
-  if (!node || typeof node !== 'object') return undefined
+const MAX_DYNAMIC_IMPORT_DEPTH = 4
+
+function dynamicImportSpecifier(node: unknown, depth = 0): string | undefined {
+  if (!node || typeof node !== 'object' || depth > MAX_DYNAMIC_IMPORT_DEPTH) {
+    return undefined
+  }
   if (Array.isArray(node)) {
     for (const child of node) {
-      const found = dynamicImportSpecifier(child)
+      const found = dynamicImportSpecifier(child, depth + 1)
       if (found) return found
     }
     return undefined
@@ -839,9 +843,33 @@ function dynamicImportSpecifier(node: unknown): string | undefined {
     return staticString(firstArgument)
   }
 
-  for (const [key, child] of Object.entries(record)) {
-    if (['loc', 'start', 'end', 'extra'].includes(key)) continue
-    const found = dynamicImportSpecifier(child)
+  // Only follow the narrow paths that can lead to a lazy import() specifier.
+  // Large object literals (route tables, config) no longer get fully rescanned
+  // for every variable declarator in the module.
+  const narrowPaths: Array<string | undefined> = (() => {
+    switch (record.type) {
+      case 'ArrowFunctionExpression':
+      case 'FunctionExpression':
+        return ['body']
+      case 'TSAsExpression':
+      case 'TSTypeAssertion':
+      case 'TSNonNullExpression':
+      case 'ParenthesizedExpression':
+        return ['expression']
+      case 'CallExpression':
+      case 'OptionalCallExpression':
+        return ['callee', 'arguments']
+      case 'ConditionalExpression':
+        return ['consequent', 'alternate']
+      default:
+        return []
+    }
+  })()
+  for (const key of narrowPaths) {
+    if (key === undefined) continue
+    const child = (record as Record<string, unknown>)[key]
+    if (child === undefined) continue
+    const found = dynamicImportSpecifier(child, depth + 1)
     if (found) return found
   }
   return undefined

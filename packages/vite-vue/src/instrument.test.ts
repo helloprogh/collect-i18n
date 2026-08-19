@@ -2,7 +2,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createServer, resolveConfig } from 'vite'
 import { compileScript, compileTemplate, parse as parseSfc } from '@vue/compiler-sfc'
 import { scanProjectSources } from '@collect-i18n/analyzer'
@@ -11,6 +11,7 @@ import {
   findTranslationCalls,
   instrumentScriptModule,
   instrumentVueSfc,
+  createManifestScheduler,
   normalizeRuntimeImport,
 } from './index.js'
 
@@ -226,6 +227,56 @@ const notify = () => ElNotification({ message: t('messages.saved') })
     ]))
     expect(result.code.match(/__collectI18nValue\(/g)).toHaveLength(2)
     expect(result.code).toContain('__collectI18nInvoke("ElNotification"')
+  })
+})
+
+describe('createManifestScheduler', () => {
+  it('debounces a burst of schedules into a single write', () => {
+    vi.useFakeTimers()
+    try {
+      const writes: number[] = []
+      let call = 0
+      const scheduler = createManifestScheduler({
+        write: () => writes.push(call),
+        delayMs: 250,
+      })
+      call = 1
+      scheduler.schedule()
+      call = 2
+      scheduler.schedule()
+      expect(writes).toEqual([])
+      vi.advanceTimersByTime(250)
+      expect(writes).toEqual([2])
+      vi.advanceTimersByTime(250)
+      expect(writes).toEqual([2])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flush writes immediately and cancels the pending timer', () => {
+    vi.useFakeTimers()
+    try {
+      const writes: string[] = []
+      const scheduler = createManifestScheduler({
+        write: () => writes.push('data'),
+        delayMs: 1000,
+      })
+      scheduler.schedule()
+      scheduler.flush()
+      expect(writes).toEqual(['data'])
+      vi.advanceTimersByTime(2000)
+      expect(writes).toEqual(['data'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flush is a no-op when nothing is scheduled', () => {
+    const writes: number[] = []
+    const scheduler = createManifestScheduler({ write: () => writes.push(1) })
+    scheduler.flush()
+    expect(writes).toEqual([])
   })
 })
 
