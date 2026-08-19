@@ -753,6 +753,7 @@ interface ScriptScanContext {
   file: string
   source: string
   baseOffset: number
+  routerMode?: 'hash' | 'history'
   routeHints: RouteHint[]
   componentRouteLinks: ComponentRouteLink[]
   sourceImports: SourceImportLink[]
@@ -1070,6 +1071,11 @@ function scanScript(
     }
 
     const currentCallee = calleeName(node.callee)
+    if (currentCallee === 'createWebHashHistory') {
+      context.routerMode = 'hash'
+    } else if (currentCallee === 'createWebHistory' && context.routerMode !== 'hash') {
+      context.routerMode = 'history'
+    }
     const currentService = serviceDescriptor(currentCallee)
     if (currentService) {
       const argumentsList = Array.isArray(node.arguments) ? node.arguments : []
@@ -1226,6 +1232,7 @@ interface FileScanResult {
   sourceImports: SourceImportLink[]
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
+  routerMode?: 'hash' | 'history'
 }
 
 async function scanSourceFile(
@@ -1243,6 +1250,33 @@ async function scanSourceFile(
   const diagnostics: AnalysisDiagnostic[] = []
   const filenameRoute = inferFilenameRoute(projectRoot, absoluteFile)
   if (filenameRoute) routeHints.push(filenameRoute)
+  let routerMode: 'hash' | 'history' | undefined
+
+  const runScriptScan = (
+    content: string,
+    baseOffset: number,
+    parserPlugins: Parameters<typeof scanScript>[2],
+  ): void => {
+    const context: ScriptScanContext = {
+      projectRoot,
+      absoluteFile,
+      file,
+      source,
+      baseOffset,
+      routeHints,
+      componentRouteLinks,
+      sourceImports,
+      actionHints,
+      diagnostics,
+      occurrences,
+      catalogKeys,
+    }
+    scanScript(content, context, parserPlugins)
+    if (context.routerMode === 'hash') routerMode = 'hash'
+    else if (context.routerMode === 'history' && routerMode !== 'hash') {
+      routerMode = 'history'
+    }
+  }
 
   if (absoluteFile.toLowerCase().endsWith('.vue')) {
     const parsed = parseSfc(source, { filename: file, sourceMap: false })
@@ -1257,22 +1291,9 @@ async function scanSourceFile(
     for (const scriptBlock of [parsed.descriptor.script, parsed.descriptor.scriptSetup]) {
       if (!scriptBlock) continue
       const baseOffset = scriptBlock.loc.start.offset
-      scanScript(
+      runScriptScan(
         scriptBlock.content,
-        {
-          projectRoot,
-          absoluteFile,
-          file,
-          source,
-          baseOffset,
-          routeHints,
-          componentRouteLinks,
-          sourceImports,
-          actionHints,
-          diagnostics,
-          occurrences,
-          catalogKeys,
-        },
+        baseOffset,
         [
           ...(scriptBlock.lang === 'ts' || scriptBlock.lang === 'tsx'
             ? (['typescript'] as const)
@@ -1314,22 +1335,9 @@ async function scanSourceFile(
     }
   } else {
     const extension = path.extname(absoluteFile).toLowerCase()
-    scanScript(
+    runScriptScan(
       source,
-      {
-        projectRoot,
-        absoluteFile,
-        file,
-        source,
-        baseOffset: 0,
-        routeHints,
-        componentRouteLinks,
-        sourceImports,
-        actionHints,
-        diagnostics,
-        occurrences,
-        catalogKeys,
-      },
+      0,
       [
         ...(['.ts', '.tsx'].includes(extension)
           ? (['typescript'] as const)
@@ -1394,6 +1402,7 @@ async function scanSourceFile(
     sourceImports,
     actionHints: dedupedActions,
     diagnostics,
+    routerMode,
   }
 }
 
@@ -1518,5 +1527,10 @@ export async function scanProjectSources(
     actionHints: results.flatMap((result) => result.actionHints),
     diagnostics: results.flatMap((result) => result.diagnostics),
     scannedFiles: files.map((file) => portable(path.relative(projectRoot, file))),
+    routerMode: results.some((result) => result.routerMode === 'hash')
+      ? 'hash'
+      : results.some((result) => result.routerMode === 'history')
+        ? 'history'
+        : undefined,
   }
 }

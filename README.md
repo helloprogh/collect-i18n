@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.2`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.3`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -16,6 +16,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 支持一个界面一个 JSON 文件；新增文件后重新扫描即可，无需维护集中式导入表。
 - 扫描 Vue、TypeScript 和 JavaScript 源码，关联 Key Path、源码位置、路由与动作提示。
 - 启动目标项目自身的 Vite，并在内存中追加开发态采集插件，不修改业务源码或 Vite 配置。
+- 路由拼接自动识别 Vite `base`（如 `/admin/`）与 vue-router 的 hash/history 模式，hash 路由按 `#/path` 打开，保证跳转落在真实页面。
 - 覆盖普通 DOM、文本节点、组件属性、表单校验、Dialog、Drawer、Teleport、`ElMessage`、Notification 等场景。
 - 通过 Vue VNode 生命周期把组件 occurrence 绑定到真实 Host roots，不依赖组件的属性透传，可处理多根节点、slots、`inheritAttrs: false` 与 Teleport。
 - 使用受限 TriggerPlan 执行路由、点击、填写、选择、按键、等待和请求 Mock。
@@ -66,7 +67,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.2.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.3.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -308,5 +309,6 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.3 发布说明](docs/release-notes-v0.3.3.md)
 - [v0.3.2 发布说明](docs/release-notes-v0.3.2.md)
 - [v0.3.1 发布说明](docs/release-notes-v0.3.1.md)

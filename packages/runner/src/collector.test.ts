@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { captureMarkerSpec, clickResolvedLocator, isCausalProbeSafe } from "./collector.js";
+import { captureMarkerSpec, clickResolvedLocator, isCausalProbeSafe, resolveProjectUrl } from "./collector.js";
 
 describe("captureMarkerSpec", () => {
   it("creates a text-free marker around the rendered target", () => {
@@ -40,6 +40,43 @@ describe("isCausalProbeSafe", () => {
         { type: "click", locator: { kind: "testId", value: "submit" } },
       ],
     })).toBe(false);
+  });
+});
+
+describe("resolveProjectUrl", () => {
+  const baseUrl = "http://127.0.0.1:5173/";
+
+  it("resolves a plain router path against the dev server root", () => {
+    expect(resolveProjectUrl("/users", { baseUrl })).toBe("http://127.0.0.1:5173/users");
+  });
+
+  it("prefixes the resolved Vite base", () => {
+    expect(resolveProjectUrl("/users", { baseUrl, viteBase: "/admin/" })).toBe(
+      "http://127.0.0.1:5173/admin/users",
+    );
+    expect(resolveProjectUrl("/", { baseUrl, viteBase: "/admin/" })).toBe(
+      "http://127.0.0.1:5173/admin/",
+    );
+  });
+
+  it("keeps hash-history routes behind a fragment", () => {
+    expect(resolveProjectUrl("/users", { baseUrl, hashRouter: true })).toBe(
+      "http://127.0.0.1:5173/#/users",
+    );
+    expect(resolveProjectUrl("/users", { baseUrl, viteBase: "/admin/", hashRouter: true })).toBe(
+      "http://127.0.0.1:5173/admin/#/users",
+    );
+  });
+
+  it("accepts absolute same-origin URLs such as the current page on reload", () => {
+    const current = "http://127.0.0.1:5173/admin/#/users";
+    expect(resolveProjectUrl(current, { baseUrl, viteBase: "/admin/", hashRouter: true })).toBe(current);
+  });
+
+  it("rejects cross-origin navigation", () => {
+    expect(() => resolveProjectUrl("https://evil.example/x", { baseUrl })).toThrow(
+      /outside project origin/,
+    );
   });
 });
 

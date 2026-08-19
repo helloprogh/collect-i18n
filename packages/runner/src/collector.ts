@@ -8,6 +8,10 @@ export type RuntimeEvidenceGrade = "A" | "B" | "C";
 
 export interface BrowserCollectorOptions {
   baseUrl: string;
+  /** Resolved Vite `base` from the project dev server (for example `/admin/`). */
+  viteBase?: string;
+  /** True when the app uses vue-router hash history (createWebHashHistory). */
+  hashRouter?: boolean;
   artifactDir: string;
   userDataDir: string;
   headless?: boolean;
@@ -41,6 +45,43 @@ export interface CollectedEvidence extends RuntimeTargetSnapshot {
     originalGrade: "B";
     originalProof?: string;
   };
+}
+
+/**
+ * Build a same-origin dev-server URL for a router path. Router paths are plain
+ * paths (`/users`), so they must be prefixed with the resolved Vite `base` and,
+ * for hash-history routers, placed behind a `#` fragment. Absolute URLs are
+ * returned unchanged after an origin check (used when reloading the current
+ * page, whose `location.href` already contains the base and hash).
+ */
+export function resolveProjectUrl(
+  path: string,
+  options: Pick<BrowserCollectorOptions, "baseUrl" | "viteBase" | "hashRouter">,
+): string {
+  const base = new URL(options.baseUrl);
+  const absolute = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path) || path.startsWith("//");
+  const target = absolute
+    ? new URL(path)
+    : buildProjectUrl(base.origin, path, options.viteBase ?? "/", options.hashRouter === true);
+  if (target.origin !== base.origin) {
+    throw new Error(`TriggerPlan cannot navigate outside project origin: ${target.origin}`);
+  }
+  return target.toString();
+}
+
+function buildProjectUrl(
+  origin: string,
+  path: string,
+  viteBase: string,
+  hashRouter: boolean,
+): URL {
+  const normalizedBase = viteBase.startsWith("/") ? viteBase : `/${viteBase}`;
+  const basePath = normalizedBase === "/" ? "" : normalizedBase.replace(/\/+$/, "");
+  const routePath = path.startsWith("/") ? path : `/${path}`;
+  const url = hashRouter
+    ? `${origin}${basePath}/#${routePath}`
+    : `${origin}${basePath}${routePath}`;
+  return new URL(url);
 }
 
 export interface RuntimeInspection {
@@ -321,10 +362,7 @@ export class BrowserCollector {
   }
 
   private sameOriginUrl(path: string): string {
-    const target = new URL(path, this.options.baseUrl);
-    const base = new URL(this.options.baseUrl);
-    if (target.origin !== base.origin) throw new Error(`TriggerPlan cannot navigate outside project origin: ${target.origin}`);
-    return target.toString();
+    return resolveProjectUrl(path, this.options);
   }
 
   private assertSameOrigin(): void {

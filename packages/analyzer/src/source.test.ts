@@ -89,6 +89,27 @@ const label = t(resolveKey())`,
     )
   })
 
+  it('detects hash and history router modes from vue-router factories', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'src', 'router.ts'),
+      `import { createRouter, createWebHashHistory } from 'vue-router'
+const router = createRouter({ history: createWebHashHistory(), routes: [] })
+router.push('/users')`,
+    )
+    expect((await scanProjectSources({ projectRoot: root })).routerMode).toBe('hash')
+
+    await writeFile(
+      path.join(root, 'src', 'router.ts'),
+      `import { createWebHistory } from 'vue-router'
+createWebHistory()`,
+    )
+    expect((await scanProjectSources({ projectRoot: root })).routerMode).toBe('history')
+
+    await writeFile(path.join(root, 'src', 'router.ts'), 'export default []')
+    expect((await scanProjectSources({ projectRoot: root })).routerMode).toBeUndefined()
+  })
+
   it('enumerates bounded message-key maps and propagates the importing view route', async () => {
     const root = await createWorkspace()
     await mkdir(path.join(root, 'src', 'services'), { recursive: true })

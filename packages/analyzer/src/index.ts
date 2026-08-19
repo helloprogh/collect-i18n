@@ -26,5 +26,6 @@ export async function analyzeProject(
     unknownKeys: [...occurrenceKeys]
       .filter((keyPath) => !catalogKeys.has(keyPath))
       .sort(),
+    routerMode: source.routerMode,
   }
 }

@@ -240,6 +240,7 @@ export class StateStore {
         id TEXT PRIMARY KEY,
         root TEXT NOT NULL UNIQUE,
         config_json TEXT NOT NULL,
+        router_mode TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -333,6 +334,10 @@ export class StateStore {
     if (!sessionColumns.some((column) => column.name === "deadline_at")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN deadline_at TEXT");
     }
+    const projectColumns = this.db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+    if (!projectColumns.some((column) => column.name === "router_mode")) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN router_mode TEXT");
+    }
   }
 
   syncProject(projectRoot: string, config: unknown, analysis: ProjectAnalysis): string {
@@ -342,8 +347,8 @@ export class StateStore {
     this.transaction(() => {
       const active = this.db.prepare("SELECT id FROM sessions WHERE project_id=? AND status='running' LIMIT 1").get(projectId) as { id: string } | undefined;
       if (active) throw new Error(`项目存在活动采集会话，请先停止服务：${active.id}`);
-      this.db.prepare("INSERT INTO projects(id, root, config_json, created_at, updated_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET root=excluded.root,config_json=excluded.config_json,updated_at=excluded.updated_at")
-        .run(projectId, root, JSON.stringify(config), now, now);
+      this.db.prepare("INSERT INTO projects(id, root, config_json, router_mode, created_at, updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET root=excluded.root,config_json=excluded.config_json,router_mode=excluded.router_mode,updated_at=excluded.updated_at")
+        .run(projectId, root, JSON.stringify(config), analysis.routerMode ?? null, now, now);
       // Refreshing the shared catalog while a session is active would make its
       // task-to-key joins observe a half-new snapshot, so the active-session
       // guard and the replacement live in this same write transaction.
@@ -477,6 +482,12 @@ export class StateStore {
 
   session(sessionId: string): Record<string, unknown> | undefined {
     return this.db.prepare(`SELECT s.*, p.root AS project_root FROM sessions s JOIN projects p ON p.id=s.project_id WHERE s.id=?`).get(sessionId) as Record<string, unknown> | undefined;
+  }
+
+  /** Router history mode detected for the project, if any. */
+  projectRouterMode(projectId: string): "hash" | "history" | undefined {
+    const row = this.db.prepare("SELECT router_mode FROM projects WHERE id=?").get(projectId) as { router_mode: string | null } | undefined;
+    return row?.router_mode === "hash" || row?.router_mode === "history" ? row.router_mode : undefined;
   }
 
   latestSession(): Record<string, unknown> | undefined {

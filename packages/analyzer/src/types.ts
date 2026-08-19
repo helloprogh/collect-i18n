@@ -41,6 +41,8 @@ export interface SourceScanResult {
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
   scannedFiles: string[]
+  /** Router history mode detected from vue-router factory calls. */
+  routerMode?: 'hash' | 'history'
 }
 
 export interface ProjectAnalysis {
@@ -48,4 +50,5 @@ export interface ProjectAnalysis {
   source: SourceScanResult
   unusedKeys: LocaleKey[]
   unknownKeys: string[]
+  routerMode?: 'hash' | 'history'
 }

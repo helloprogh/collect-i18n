@@ -220,6 +220,7 @@ export class LocalService {
   private readonly capability: string;
   private readonly capabilityCookie: string;
   private vite?: ViteDevServer;
+  private viteBase = "/";
   private store?: StateStore;
   private http?: ReturnType<typeof createHttpServer>;
   private serviceUrl?: string;
@@ -253,6 +254,10 @@ export class LocalService {
         strictPort: true,
       },
     });
+    // The project's own vite.config `base` (for example `/admin/`) decides where
+    // routes live on the dev server; hash-history routers additionally need the
+    // route behind a `#`. Capture both before the first navigation.
+    this.viteBase = this.vite.config.base ?? "/";
     await this.vite.listen();
     this.store = await StateStore.open(config.projectRoot);
     const session = this.store.session(this.options.sessionId);
@@ -317,8 +322,14 @@ export class LocalService {
     const existing = this.collectors.get(sessionId);
     if (existing) return existing;
     const { config } = this.options;
+    const session = this.store?.session(sessionId);
+    const routerMode = session
+      ? this.store!.projectRouterMode(String(session.project_id ?? ""))
+      : undefined;
     const collector = new BrowserCollector({
       baseUrl: config.app.baseUrl,
+      viteBase: this.viteBase,
+      hashRouter: routerMode === "hash",
       artifactDir: join(config.projectRoot, config.stateDirectory, "evidence", sessionId),
       // Keep a versioned persistent profile so cookies survive sessions while
       // avoiding legacy/corrupted layouts created by pre-release collectors.
