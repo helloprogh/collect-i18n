@@ -66,6 +66,30 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getCell(rows.get("users.create.save")!, 2).text).toBe("保存");
   });
 
+  it("draws thin borders on the header and every data cell", async () => {
+    const item = await fixture();
+    await exportTranslationWorkbook(
+      item.catalog.map((entry) => ({ ...entry, english: "" })),
+      item.workbookPath,
+    );
+
+    const { sheet, rows } = await workbookRows(item.workbookPath);
+    const expectedBorders = {
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" },
+    };
+    for (let column = 1; column <= 4; column += 1) {
+      expect(sheet.getCell(1, column).border).toMatchObject(expectedBorders);
+    }
+    for (const rowNumber of rows.values()) {
+      for (let column = 1; column <= 4; column += 1) {
+        expect(sheet.getCell(rowNumber, column).border).toMatchObject(expectedBorders);
+      }
+    }
+  });
+
   it("embeds a real PNG in the screenshot column and can replace an existing output atomically", async () => {
     const item = await fixture();
     const screenshotPath = join(item.root, "title.png");

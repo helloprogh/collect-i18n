@@ -8,6 +8,26 @@ import {
   type WorkbookExportRow,
 } from "./types.js";
 
+const THIN_BORDER = {
+  top: { style: "thin" },
+  left: { style: "thin" },
+  bottom: { style: "thin" },
+  right: { style: "thin" },
+} as const;
+
+function applyCellBorders(
+  worksheet: ExcelJS.Worksheet,
+  firstRow: number,
+  lastRow: number,
+  columnCount: number,
+): void {
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = 1; column <= columnCount; column += 1) {
+      worksheet.getCell(row, column).border = THIN_BORDER;
+    }
+  }
+}
+
 function imageExtension(file: string): "png" | "jpeg" | undefined {
   const extension = extname(file).toLowerCase();
   if (extension === ".png") return "png";
@@ -115,6 +135,7 @@ export async function exportTranslationWorkbook(
     }
   }
 
+  applyCellBorders(worksheet, 1, worksheet.actualRowCount, 4);
   worksheet.autoFilter = { from: "A1", to: "D1" };
   const resolvedOutput = resolve(outputPath);
   await mkdir(dirname(resolvedOutput), { recursive: true });
