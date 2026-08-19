@@ -1,0 +1,157 @@
+{
+  "title": "Advanced Components",
+  "tabs": {
+    "title": "Tabs",
+    "basic": "Basic",
+    "advanced": "Advanced",
+    "audit": "Audit Log",
+    "description": {
+      "basic": "Basic tab content",
+      "advanced": "Advanced tab content",
+      "audit": "Audit log tab content"
+    }
+  },
+  "tree": {
+    "title": "Organization Tree",
+    "node": {
+      "root": "Headquarters",
+      "sales": {
+        "east": "East China",
+        "west": "South China"
+      },
+      "tech": {
+        "frontend": "Frontend",
+        "backend": "Backend"
+      },
+      "ops": "Operations"
+    },
+    "group": {
+      "sales": "Sales",
+      "tech": "Engineering"
+    }
+  },
+  "cascader": {
+    "title": "Product Category",
+    "electronics": {
+      "phone": "Phones",
+      "laptop": "Laptops",
+      "audio": "Audio"
+    },
+    "apparel": {
+      "men": "Men",
+      "women": "Women"
+    },
+    "food": {
+      "snack": "Snacks",
+      "drink": "Drinks"
+    },
+    "group": {
+      "electronics": "Electronics",
+      "apparel": "Apparel",
+      "food": "Food"
+    }
+  },
+  "date": {
+    "title": "Date Picker",
+    "today": "Today",
+    "range": "Date Range",
+    "month": "Month"
+  },
+  "slider": {
+    "title": "Rating & Slider",
+    "volume": "Volume",
+    "rating": "Satisfaction"
+  },
+  "steps": {
+    "title": "Order Progress",
+    "submit": "Order Placed",
+    "pay": "Payment",
+    "ship": "Shipped",
+    "done": "Received"
+  },
+  "descriptions": {
+    "title": "Product Details",
+    "name": "Name",
+    "sku": "SKU",
+    "brand": "Brand",
+    "price": "Price",
+    "stock": "Stock",
+    "status": "Status",
+    "tags": "Tags"
+  },
+  "empty": {
+    "title": "Empty State",
+    "desc": "No related data",
+    "button": "Create Data"
+  },
+  "drawer": {
+    "title": "Drawer",
+    "open": "Open Drawer",
+    "content": "Drawer content area",
+    "footer": "Footer actions"
+  },
+  "popconfirm": {
+    "title": "Confirm Action",
+    "text": "Proceed with this action?",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "timeline": {
+    "title": "Timeline",
+    "created": "Project created",
+    "published": "Publish v1.0",
+    "review": "Review passed",
+    "archived": "Archived"
+  },
+  "result": {
+    "title": "Result Page",
+    "successTitle": "Submitted Successfully",
+    "successDesc": "Your application has been received and will be processed within 1 business day",
+    "backHome": "Back to Home",
+    "viewDetail": "View Details",
+    "retry": "Retry Submission"
+  },
+  "progress": {
+    "title": "Task Progress",
+    "uploading": "Uploading",
+    "processed": "{count} items processed",
+    "finished": "Finished"
+  },
+  "tag": {
+    "title": "Tag Display",
+    "primary": "Primary",
+    "success": "Success",
+    "warning": "Warning",
+    "danger": "Danger"
+  },
+  "badge": {
+    "title": "Badge",
+    "new": "New",
+    "messages": "{count} messages",
+    "unread": "Unread"
+  },
+  "radio": {
+    "title": "Radio",
+    "optionA": "Plan A",
+    "optionB": "Plan B"
+  },
+  "checkbox": {
+    "title": "Checkbox",
+    "option1": "Option 1",
+    "option2": "Option 2",
+    "option3": "Option 3"
+  },
+  "switch": {
+    "title": "Switch",
+    "enableFeature": "Enable advanced features"
+  },
+  "segmented": {
+    "title": "Segmented",
+    "day": "Day",
+    "week": "Week",
+    "month": "Month"
+  },
+  "card": {
+    "title": "Cards"
+  }
+}

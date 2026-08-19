@@ -1,0 +1,318 @@
+{
+  "title": "Product Management",
+  "searchPlaceholder": "Search by product name or SKU",
+  "filter": {
+    "category": "Category",
+    "status": "Listing Status",
+    "brand": "Brand"
+  },
+  "table": {
+    "id": "Product ID",
+    "name": "Product Name",
+    "sku": "SKU",
+    "category": "Category",
+    "price": "Price",
+    "stock": "Stock",
+    "sales": "Sales",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  "category": {
+    "electronics": "Electronics",
+    "apparel": "Apparel",
+    "food": "Food",
+    "home": "Home",
+    "sports": "Sports",
+    "books": "Books"
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "draft": "Draft"
+  },
+  "action": {
+    "onShelf": "List",
+    "offShelf": "Unlist",
+    "edit": "Edit",
+    "copySku": "Copy SKU"
+  },
+  "confirm": {
+    "offShelf": "Unlist this product?"
+  },
+  "success": {
+    "onShelf": "Listed successfully",
+    "offShelf": "Unlisted successfully"
+  },
+  "rows": {
+    "1": {
+      "name": "Product 1",
+      "sku": "SKU-100001",
+      "price": "¥116.00",
+      "category": "Apparel"
+    },
+    "2": {
+      "name": "Product 2",
+      "sku": "SKU-100002",
+      "price": "¥133.00",
+      "category": "Food"
+    },
+    "3": {
+      "name": "Product 3",
+      "sku": "SKU-100003",
+      "price": "¥150.00",
+      "category": "Home"
+    },
+    "4": {
+      "name": "Product 4",
+      "sku": "SKU-100004",
+      "price": "¥167.00",
+      "category": "Sports"
+    },
+    "5": {
+      "name": "Product 5",
+      "sku": "SKU-100005",
+      "price": "¥184.00",
+      "category": "Electronics"
+    },
+    "6": {
+      "name": "Product 6",
+      "sku": "SKU-100006",
+      "price": "¥201.00",
+      "category": "Apparel"
+    },
+    "7": {
+      "name": "Product 7",
+      "sku": "SKU-100007",
+      "price": "¥218.00",
+      "category": "Food"
+    },
+    "8": {
+      "name": "Product 8",
+      "sku": "SKU-100008",
+      "price": "¥235.00",
+      "category": "Home"
+    },
+    "9": {
+      "name": "Product 9",
+      "sku": "SKU-100009",
+      "price": "¥252.00",
+      "category": "Sports"
+    },
+    "10": {
+      "name": "Product 10",
+      "sku": "SKU-100010",
+      "price": "¥269.00",
+      "category": "Electronics"
+    },
+    "11": {
+      "name": "Product 11",
+      "sku": "SKU-100011",
+      "price": "¥286.00",
+      "category": "Apparel"
+    },
+    "12": {
+      "name": "Product 12",
+      "sku": "SKU-100012",
+      "price": "¥303.00",
+      "category": "Food"
+    },
+    "13": {
+      "name": "Product 13",
+      "sku": "SKU-100013",
+      "price": "¥320.00",
+      "category": "Home"
+    },
+    "14": {
+      "name": "Product 14",
+      "sku": "SKU-100014",
+      "price": "¥337.00",
+      "category": "Sports"
+    },
+    "15": {
+      "name": "Product 15",
+      "sku": "SKU-100015",
+      "price": "¥354.00",
+      "category": "Electronics"
+    },
+    "16": {
+      "name": "Product 16",
+      "sku": "SKU-100016",
+      "price": "¥371.00",
+      "category": "Apparel"
+    },
+    "17": {
+      "name": "Product 17",
+      "sku": "SKU-100017",
+      "price": "¥388.00",
+      "category": "Food"
+    },
+    "18": {
+      "name": "Product 18",
+      "sku": "SKU-100018",
+      "price": "¥405.00",
+      "category": "Home"
+    },
+    "19": {
+      "name": "Product 19",
+      "sku": "SKU-100019",
+      "price": "¥422.00",
+      "category": "Sports"
+    },
+    "20": {
+      "name": "Product 20",
+      "sku": "SKU-100020",
+      "price": "¥439.00",
+      "category": "Electronics"
+    },
+    "21": {
+      "name": "Product 21",
+      "sku": "SKU-100021",
+      "price": "¥456.00",
+      "category": "Apparel"
+    },
+    "22": {
+      "name": "Product 22",
+      "sku": "SKU-100022",
+      "price": "¥473.00",
+      "category": "Food"
+    },
+    "23": {
+      "name": "Product 23",
+      "sku": "SKU-100023",
+      "price": "¥490.00",
+      "category": "Home"
+    },
+    "24": {
+      "name": "Product 24",
+      "sku": "SKU-100024",
+      "price": "¥507.00",
+      "category": "Sports"
+    },
+    "25": {
+      "name": "Product 25",
+      "sku": "SKU-100025",
+      "price": "¥524.00",
+      "category": "Electronics"
+    },
+    "26": {
+      "name": "Product 26",
+      "sku": "SKU-100026",
+      "price": "¥541.00",
+      "category": "Apparel"
+    },
+    "27": {
+      "name": "Product 27",
+      "sku": "SKU-100027",
+      "price": "¥558.00",
+      "category": "Food"
+    },
+    "28": {
+      "name": "Product 28",
+      "sku": "SKU-100028",
+      "price": "¥575.00",
+      "category": "Home"
+    },
+    "29": {
+      "name": "Product 29",
+      "sku": "SKU-100029",
+      "price": "¥592.00",
+      "category": "Sports"
+    },
+    "30": {
+      "name": "Product 30",
+      "sku": "SKU-100030",
+      "price": "¥609.00",
+      "category": "Electronics"
+    },
+    "31": {
+      "name": "Product 31",
+      "sku": "SKU-100031",
+      "price": "¥626.00",
+      "category": "Apparel"
+    },
+    "32": {
+      "name": "Product 32",
+      "sku": "SKU-100032",
+      "price": "¥643.00",
+      "category": "Food"
+    },
+    "33": {
+      "name": "Product 33",
+      "sku": "SKU-100033",
+      "price": "¥660.00",
+      "category": "Home"
+    },
+    "34": {
+      "name": "Product 34",
+      "sku": "SKU-100034",
+      "price": "¥677.00",
+      "category": "Sports"
+    },
+    "35": {
+      "name": "Product 35",
+      "sku": "SKU-100035",
+      "price": "¥694.00",
+      "category": "Electronics"
+    },
+    "36": {
+      "name": "Product 36",
+      "sku": "SKU-100036",
+      "price": "¥711.00",
+      "category": "Apparel"
+    },
+    "37": {
+      "name": "Product 37",
+      "sku": "SKU-100037",
+      "price": "¥728.00",
+      "category": "Food"
+    },
+    "38": {
+      "name": "Product 38",
+      "sku": "SKU-100038",
+      "price": "¥745.00",
+      "category": "Home"
+    },
+    "39": {
+      "name": "Product 39",
+      "sku": "SKU-100039",
+      "price": "¥762.00",
+      "category": "Sports"
+    },
+    "40": {
+      "name": "Product 40",
+      "sku": "SKU-100040",
+      "price": "¥779.00",
+      "category": "Electronics"
+    },
+    "41": {
+      "name": "Product 41",
+      "sku": "SKU-100041",
+      "price": "¥796.00",
+      "category": "Apparel"
+    },
+    "42": {
+      "name": "Product 42",
+      "sku": "SKU-100042",
+      "price": "¥813.00",
+      "category": "Food"
+    },
+    "43": {
+      "name": "Product 43",
+      "sku": "SKU-100043",
+      "price": "¥830.00",
+      "category": "Home"
+    },
+    "44": {
+      "name": "Product 44",
+      "sku": "SKU-100044",
+      "price": "¥847.00",
+      "category": "Sports"
+    },
+    "45": {
+      "name": "Product 45",
+      "sku": "SKU-100045",
+      "price": "¥864.00",
+      "category": "Electronics"
+    }
+  }
+}

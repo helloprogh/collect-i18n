@@ -1,0 +1,331 @@
+{
+  "title": "用户管理",
+  "searchPlaceholder": "搜索姓名、邮箱或手机号",
+  "filter": {
+    "role": "角色",
+    "status": "状态",
+    "createdAt": "注册时间"
+  },
+  "table": {
+    "id": "用户 ID",
+    "name": "姓名",
+    "email": "邮箱",
+    "phone": "手机号",
+    "role": "角色",
+    "status": "状态",
+    "createdAt": "注册时间",
+    "lastLogin": "最近登录",
+    "actions": "操作",
+    "department": "部门"
+  },
+  "role": {
+    "admin": "管理员",
+    "editor": "编辑",
+    "viewer": "访客",
+    "auditor": "审计员",
+    "operator": "运营"
+  },
+  "detail": {
+    "title": "用户详情",
+    "email": "邮箱",
+    "phone": "手机号",
+    "department": "部门",
+    "position": "职位",
+    "superior": "直属上级",
+    "location": "所在地",
+    "bio": "个人简介"
+  },
+  "batch": {
+    "delete": "批量删除",
+    "export": "批量导出",
+    "disable": "批量禁用",
+    "enable": "批量启用"
+  },
+  "empty": {
+    "noUsers": "暂无用户"
+  },
+  "create": {
+    "title": "新建用户"
+  },
+  "edit": {
+    "title": "编辑用户"
+  },
+  "rows": {
+    "1": {
+      "name": "用户1",
+      "email": "user1{'@'}example.com",
+      "phone": "13800001001",
+      "department": "部门1"
+    },
+    "2": {
+      "name": "用户2",
+      "email": "user2{'@'}example.com",
+      "phone": "13800001002",
+      "department": "部门2"
+    },
+    "3": {
+      "name": "用户3",
+      "email": "user3{'@'}example.com",
+      "phone": "13800001003",
+      "department": "部门3"
+    },
+    "4": {
+      "name": "用户4",
+      "email": "user4{'@'}example.com",
+      "phone": "13800001004",
+      "department": "部门4"
+    },
+    "5": {
+      "name": "用户5",
+      "email": "user5{'@'}example.com",
+      "phone": "13800001005",
+      "department": "部门5"
+    },
+    "6": {
+      "name": "用户6",
+      "email": "user6{'@'}example.com",
+      "phone": "13800001006",
+      "department": "部门6"
+    },
+    "7": {
+      "name": "用户7",
+      "email": "user7{'@'}example.com",
+      "phone": "13800001007",
+      "department": "部门7"
+    },
+    "8": {
+      "name": "用户8",
+      "email": "user8{'@'}example.com",
+      "phone": "13800001008",
+      "department": "部门8"
+    },
+    "9": {
+      "name": "用户9",
+      "email": "user9{'@'}example.com",
+      "phone": "13800001009",
+      "department": "部门9"
+    },
+    "10": {
+      "name": "用户10",
+      "email": "user10{'@'}example.com",
+      "phone": "13800001010",
+      "department": "部门10"
+    },
+    "11": {
+      "name": "用户11",
+      "email": "user11{'@'}example.com",
+      "phone": "13800001011",
+      "department": "部门11"
+    },
+    "12": {
+      "name": "用户12",
+      "email": "user12{'@'}example.com",
+      "phone": "13800001012",
+      "department": "部门12"
+    },
+    "13": {
+      "name": "用户13",
+      "email": "user13{'@'}example.com",
+      "phone": "13800001013",
+      "department": "部门13"
+    },
+    "14": {
+      "name": "用户14",
+      "email": "user14{'@'}example.com",
+      "phone": "13800001014",
+      "department": "部门14"
+    },
+    "15": {
+      "name": "用户15",
+      "email": "user15{'@'}example.com",
+      "phone": "13800001015",
+      "department": "部门15"
+    },
+    "16": {
+      "name": "用户16",
+      "email": "user16{'@'}example.com",
+      "phone": "13800001016",
+      "department": "部门16"
+    },
+    "17": {
+      "name": "用户17",
+      "email": "user17{'@'}example.com",
+      "phone": "13800001017",
+      "department": "部门17"
+    },
+    "18": {
+      "name": "用户18",
+      "email": "user18{'@'}example.com",
+      "phone": "13800001018",
+      "department": "部门18"
+    },
+    "19": {
+      "name": "用户19",
+      "email": "user19{'@'}example.com",
+      "phone": "13800001019",
+      "department": "部门19"
+    },
+    "20": {
+      "name": "用户20",
+      "email": "user20{'@'}example.com",
+      "phone": "13800001020",
+      "department": "部门20"
+    },
+    "21": {
+      "name": "用户21",
+      "email": "user21{'@'}example.com",
+      "phone": "13800001021",
+      "department": "部门21"
+    },
+    "22": {
+      "name": "用户22",
+      "email": "user22{'@'}example.com",
+      "phone": "13800001022",
+      "department": "部门22"
+    },
+    "23": {
+      "name": "用户23",
+      "email": "user23{'@'}example.com",
+      "phone": "13800001023",
+      "department": "部门23"
+    },
+    "24": {
+      "name": "用户24",
+      "email": "user24{'@'}example.com",
+      "phone": "13800001024",
+      "department": "部门24"
+    },
+    "25": {
+      "name": "用户25",
+      "email": "user25{'@'}example.com",
+      "phone": "13800001025",
+      "department": "部门25"
+    },
+    "26": {
+      "name": "用户26",
+      "email": "user26{'@'}example.com",
+      "phone": "13800001026",
+      "department": "部门26"
+    },
+    "27": {
+      "name": "用户27",
+      "email": "user27{'@'}example.com",
+      "phone": "13800001027",
+      "department": "部门27"
+    },
+    "28": {
+      "name": "用户28",
+      "email": "user28{'@'}example.com",
+      "phone": "13800001028",
+      "department": "部门28"
+    },
+    "29": {
+      "name": "用户29",
+      "email": "user29{'@'}example.com",
+      "phone": "13800001029",
+      "department": "部门29"
+    },
+    "30": {
+      "name": "用户30",
+      "email": "user30{'@'}example.com",
+      "phone": "13800001030",
+      "department": "部门30"
+    },
+    "31": {
+      "name": "用户31",
+      "email": "user31{'@'}example.com",
+      "phone": "13800001031",
+      "department": "部门31"
+    },
+    "32": {
+      "name": "用户32",
+      "email": "user32{'@'}example.com",
+      "phone": "13800001032",
+      "department": "部门32"
+    },
+    "33": {
+      "name": "用户33",
+      "email": "user33{'@'}example.com",
+      "phone": "13800001033",
+      "department": "部门33"
+    },
+    "34": {
+      "name": "用户34",
+      "email": "user34{'@'}example.com",
+      "phone": "13800001034",
+      "department": "部门34"
+    },
+    "35": {
+      "name": "用户35",
+      "email": "user35{'@'}example.com",
+      "phone": "13800001035",
+      "department": "部门35"
+    },
+    "36": {
+      "name": "用户36",
+      "email": "user36{'@'}example.com",
+      "phone": "13800001036",
+      "department": "部门36"
+    },
+    "37": {
+      "name": "用户37",
+      "email": "user37{'@'}example.com",
+      "phone": "13800001037",
+      "department": "部门37"
+    },
+    "38": {
+      "name": "用户38",
+      "email": "user38{'@'}example.com",
+      "phone": "13800001038",
+      "department": "部门38"
+    },
+    "39": {
+      "name": "用户39",
+      "email": "user39{'@'}example.com",
+      "phone": "13800001039",
+      "department": "部门39"
+    },
+    "40": {
+      "name": "用户40",
+      "email": "user40{'@'}example.com",
+      "phone": "13800001040",
+      "department": "部门40"
+    },
+    "41": {
+      "name": "用户41",
+      "email": "user41{'@'}example.com",
+      "phone": "13800001041",
+      "department": "部门41"
+    },
+    "42": {
+      "name": "用户42",
+      "email": "user42{'@'}example.com",
+      "phone": "13800001042",
+      "department": "部门42"
+    },
+    "43": {
+      "name": "用户43",
+      "email": "user43{'@'}example.com",
+      "phone": "13800001043",
+      "department": "部门43"
+    },
+    "44": {
+      "name": "用户44",
+      "email": "user44{'@'}example.com",
+      "phone": "13800001044",
+      "department": "部门44"
+    },
+    "45": {
+      "name": "用户45",
+      "email": "user45{'@'}example.com",
+      "phone": "13800001045",
+      "department": "部门45"
+    },
+    "46": {
+      "name": "用户46",
+      "email": "user46{'@'}example.com",
+      "phone": "13800001046",
+      "department": "部门46"
+    }
+  }
+}

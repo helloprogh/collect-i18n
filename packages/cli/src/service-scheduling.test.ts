@@ -130,6 +130,24 @@ describe("collector scheduling", () => {
         capturedAt: new Date().toISOString(),
         source: "agent",
       }),
+      captureBatch: async (keys: string[]) =>
+        keys
+          .filter((key) => key !== "dialog.heuristic")
+          .map((key) => ({
+            key,
+            evidence: {
+              key,
+              evidenceGrade: key === "dialog.title" ? ("A" as const) : ("B" as const),
+              evidenceProof: "compiler-vnode-provenance",
+              text: key,
+              route: "http://127.0.0.1:5173/dialog",
+              rect,
+              screenshotPath: `D:/evidence/${key}.png`,
+              screenshotSha256: "0".repeat(64),
+              capturedAt: new Date().toISOString(),
+              source: "agent" as const,
+            },
+          })),
     };
     const config = {
       version: 1,

@@ -1,0 +1,344 @@
+{
+  "title": "Order Management",
+  "searchPlaceholder": "Order No. or customer",
+  "filter": {
+    "status": "Status",
+    "payMethod": "Payment Method",
+    "dateRange": "Order Date"
+  },
+  "table": {
+    "orderNo": "Order No.",
+    "customer": "Customer",
+    "product": "Product",
+    "quantity": "Qty",
+    "amount": "Amount",
+    "status": "Status",
+    "payMethod": "Payment",
+    "createdAt": "Ordered At",
+    "actions": "Actions"
+  },
+  "status": {
+    "pending": "Pending Payment",
+    "paid": "Paid",
+    "shipped": "Shipped",
+    "finished": "Completed",
+    "cancelled": "Cancelled",
+    "refunding": "Refunding"
+  },
+  "pay": {
+    "wechat": "WeChat Pay",
+    "alipay": "Alipay",
+    "card": "Bank Card",
+    "balance": "Balance"
+  },
+  "detail": {
+    "title": "Order Details",
+    "customer": "Customer",
+    "address": "Shipping Address",
+    "remark": "Remark",
+    "logistics": "Logistics"
+  },
+  "action": {
+    "view": "View",
+    "ship": "Ship",
+    "cancel": "Cancel",
+    "refund": "Refund",
+    "receipt": "Confirm Receipt"
+  },
+  "rows": {
+    "1": {
+      "orderNo": "OMS20260001",
+      "customer": "Customer 1",
+      "amount": "¥323.00",
+      "status": "Paid",
+      "payMethod": "Alipay"
+    },
+    "2": {
+      "orderNo": "OMS20260002",
+      "customer": "Customer 2",
+      "amount": "¥446.00",
+      "status": "Shipped",
+      "payMethod": "Bank Card"
+    },
+    "3": {
+      "orderNo": "OMS20260003",
+      "customer": "Customer 3",
+      "amount": "¥569.00",
+      "status": "Completed",
+      "payMethod": "Balance"
+    },
+    "4": {
+      "orderNo": "OMS20260004",
+      "customer": "Customer 4",
+      "amount": "¥692.00",
+      "status": "Cancelled",
+      "payMethod": "WeChat Pay"
+    },
+    "5": {
+      "orderNo": "OMS20260005",
+      "customer": "Customer 5",
+      "amount": "¥815.00",
+      "status": "Refunding",
+      "payMethod": "Alipay"
+    },
+    "6": {
+      "orderNo": "OMS20260006",
+      "customer": "Customer 6",
+      "amount": "¥938.00",
+      "status": "Pending Payment",
+      "payMethod": "Bank Card"
+    },
+    "7": {
+      "orderNo": "OMS20260007",
+      "customer": "Customer 7",
+      "amount": "¥1061.00",
+      "status": "Paid",
+      "payMethod": "Balance"
+    },
+    "8": {
+      "orderNo": "OMS20260008",
+      "customer": "Customer 8",
+      "amount": "¥1184.00",
+      "status": "Shipped",
+      "payMethod": "WeChat Pay"
+    },
+    "9": {
+      "orderNo": "OMS20260009",
+      "customer": "Customer 9",
+      "amount": "¥1307.00",
+      "status": "Completed",
+      "payMethod": "Alipay"
+    },
+    "10": {
+      "orderNo": "OMS20260010",
+      "customer": "Customer 10",
+      "amount": "¥1430.00",
+      "status": "Cancelled",
+      "payMethod": "Bank Card"
+    },
+    "11": {
+      "orderNo": "OMS20260011",
+      "customer": "Customer 11",
+      "amount": "¥1553.00",
+      "status": "Refunding",
+      "payMethod": "Balance"
+    },
+    "12": {
+      "orderNo": "OMS20260012",
+      "customer": "Customer 12",
+      "amount": "¥1676.00",
+      "status": "Pending Payment",
+      "payMethod": "WeChat Pay"
+    },
+    "13": {
+      "orderNo": "OMS20260013",
+      "customer": "Customer 13",
+      "amount": "¥1799.00",
+      "status": "Paid",
+      "payMethod": "Alipay"
+    },
+    "14": {
+      "orderNo": "OMS20260014",
+      "customer": "Customer 14",
+      "amount": "¥1922.00",
+      "status": "Shipped",
+      "payMethod": "Bank Card"
+    },
+    "15": {
+      "orderNo": "OMS20260015",
+      "customer": "Customer 15",
+      "amount": "¥2045.00",
+      "status": "Completed",
+      "payMethod": "Balance"
+    },
+    "16": {
+      "orderNo": "OMS20260016",
+      "customer": "Customer 16",
+      "amount": "¥2168.00",
+      "status": "Cancelled",
+      "payMethod": "WeChat Pay"
+    },
+    "17": {
+      "orderNo": "OMS20260017",
+      "customer": "Customer 17",
+      "amount": "¥2291.00",
+      "status": "Refunding",
+      "payMethod": "Alipay"
+    },
+    "18": {
+      "orderNo": "OMS20260018",
+      "customer": "Customer 18",
+      "amount": "¥2414.00",
+      "status": "Pending Payment",
+      "payMethod": "Bank Card"
+    },
+    "19": {
+      "orderNo": "OMS20260019",
+      "customer": "Customer 19",
+      "amount": "¥2537.00",
+      "status": "Paid",
+      "payMethod": "Balance"
+    },
+    "20": {
+      "orderNo": "OMS20260020",
+      "customer": "Customer 20",
+      "amount": "¥2660.00",
+      "status": "Shipped",
+      "payMethod": "WeChat Pay"
+    },
+    "21": {
+      "orderNo": "OMS20260021",
+      "customer": "Customer 21",
+      "amount": "¥2783.00",
+      "status": "Completed",
+      "payMethod": "Alipay"
+    },
+    "22": {
+      "orderNo": "OMS20260022",
+      "customer": "Customer 22",
+      "amount": "¥2906.00",
+      "status": "Cancelled",
+      "payMethod": "Bank Card"
+    },
+    "23": {
+      "orderNo": "OMS20260023",
+      "customer": "Customer 23",
+      "amount": "¥3029.00",
+      "status": "Refunding",
+      "payMethod": "Balance"
+    },
+    "24": {
+      "orderNo": "OMS20260024",
+      "customer": "Customer 24",
+      "amount": "¥3152.00",
+      "status": "Pending Payment",
+      "payMethod": "WeChat Pay"
+    },
+    "25": {
+      "orderNo": "OMS20260025",
+      "customer": "Customer 25",
+      "amount": "¥3275.00",
+      "status": "Paid",
+      "payMethod": "Alipay"
+    },
+    "26": {
+      "orderNo": "OMS20260026",
+      "customer": "Customer 26",
+      "amount": "¥3398.00",
+      "status": "Shipped",
+      "payMethod": "Bank Card"
+    },
+    "27": {
+      "orderNo": "OMS20260027",
+      "customer": "Customer 27",
+      "amount": "¥3521.00",
+      "status": "Completed",
+      "payMethod": "Balance"
+    },
+    "28": {
+      "orderNo": "OMS20260028",
+      "customer": "Customer 28",
+      "amount": "¥3644.00",
+      "status": "Cancelled",
+      "payMethod": "WeChat Pay"
+    },
+    "29": {
+      "orderNo": "OMS20260029",
+      "customer": "Customer 29",
+      "amount": "¥3767.00",
+      "status": "Refunding",
+      "payMethod": "Alipay"
+    },
+    "30": {
+      "orderNo": "OMS20260030",
+      "customer": "Customer 30",
+      "amount": "¥3890.00",
+      "status": "Pending Payment",
+      "payMethod": "Bank Card"
+    },
+    "31": {
+      "orderNo": "OMS20260031",
+      "customer": "Customer 31",
+      "amount": "¥4013.00",
+      "status": "Paid",
+      "payMethod": "Balance"
+    },
+    "32": {
+      "orderNo": "OMS20260032",
+      "customer": "Customer 32",
+      "amount": "¥4136.00",
+      "status": "Shipped",
+      "payMethod": "WeChat Pay"
+    },
+    "33": {
+      "orderNo": "OMS20260033",
+      "customer": "Customer 33",
+      "amount": "¥4259.00",
+      "status": "Completed",
+      "payMethod": "Alipay"
+    },
+    "34": {
+      "orderNo": "OMS20260034",
+      "customer": "Customer 34",
+      "amount": "¥4382.00",
+      "status": "Cancelled",
+      "payMethod": "Bank Card"
+    },
+    "35": {
+      "orderNo": "OMS20260035",
+      "customer": "Customer 35",
+      "amount": "¥4505.00",
+      "status": "Refunding",
+      "payMethod": "Balance"
+    },
+    "36": {
+      "orderNo": "OMS20260036",
+      "customer": "Customer 36",
+      "amount": "¥4628.00",
+      "status": "Pending Payment",
+      "payMethod": "WeChat Pay"
+    },
+    "37": {
+      "orderNo": "OMS20260037",
+      "customer": "Customer 37",
+      "amount": "¥4751.00",
+      "status": "Paid",
+      "payMethod": "Alipay"
+    },
+    "38": {
+      "orderNo": "OMS20260038",
+      "customer": "Customer 38",
+      "amount": "¥4874.00",
+      "status": "Shipped",
+      "payMethod": "Bank Card"
+    },
+    "39": {
+      "orderNo": "OMS20260039",
+      "customer": "Customer 39",
+      "amount": "¥4997.00",
+      "status": "Completed",
+      "payMethod": "Balance"
+    },
+    "40": {
+      "orderNo": "OMS20260040",
+      "customer": "Customer 40",
+      "amount": "¥5120.00",
+      "status": "Cancelled",
+      "payMethod": "WeChat Pay"
+    },
+    "41": {
+      "orderNo": "OMS20260041",
+      "customer": "Customer 41",
+      "amount": "¥5243.00",
+      "status": "Refunding",
+      "payMethod": "Alipay"
+    },
+    "42": {
+      "orderNo": "OMS20260042",
+      "customer": "Customer 42",
+      "amount": "¥5366.00",
+      "status": "Pending Payment",
+      "payMethod": "Bank Card"
+    }
+  }
+}

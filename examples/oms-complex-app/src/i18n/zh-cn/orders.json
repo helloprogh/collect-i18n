@@ -1,0 +1,344 @@
+{
+  "title": "订单管理",
+  "searchPlaceholder": "搜索订单号或客户",
+  "filter": {
+    "status": "订单状态",
+    "payMethod": "支付方式",
+    "dateRange": "下单时间"
+  },
+  "table": {
+    "orderNo": "订单号",
+    "customer": "客户",
+    "product": "商品",
+    "quantity": "数量",
+    "amount": "金额",
+    "status": "状态",
+    "payMethod": "支付方式",
+    "createdAt": "下单时间",
+    "actions": "操作"
+  },
+  "status": {
+    "pending": "待支付",
+    "paid": "已支付",
+    "shipped": "已发货",
+    "finished": "已完成",
+    "cancelled": "已取消",
+    "refunding": "退款中"
+  },
+  "pay": {
+    "wechat": "微信支付",
+    "alipay": "支付宝",
+    "card": "银行卡",
+    "balance": "余额"
+  },
+  "detail": {
+    "title": "订单详情",
+    "customer": "客户",
+    "address": "收货地址",
+    "remark": "备注",
+    "logistics": "物流信息"
+  },
+  "action": {
+    "view": "查看",
+    "ship": "发货",
+    "cancel": "取消订单",
+    "refund": "退款",
+    "receipt": "确认收货"
+  },
+  "rows": {
+    "1": {
+      "orderNo": "OMS20260001",
+      "customer": "客户1",
+      "amount": "¥323.00",
+      "status": "已支付",
+      "payMethod": "支付宝"
+    },
+    "2": {
+      "orderNo": "OMS20260002",
+      "customer": "客户2",
+      "amount": "¥446.00",
+      "status": "已发货",
+      "payMethod": "银行卡"
+    },
+    "3": {
+      "orderNo": "OMS20260003",
+      "customer": "客户3",
+      "amount": "¥569.00",
+      "status": "已完成",
+      "payMethod": "余额"
+    },
+    "4": {
+      "orderNo": "OMS20260004",
+      "customer": "客户4",
+      "amount": "¥692.00",
+      "status": "已取消",
+      "payMethod": "微信支付"
+    },
+    "5": {
+      "orderNo": "OMS20260005",
+      "customer": "客户5",
+      "amount": "¥815.00",
+      "status": "退款中",
+      "payMethod": "支付宝"
+    },
+    "6": {
+      "orderNo": "OMS20260006",
+      "customer": "客户6",
+      "amount": "¥938.00",
+      "status": "待支付",
+      "payMethod": "银行卡"
+    },
+    "7": {
+      "orderNo": "OMS20260007",
+      "customer": "客户7",
+      "amount": "¥1061.00",
+      "status": "已支付",
+      "payMethod": "余额"
+    },
+    "8": {
+      "orderNo": "OMS20260008",
+      "customer": "客户8",
+      "amount": "¥1184.00",
+      "status": "已发货",
+      "payMethod": "微信支付"
+    },
+    "9": {
+      "orderNo": "OMS20260009",
+      "customer": "客户9",
+      "amount": "¥1307.00",
+      "status": "已完成",
+      "payMethod": "支付宝"
+    },
+    "10": {
+      "orderNo": "OMS20260010",
+      "customer": "客户10",
+      "amount": "¥1430.00",
+      "status": "已取消",
+      "payMethod": "银行卡"
+    },
+    "11": {
+      "orderNo": "OMS20260011",
+      "customer": "客户11",
+      "amount": "¥1553.00",
+      "status": "退款中",
+      "payMethod": "余额"
+    },
+    "12": {
+      "orderNo": "OMS20260012",
+      "customer": "客户12",
+      "amount": "¥1676.00",
+      "status": "待支付",
+      "payMethod": "微信支付"
+    },
+    "13": {
+      "orderNo": "OMS20260013",
+      "customer": "客户13",
+      "amount": "¥1799.00",
+      "status": "已支付",
+      "payMethod": "支付宝"
+    },
+    "14": {
+      "orderNo": "OMS20260014",
+      "customer": "客户14",
+      "amount": "¥1922.00",
+      "status": "已发货",
+      "payMethod": "银行卡"
+    },
+    "15": {
+      "orderNo": "OMS20260015",
+      "customer": "客户15",
+      "amount": "¥2045.00",
+      "status": "已完成",
+      "payMethod": "余额"
+    },
+    "16": {
+      "orderNo": "OMS20260016",
+      "customer": "客户16",
+      "amount": "¥2168.00",
+      "status": "已取消",
+      "payMethod": "微信支付"
+    },
+    "17": {
+      "orderNo": "OMS20260017",
+      "customer": "客户17",
+      "amount": "¥2291.00",
+      "status": "退款中",
+      "payMethod": "支付宝"
+    },
+    "18": {
+      "orderNo": "OMS20260018",
+      "customer": "客户18",
+      "amount": "¥2414.00",
+      "status": "待支付",
+      "payMethod": "银行卡"
+    },
+    "19": {
+      "orderNo": "OMS20260019",
+      "customer": "客户19",
+      "amount": "¥2537.00",
+      "status": "已支付",
+      "payMethod": "余额"
+    },
+    "20": {
+      "orderNo": "OMS20260020",
+      "customer": "客户20",
+      "amount": "¥2660.00",
+      "status": "已发货",
+      "payMethod": "微信支付"
+    },
+    "21": {
+      "orderNo": "OMS20260021",
+      "customer": "客户21",
+      "amount": "¥2783.00",
+      "status": "已完成",
+      "payMethod": "支付宝"
+    },
+    "22": {
+      "orderNo": "OMS20260022",
+      "customer": "客户22",
+      "amount": "¥2906.00",
+      "status": "已取消",
+      "payMethod": "银行卡"
+    },
+    "23": {
+      "orderNo": "OMS20260023",
+      "customer": "客户23",
+      "amount": "¥3029.00",
+      "status": "退款中",
+      "payMethod": "余额"
+    },
+    "24": {
+      "orderNo": "OMS20260024",
+      "customer": "客户24",
+      "amount": "¥3152.00",
+      "status": "待支付",
+      "payMethod": "微信支付"
+    },
+    "25": {
+      "orderNo": "OMS20260025",
+      "customer": "客户25",
+      "amount": "¥3275.00",
+      "status": "已支付",
+      "payMethod": "支付宝"
+    },
+    "26": {
+      "orderNo": "OMS20260026",
+      "customer": "客户26",
+      "amount": "¥3398.00",
+      "status": "已发货",
+      "payMethod": "银行卡"
+    },
+    "27": {
+      "orderNo": "OMS20260027",
+      "customer": "客户27",
+      "amount": "¥3521.00",
+      "status": "已完成",
+      "payMethod": "余额"
+    },
+    "28": {
+      "orderNo": "OMS20260028",
+      "customer": "客户28",
+      "amount": "¥3644.00",
+      "status": "已取消",
+      "payMethod": "微信支付"
+    },
+    "29": {
+      "orderNo": "OMS20260029",
+      "customer": "客户29",
+      "amount": "¥3767.00",
+      "status": "退款中",
+      "payMethod": "支付宝"
+    },
+    "30": {
+      "orderNo": "OMS20260030",
+      "customer": "客户30",
+      "amount": "¥3890.00",
+      "status": "待支付",
+      "payMethod": "银行卡"
+    },
+    "31": {
+      "orderNo": "OMS20260031",
+      "customer": "客户31",
+      "amount": "¥4013.00",
+      "status": "已支付",
+      "payMethod": "余额"
+    },
+    "32": {
+      "orderNo": "OMS20260032",
+      "customer": "客户32",
+      "amount": "¥4136.00",
+      "status": "已发货",
+      "payMethod": "微信支付"
+    },
+    "33": {
+      "orderNo": "OMS20260033",
+      "customer": "客户33",
+      "amount": "¥4259.00",
+      "status": "已完成",
+      "payMethod": "支付宝"
+    },
+    "34": {
+      "orderNo": "OMS20260034",
+      "customer": "客户34",
+      "amount": "¥4382.00",
+      "status": "已取消",
+      "payMethod": "银行卡"
+    },
+    "35": {
+      "orderNo": "OMS20260035",
+      "customer": "客户35",
+      "amount": "¥4505.00",
+      "status": "退款中",
+      "payMethod": "余额"
+    },
+    "36": {
+      "orderNo": "OMS20260036",
+      "customer": "客户36",
+      "amount": "¥4628.00",
+      "status": "待支付",
+      "payMethod": "微信支付"
+    },
+    "37": {
+      "orderNo": "OMS20260037",
+      "customer": "客户37",
+      "amount": "¥4751.00",
+      "status": "已支付",
+      "payMethod": "支付宝"
+    },
+    "38": {
+      "orderNo": "OMS20260038",
+      "customer": "客户38",
+      "amount": "¥4874.00",
+      "status": "已发货",
+      "payMethod": "银行卡"
+    },
+    "39": {
+      "orderNo": "OMS20260039",
+      "customer": "客户39",
+      "amount": "¥4997.00",
+      "status": "已完成",
+      "payMethod": "余额"
+    },
+    "40": {
+      "orderNo": "OMS20260040",
+      "customer": "客户40",
+      "amount": "¥5120.00",
+      "status": "已取消",
+      "payMethod": "微信支付"
+    },
+    "41": {
+      "orderNo": "OMS20260041",
+      "customer": "客户41",
+      "amount": "¥5243.00",
+      "status": "退款中",
+      "payMethod": "支付宝"
+    },
+    "42": {
+      "orderNo": "OMS20260042",
+      "customer": "客户42",
+      "amount": "¥5366.00",
+      "status": "待支付",
+      "payMethod": "银行卡"
+    }
+  }
+}

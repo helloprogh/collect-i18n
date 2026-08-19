@@ -1,0 +1,94 @@
+{
+  "title": "Settings",
+  "section": {
+    "profile": "Profile",
+    "security": "Security",
+    "preference": "Preferences"
+  },
+  "profile": {
+    "nickname": "Nickname",
+    "realName": "Real Name",
+    "email": "Email",
+    "phone": "Phone",
+    "gender": "Gender",
+    "bio": "Bio"
+  },
+  "gender": {
+    "male": "Male",
+    "female": "Female",
+    "other": "Other"
+  },
+  "placeholder": {
+    "nickname": "Enter nickname",
+    "realName": "Enter real name",
+    "email": "Enter email",
+    "phone": "Enter phone",
+    "bio": "Tell us about yourself"
+  },
+  "validation": {
+    "required": "Required",
+    "nickname": {
+      "required": "Nickname is required"
+    },
+    "realName": {
+      "required": "Real name is required"
+    },
+    "email": {
+      "required": "Email is required",
+      "format": "Invalid email format"
+    },
+    "phone": {
+      "required": "Phone is required",
+      "format": "Invalid phone number"
+    },
+    "bio": {
+      "max": "Bio must be under 200 characters"
+    },
+    "password": {
+      "required": "Password is required",
+      "min": "Password must be at least 8 characters",
+      "match": "Passwords do not match"
+    },
+    "confirmPassword": {
+      "required": "Confirm your password",
+      "match": "Passwords do not match"
+    }
+  },
+  "security": {
+    "oldPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm New Password",
+    "twoFactor": "Two-Factor Authentication",
+    "twoFactorDesc": "Require a dynamic code at sign-in when enabled",
+    "changePassword": "Change Password"
+  },
+  "preference": {
+    "language": "Language",
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "Follow System"
+    },
+    "notification": {
+      "email": "Email Notifications",
+      "sms": "SMS Notifications",
+      "app": "In-App Notifications"
+    },
+    "timezone": "Timezone",
+    "weekStart": "Week Starts On",
+    "density": {
+      "compact": "Compact",
+      "default": "Default",
+      "loose": "Loose"
+    }
+  },
+  "save": {
+    "success": "Settings saved",
+    "failed": "Save failed, please retry"
+  },
+  "tab": {
+    "basic": "Basic",
+    "security": "Security",
+    "preference": "Preference"
+  }
+}

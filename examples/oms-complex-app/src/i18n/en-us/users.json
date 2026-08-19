@@ -1,0 +1,331 @@
+{
+  "title": "User Management",
+  "searchPlaceholder": "Search by name, email or phone",
+  "filter": {
+    "role": "Role",
+    "status": "Status",
+    "createdAt": "Registered At"
+  },
+  "table": {
+    "id": "User ID",
+    "name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "role": "Role",
+    "status": "Status",
+    "createdAt": "Registered At",
+    "lastLogin": "Last Login",
+    "actions": "Actions",
+    "department": "Department"
+  },
+  "role": {
+    "admin": "Administrator",
+    "editor": "Editor",
+    "viewer": "Viewer",
+    "auditor": "Auditor",
+    "operator": "Operator"
+  },
+  "detail": {
+    "title": "User Details",
+    "email": "Email",
+    "phone": "Phone",
+    "department": "Department",
+    "position": "Position",
+    "superior": "Manager",
+    "location": "Location",
+    "bio": "Bio"
+  },
+  "batch": {
+    "delete": "Batch Delete",
+    "export": "Batch Export",
+    "disable": "Batch Disable",
+    "enable": "Batch Enable"
+  },
+  "empty": {
+    "noUsers": "No users found"
+  },
+  "create": {
+    "title": "Create User"
+  },
+  "edit": {
+    "title": "Edit User"
+  },
+  "rows": {
+    "1": {
+      "name": "User 1",
+      "email": "user1{'@'}example.com",
+      "phone": "13800001001",
+      "department": "Dept 1"
+    },
+    "2": {
+      "name": "User 2",
+      "email": "user2{'@'}example.com",
+      "phone": "13800001002",
+      "department": "Dept 2"
+    },
+    "3": {
+      "name": "User 3",
+      "email": "user3{'@'}example.com",
+      "phone": "13800001003",
+      "department": "Dept 3"
+    },
+    "4": {
+      "name": "User 4",
+      "email": "user4{'@'}example.com",
+      "phone": "13800001004",
+      "department": "Dept 4"
+    },
+    "5": {
+      "name": "User 5",
+      "email": "user5{'@'}example.com",
+      "phone": "13800001005",
+      "department": "Dept 5"
+    },
+    "6": {
+      "name": "User 6",
+      "email": "user6{'@'}example.com",
+      "phone": "13800001006",
+      "department": "Dept 6"
+    },
+    "7": {
+      "name": "User 7",
+      "email": "user7{'@'}example.com",
+      "phone": "13800001007",
+      "department": "Dept 7"
+    },
+    "8": {
+      "name": "User 8",
+      "email": "user8{'@'}example.com",
+      "phone": "13800001008",
+      "department": "Dept 8"
+    },
+    "9": {
+      "name": "User 9",
+      "email": "user9{'@'}example.com",
+      "phone": "13800001009",
+      "department": "Dept 9"
+    },
+    "10": {
+      "name": "User 10",
+      "email": "user10{'@'}example.com",
+      "phone": "13800001010",
+      "department": "Dept 10"
+    },
+    "11": {
+      "name": "User 11",
+      "email": "user11{'@'}example.com",
+      "phone": "13800001011",
+      "department": "Dept 11"
+    },
+    "12": {
+      "name": "User 12",
+      "email": "user12{'@'}example.com",
+      "phone": "13800001012",
+      "department": "Dept 12"
+    },
+    "13": {
+      "name": "User 13",
+      "email": "user13{'@'}example.com",
+      "phone": "13800001013",
+      "department": "Dept 13"
+    },
+    "14": {
+      "name": "User 14",
+      "email": "user14{'@'}example.com",
+      "phone": "13800001014",
+      "department": "Dept 14"
+    },
+    "15": {
+      "name": "User 15",
+      "email": "user15{'@'}example.com",
+      "phone": "13800001015",
+      "department": "Dept 15"
+    },
+    "16": {
+      "name": "User 16",
+      "email": "user16{'@'}example.com",
+      "phone": "13800001016",
+      "department": "Dept 16"
+    },
+    "17": {
+      "name": "User 17",
+      "email": "user17{'@'}example.com",
+      "phone": "13800001017",
+      "department": "Dept 17"
+    },
+    "18": {
+      "name": "User 18",
+      "email": "user18{'@'}example.com",
+      "phone": "13800001018",
+      "department": "Dept 18"
+    },
+    "19": {
+      "name": "User 19",
+      "email": "user19{'@'}example.com",
+      "phone": "13800001019",
+      "department": "Dept 19"
+    },
+    "20": {
+      "name": "User 20",
+      "email": "user20{'@'}example.com",
+      "phone": "13800001020",
+      "department": "Dept 20"
+    },
+    "21": {
+      "name": "User 21",
+      "email": "user21{'@'}example.com",
+      "phone": "13800001021",
+      "department": "Dept 21"
+    },
+    "22": {
+      "name": "User 22",
+      "email": "user22{'@'}example.com",
+      "phone": "13800001022",
+      "department": "Dept 22"
+    },
+    "23": {
+      "name": "User 23",
+      "email": "user23{'@'}example.com",
+      "phone": "13800001023",
+      "department": "Dept 23"
+    },
+    "24": {
+      "name": "User 24",
+      "email": "user24{'@'}example.com",
+      "phone": "13800001024",
+      "department": "Dept 24"
+    },
+    "25": {
+      "name": "User 25",
+      "email": "user25{'@'}example.com",
+      "phone": "13800001025",
+      "department": "Dept 25"
+    },
+    "26": {
+      "name": "User 26",
+      "email": "user26{'@'}example.com",
+      "phone": "13800001026",
+      "department": "Dept 26"
+    },
+    "27": {
+      "name": "User 27",
+      "email": "user27{'@'}example.com",
+      "phone": "13800001027",
+      "department": "Dept 27"
+    },
+    "28": {
+      "name": "User 28",
+      "email": "user28{'@'}example.com",
+      "phone": "13800001028",
+      "department": "Dept 28"
+    },
+    "29": {
+      "name": "User 29",
+      "email": "user29{'@'}example.com",
+      "phone": "13800001029",
+      "department": "Dept 29"
+    },
+    "30": {
+      "name": "User 30",
+      "email": "user30{'@'}example.com",
+      "phone": "13800001030",
+      "department": "Dept 30"
+    },
+    "31": {
+      "name": "User 31",
+      "email": "user31{'@'}example.com",
+      "phone": "13800001031",
+      "department": "Dept 31"
+    },
+    "32": {
+      "name": "User 32",
+      "email": "user32{'@'}example.com",
+      "phone": "13800001032",
+      "department": "Dept 32"
+    },
+    "33": {
+      "name": "User 33",
+      "email": "user33{'@'}example.com",
+      "phone": "13800001033",
+      "department": "Dept 33"
+    },
+    "34": {
+      "name": "User 34",
+      "email": "user34{'@'}example.com",
+      "phone": "13800001034",
+      "department": "Dept 34"
+    },
+    "35": {
+      "name": "User 35",
+      "email": "user35{'@'}example.com",
+      "phone": "13800001035",
+      "department": "Dept 35"
+    },
+    "36": {
+      "name": "User 36",
+      "email": "user36{'@'}example.com",
+      "phone": "13800001036",
+      "department": "Dept 36"
+    },
+    "37": {
+      "name": "User 37",
+      "email": "user37{'@'}example.com",
+      "phone": "13800001037",
+      "department": "Dept 37"
+    },
+    "38": {
+      "name": "User 38",
+      "email": "user38{'@'}example.com",
+      "phone": "13800001038",
+      "department": "Dept 38"
+    },
+    "39": {
+      "name": "User 39",
+      "email": "user39{'@'}example.com",
+      "phone": "13800001039",
+      "department": "Dept 39"
+    },
+    "40": {
+      "name": "User 40",
+      "email": "user40{'@'}example.com",
+      "phone": "13800001040",
+      "department": "Dept 40"
+    },
+    "41": {
+      "name": "User 41",
+      "email": "user41{'@'}example.com",
+      "phone": "13800001041",
+      "department": "Dept 41"
+    },
+    "42": {
+      "name": "User 42",
+      "email": "user42{'@'}example.com",
+      "phone": "13800001042",
+      "department": "Dept 42"
+    },
+    "43": {
+      "name": "User 43",
+      "email": "user43{'@'}example.com",
+      "phone": "13800001043",
+      "department": "Dept 43"
+    },
+    "44": {
+      "name": "User 44",
+      "email": "user44{'@'}example.com",
+      "phone": "13800001044",
+      "department": "Dept 44"
+    },
+    "45": {
+      "name": "User 45",
+      "email": "user45{'@'}example.com",
+      "phone": "13800001045",
+      "department": "Dept 45"
+    },
+    "46": {
+      "name": "User 46",
+      "email": "user46{'@'}example.com",
+      "phone": "13800001046",
+      "department": "Dept 46"
+    }
+  }
+}

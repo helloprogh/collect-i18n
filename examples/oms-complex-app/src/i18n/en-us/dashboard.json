@@ -1,0 +1,67 @@
+{
+  "title": "Dashboard",
+  "welcome": "Welcome back, {name}",
+  "greeting": "Have a productive day",
+  "metric": {
+    "totalUsers": "Total Users",
+    "activeUsers": "Active Users",
+    "orderToday": "Today's Orders",
+    "gmv": "GMV Today",
+    "sales": "Total Sales",
+    "refund": "Refund Amount",
+    "completion": "Fulfillment Rate",
+    "conversion": "Conversion Rate",
+    "newUsers": "New Users",
+    "visits": "Visits",
+    "pendingOrders": "Pending Orders",
+    "trendUp": "Up {percent} from yesterday",
+    "trendDown": "Down {percent} from yesterday",
+    "versusLastWeek": "versus last week"
+  },
+  "chart": {
+    "salesTrend": "Sales Trend",
+    "orderTrend": "Order Trend",
+    "userGrowth": "User Growth",
+    "deviceShare": "Device Share",
+    "categoryShare": "Category Share",
+    "salesOverview": "Sales Overview",
+    "visitsOverview": "Visits Overview",
+    "axis": {
+      "month": "Month",
+      "sales": "Sales"
+    },
+    "legend": {
+      "sales": "Sales",
+      "orders": "Orders",
+      "users": "Users",
+      "visits": "Visits"
+    }
+  },
+  "shortcut": {
+    "quickActions": "Quick Actions",
+    "manageUsers": "Manage Users",
+    "manageOrders": "Manage Orders",
+    "manageProducts": "Manage Products",
+    "viewSettings": "Settings"
+  },
+  "table": {
+    "latestOrders": "Latest Orders",
+    "latestUsers": "Latest Users",
+    "orderNo": "Order No.",
+    "customer": "Customer",
+    "amount": "Amount",
+    "date": "Date",
+    "name": "Name",
+    "rank": "Rank",
+    "status": "Status"
+  },
+  "notice": {
+    "announcement": "Announcement",
+    "version": "The platform has been upgraded to v2.8.0",
+    "maintenance": "System maintenance this Saturday 02:00-04:00"
+  },
+  "report": {
+    "exportTitle": "Export Daily Report",
+    "exportHint": "Data as of 18:00 today"
+  }
+}

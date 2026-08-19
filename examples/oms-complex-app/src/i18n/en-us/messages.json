@@ -1,0 +1,73 @@
+{
+  "title": "Message Notifications",
+  "intro": "Element Plus message and notification components",
+  "button": {
+    "success": "Success Message",
+    "warning": "Warning Message",
+    "error": "Error Message",
+    "info": "Info Message",
+    "confirm": "Confirm Dialog",
+    "alert": "Alert Dialog",
+    "prompt": "Prompt Dialog",
+    "notification": "Send Notification",
+    "loading": "Loading",
+    "successClose": "Success (Closable)"
+  },
+  "msg": {
+    "success": {
+      "title": "Operation succeeded",
+      "text": "Data saved successfully",
+      "send": "Sent successfully",
+      "import": "Import succeeded"
+    },
+    "warning": {
+      "title": "Attention",
+      "text": "This operation may carry risks",
+      "expire": "Password expires soon",
+      "limit": "Operation limit reached"
+    },
+    "error": {
+      "title": "Operation failed",
+      "text": "Network error, please retry later",
+      "submit": "Submission failed, please check the form",
+      "import": "Import failed: incorrect file format"
+    },
+    "info": {
+      "title": "Notice",
+      "text": "System maintenance tonight",
+      "session": "Session is about to expire",
+      "version": "New version available"
+    }
+  },
+  "confirm": {
+    "title": "Delete Confirmation",
+    "content": "This will permanently delete the record. Continue?",
+    "confirmText": "Delete",
+    "cancelText": "Cancel"
+  },
+  "alert": {
+    "title": "System Notice",
+    "content": "Congratulations, your application has been approved!"
+  },
+  "prompt": {
+    "title": "Enter Verification Code",
+    "inputPlaceholder": "6-digit code",
+    "success": "Verified"
+  },
+  "notification": {
+    "title": "New Order Notification",
+    "body": "You have a new order to process",
+    "successTitle": "Backup Complete",
+    "successBody": "Data backed up to cloud"
+  },
+  "dialog": {
+    "confirm": "OK",
+    "cancel": "Cancel"
+  },
+  "form": {
+    "error": "Form validation failed, please review your input"
+  },
+  "demo": {
+    "submit": "Demo Submit"
+  }
+}

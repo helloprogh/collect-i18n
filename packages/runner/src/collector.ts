@@ -717,13 +717,6 @@ export class BrowserCollector {
       resolvedTarget = next;
       if (delta < 0.5) break;
     }
-    const viewport = page.viewportSize();
-    const { rect } = resolvedTarget;
-    const inViewport = Boolean(
-      viewport && rect.width > 0 && rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height &&
-      rect.x + rect.width > 0 && rect.y + rect.height > 0,
-    );
-    if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
     const shouldProbe =
       resolvedTarget.evidenceGrade === "B" &&
       (source === "deterministic" || (source === "agent" && Boolean(plan)));
@@ -742,6 +735,140 @@ export class BrowserCollector {
     if (causalVerified) {
       resolvedTarget = await this.waitForKey(target.key, 5_000, "B");
     }
+    return this.screenshotEvidence(resolvedTarget, source, plan, causalVerified);
+  }
+
+  /**
+   * Resolve many visible i18n keys in a single page evaluation. Mirrors the
+   * per-key waitForKey fallbacks (runtime targets, snapshot registry, native
+   * DOM) without scrolling or focusing, which would perturb a batch capture.
+   */
+  async captureVisibleTargets(
+    keys: readonly string[],
+    minimumGrade: RuntimeEvidenceGrade = "B",
+  ): Promise<RuntimeTargetSnapshot[]> {
+    this.assertSameOrigin();
+    const targetKeys = [...new Set(keys)].slice(0, 500);
+    if (targetKeys.length === 0) return [];
+    const evaluation = this.activePage.evaluate(({ targetKeys, minGrade }) => {
+      const runtimeWindow = window as RuntimeWindow;
+      const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+      const intersectsViewport = (rect: { x: number; y: number; width: number; height: number }): boolean =>
+        rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight &&
+        rect.x + rect.width > 0 && rect.y + rect.height > 0;
+      const gradeRank = (grade: RuntimeEvidenceGrade | undefined): number =>
+        grade === "A" ? 3 : grade === "B" ? 2 : 1;
+      const normalizeRuntimeTarget = (candidate: {
+        key?: string;
+        occurrenceId?: string;
+        kind?: string;
+        evidenceGrade?: RuntimeEvidenceGrade;
+        evidenceProof?: string;
+        text?: string;
+        rect?: { x: number; y: number; width: number; height: number };
+      }, fallbackKey: string): RuntimeTargetSnapshot | undefined => {
+        if (!candidate.rect || !intersectsViewport(candidate.rect)) return undefined;
+        if (gradeRank(candidate.evidenceGrade) < gradeRank(minGrade)) return undefined;
+        return {
+          key: candidate.key ?? fallbackKey,
+          occurrenceId: candidate.occurrenceId,
+          binding: candidate.kind,
+          evidenceGrade: candidate.evidenceGrade,
+          evidenceProof: candidate.evidenceProof,
+          text: candidate.text ?? "",
+          route: location.href,
+          rect: {
+            x: candidate.rect.x,
+            y: candidate.rect.y,
+            width: candidate.rect.width,
+            height: candidate.rect.height,
+          },
+        };
+      };
+      const collected: RuntimeTargetSnapshot[] = [];
+      for (const targetKey of targetKeys) {
+        const runtimeTargets = collector?.targets?.(targetKey) ?? collector?.getVisibleOccurrences?.(targetKey) ?? [];
+        const valid = runtimeTargets
+          .filter((candidate) => candidate.rect && intersectsViewport(candidate.rect))
+          .sort((left, right) =>
+            gradeRank(right.evidenceGrade) - gradeRank(left.evidenceGrade))
+          .find((candidate) => gradeRank(candidate.evidenceGrade) >= gradeRank(minGrade));
+        if (valid) {
+          const normalized = normalizeRuntimeTarget(valid, targetKey);
+          if (normalized) { collected.push(normalized); continue; }
+        }
+        const registryTarget = collector?.getSnapshot?.().find((candidate) => candidate.key === targetKey && candidate.visible);
+        if (registryTarget) {
+          const normalized = normalizeRuntimeTarget(registryTarget, targetKey);
+          if (normalized) { collected.push(normalized); continue; }
+        }
+        const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(targetKey) : targetKey.replace(/["\\]/g, "\\$&");
+        const element = document.querySelector<HTMLElement>(`[data-i18n-key~="${escaped}"]`);
+        if (!element) continue;
+        const rect = element.getBoundingClientRect();
+        if (!intersectsViewport(rect)) continue;
+        collected.push({
+          key: targetKey,
+          occurrenceId: element.dataset.i18nOccurrence ?? element.dataset.i18nOcc,
+          binding: "native_dom",
+          evidenceGrade: "A" as const,
+          evidenceProof: "compiler-native-sink",
+          text: element.innerText || element.getAttribute("placeholder") || element.getAttribute("aria-label") || "",
+          route: location.href,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        });
+      }
+      return collected;
+    }, { targetKeys, minGrade: minimumGrade });
+    return bounded(evaluation, 4_000, "Page became unresponsive while locating i18n keys in batch");
+  }
+
+  /**
+   * Capture a set of already-visible keys with a single batched visibility
+   * confirmation instead of one polling round-trip per key. Each surviving
+   * key is re-checked once after a short settle delay, then screenshotted;
+   * keys that animate away mid-batch are skipped without failing the rest.
+   */
+  async captureBatch(
+    keys: readonly string[],
+    source: CollectedEvidence["source"],
+  ): Promise<Array<{ key: string; evidence: CollectedEvidence }>> {
+    const targets = [...new Set(keys)].slice(0, 250);
+    if (targets.length === 0) return [];
+    const initial = await this.captureVisibleTargets(targets, "B");
+    if (initial.length === 0) return [];
+    await this.activePage.waitForTimeout(100);
+    const settledByKey = new Map(
+      (await this.captureVisibleTargets(initial.map((target) => target.key), "B"))
+        .map((target) => [target.key, target] as const),
+    );
+    const results: Array<{ key: string; evidence: CollectedEvidence }> = [];
+    for (const target of initial) {
+      const latest = settledByKey.get(target.key) ?? target;
+      try {
+        const evidence = await this.screenshotEvidence(latest, source);
+        results.push({ key: target.key, evidence });
+      } catch {
+        // A single key may animate away mid-batch; keep the rest.
+      }
+    }
+    return results;
+  }
+
+  private async screenshotEvidence(
+    resolvedTarget: RuntimeTargetSnapshot,
+    source: CollectedEvidence["source"],
+    plan?: ParsedTriggerPlan,
+    causalVerified = false,
+  ): Promise<CollectedEvidence> {
+    const page = this.activePage;
+    const viewport = page.viewportSize();
+    const { rect } = resolvedTarget;
+    const inViewport = Boolean(
+      viewport && rect.width > 0 && rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height &&
+      rect.x + rect.width > 0 && rect.y + rect.height > 0,
+    );
+    if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
     const marker = captureMarkerSpec(resolvedTarget.rect);
     await bounded(page.evaluate(({ id, style }) => {
       const runtimeWindow = window as RuntimeWindow;

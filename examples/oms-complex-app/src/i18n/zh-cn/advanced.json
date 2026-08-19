@@ -1,0 +1,157 @@
+{
+  "title": "高级组件演示",
+  "tabs": {
+    "title": "页签",
+    "basic": "基础信息",
+    "advanced": "高级配置",
+    "audit": "审计日志",
+    "description": {
+      "basic": "基础信息页签内容",
+      "advanced": "高级配置页签内容",
+      "audit": "审计日志页签内容"
+    }
+  },
+  "tree": {
+    "title": "组织架构",
+    "node": {
+      "root": "总公司",
+      "sales": {
+        "east": "华东区",
+        "west": "华南区"
+      },
+      "tech": {
+        "frontend": "前端组",
+        "backend": "后端组"
+      },
+      "ops": "运营部"
+    },
+    "group": {
+      "sales": "销售部",
+      "tech": "技术部"
+    }
+  },
+  "cascader": {
+    "title": "商品分类选择",
+    "electronics": {
+      "phone": "手机",
+      "laptop": "笔记本",
+      "audio": "音频"
+    },
+    "apparel": {
+      "men": "男装",
+      "women": "女装"
+    },
+    "food": {
+      "snack": "零食",
+      "drink": "饮料"
+    },
+    "group": {
+      "electronics": "电子数码",
+      "apparel": "服饰",
+      "food": "食品"
+    }
+  },
+  "date": {
+    "title": "日期选择",
+    "today": "今天",
+    "range": "日期范围",
+    "month": "月份"
+  },
+  "slider": {
+    "title": "评分与滑块",
+    "volume": "音量",
+    "rating": "满意度"
+  },
+  "steps": {
+    "title": "订单进度",
+    "submit": "提交订单",
+    "pay": "完成支付",
+    "ship": "商品发货",
+    "done": "确认收货"
+  },
+  "descriptions": {
+    "title": "商品详情",
+    "name": "商品名称",
+    "sku": "商品编码",
+    "brand": "品牌",
+    "price": "价格",
+    "stock": "库存",
+    "status": "状态",
+    "tags": "标签"
+  },
+  "empty": {
+    "title": "空状态",
+    "desc": "暂无相关数据",
+    "button": "新建数据"
+  },
+  "drawer": {
+    "title": "侧滑抽屉",
+    "open": "打开抽屉",
+    "content": "抽屉内容区域",
+    "footer": "底部操作区"
+  },
+  "popconfirm": {
+    "title": "确认操作",
+    "text": "确定要执行此操作吗？",
+    "confirm": "确定",
+    "cancel": "取消"
+  },
+  "timeline": {
+    "title": "时间线",
+    "created": "创建项目",
+    "published": "发布版本 v1.0",
+    "review": "通过审核",
+    "archived": "归档"
+  },
+  "result": {
+    "title": "结果页",
+    "successTitle": "提交成功",
+    "successDesc": "您的申请已受理，我们将在 1 个工作日内处理",
+    "backHome": "返回首页",
+    "viewDetail": "查看详情",
+    "retry": "重新提交"
+  },
+  "progress": {
+    "title": "任务进度",
+    "uploading": "上传中",
+    "processed": "已处理 {count} 项",
+    "finished": "已完成"
+  },
+  "tag": {
+    "title": "标签展示",
+    "primary": "主要",
+    "success": "成功",
+    "warning": "警告",
+    "danger": "危险"
+  },
+  "badge": {
+    "title": "徽标",
+    "new": "新",
+    "messages": "{count} 条消息",
+    "unread": "未读"
+  },
+  "radio": {
+    "title": "单选",
+    "optionA": "方案 A",
+    "optionB": "方案 B"
+  },
+  "checkbox": {
+    "title": "多选",
+    "option1": "选项一",
+    "option2": "选项二",
+    "option3": "选项三"
+  },
+  "switch": {
+    "title": "开关",
+    "enableFeature": "启用高级功能"
+  },
+  "segmented": {
+    "title": "分段控制器",
+    "day": "日",
+    "week": "周",
+    "month": "月"
+  },
+  "card": {
+    "title": "卡片"
+  }
+}

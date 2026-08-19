@@ -541,19 +541,22 @@ export class LocalService {
         .listTasks(sessionId, ["pending", "needs_agent", "needs_manual"], 2_000)
         .map((task) => [task.keyPath, task]),
     );
+    const batchKeys = [...eligibleKeys].slice(0, 250).filter((key) => pendingByKey.has(key));
+    if (batchKeys.length === 0) return [];
+
     const captured: Array<{ taskId: string; keyPath: string; evidenceId: string }> = [];
-    for (const keyPath of [...eligibleKeys].slice(0, 250)) {
+    // One batched visibility confirmation replaces the previous per-key
+    // waitForKey polling loop, then each key is screenshotted individually.
+    const collected = await collector.captureBatch(batchKeys, source);
+    for (const { key, evidence } of collected) {
       if (!shouldContinue()) break;
-      const task = pendingByKey.get(keyPath);
+      const task = pendingByKey.get(key);
       if (!task) continue;
       try {
-        const target = await collector.waitForKey(keyPath, 1_000, "B");
-        const evidence = await collector.capture(target, source);
         const evidenceId = store.addEvidence(task.id, evidence);
-        captured.push({ taskId: task.id, keyPath, evidenceId });
+        captured.push({ taskId: task.id, keyPath: key, evidenceId });
       } catch {
-        // The state may animate or disappear while batching. Leave the task in
-        // its existing queue rather than recording weaker or stale evidence.
+        // A key may animate away mid-batch; keep the rest.
       }
     }
     return captured;

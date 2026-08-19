@@ -1,0 +1,67 @@
+{
+  "title": "仪表盘",
+  "welcome": "欢迎回来，{name}",
+  "greeting": "祝您今天工作顺利",
+  "metric": {
+    "totalUsers": "用户总数",
+    "activeUsers": "活跃用户",
+    "orderToday": "今日订单",
+    "gmv": "今日成交额",
+    "sales": "总销售额",
+    "refund": "退款金额",
+    "completion": "履约完成率",
+    "conversion": "转化率",
+    "newUsers": "新增用户",
+    "visits": "访问量",
+    "pendingOrders": "待处理订单",
+    "trendUp": "较昨日上升 {percent}",
+    "trendDown": "较昨日下降 {percent}",
+    "versusLastWeek": "较上周"
+  },
+  "chart": {
+    "salesTrend": "销售趋势",
+    "orderTrend": "订单趋势",
+    "userGrowth": "用户增长",
+    "deviceShare": "设备占比",
+    "categoryShare": "品类占比",
+    "salesOverview": "销售概览",
+    "visitsOverview": "访问概览",
+    "axis": {
+      "month": "月份",
+      "sales": "销售额"
+    },
+    "legend": {
+      "sales": "销售额",
+      "orders": "订单量",
+      "users": "用户数",
+      "visits": "访问量"
+    }
+  },
+  "shortcut": {
+    "quickActions": "快捷操作",
+    "manageUsers": "用户管理",
+    "manageOrders": "订单管理",
+    "manageProducts": "商品管理",
+    "viewSettings": "系统设置"
+  },
+  "table": {
+    "latestOrders": "最新订单",
+    "latestUsers": "最新注册用户",
+    "orderNo": "订单号",
+    "customer": "客户",
+    "amount": "金额",
+    "date": "日期",
+    "name": "名称",
+    "rank": "排名",
+    "status": "状态"
+  },
+  "notice": {
+    "announcement": "系统公告",
+    "version": "平台已升级至 v2.8.0",
+    "maintenance": "本周六 02:00-04:00 系统维护"
+  },
+  "report": {
+    "exportTitle": "导出日报",
+    "exportHint": "数据截至今日 18:00"
+  }
+}

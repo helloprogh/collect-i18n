@@ -1,0 +1,102 @@
+{
+  "menu": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "orders": "Orders",
+    "products": "Products",
+    "settings": "Settings",
+    "messages": "Messages",
+    "advanced": "Advanced"
+  },
+  "app": {
+    "title": "Operations Management Platform",
+    "subtitle": "Enterprise Operations Console",
+    "footer": "© 2026 Operations Management Platform · All rights reserved"
+  },
+  "action": {
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "search": "Search",
+    "reset": "Reset",
+    "export": "Export",
+    "import": "Import",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "submit": "Submit",
+    "refresh": "Refresh",
+    "more": "More",
+    "retry": "Retry",
+    "details": "View Details",
+    "batchDelete": "Batch Delete",
+    "clear": "Clear",
+    "collapse": "Collapse",
+    "expand": "Expand"
+  },
+  "pagination": {
+    "total": "Total {count} items",
+    "prev": "Previous",
+    "next": "Next",
+    "pageSize": "Page size",
+    "jumpTo": "Jump to",
+    "page": "Page"
+  },
+  "status": {
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "active": "Active",
+    "inactive": "Inactive",
+    "pending": "Pending",
+    "success": "Success",
+    "failed": "Failed",
+    "processing": "Processing",
+    "finished": "Completed",
+    "cancelled": "Cancelled",
+    "expired": "Expired",
+    "draft": "Draft",
+    "published": "Published",
+    "offline": "Offline",
+    "online": "Online"
+  },
+  "dialog": {
+    "title": "Notice",
+    "deleteTitle": "Confirm Deletion",
+    "deleteContent": "Are you sure you want to delete the {count} selected item(s)? This cannot be undone.",
+    "deleteSuccess": "Deleted successfully",
+    "deleteFailed": "Delete failed",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "operationSuccess": "Operation succeeded",
+    "operationFailed": "Operation failed",
+    "createSuccess": "Created successfully",
+    "updateSuccess": "Updated successfully",
+    "copySuccess": "Copied successfully",
+    "copyFailed": "Copy failed"
+  },
+  "placeholder": {
+    "input": "Please enter",
+    "select": "Please select",
+    "search": "Please enter keywords",
+    "date": "Please select a date",
+    "range": "Please select a date range",
+    "pleaseEnter": "Please enter",
+    "pleaseSelect": "Please select"
+  },
+  "confirm": {
+    "ok": "OK",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "misc": {
+    "noData": "No data",
+    "noPermission": "No permission",
+    "loading": "Loading...",
+    "empty": "Empty",
+    "tip": "Tip",
+    "note": "Note",
+    "all": "All"
+  }
+}

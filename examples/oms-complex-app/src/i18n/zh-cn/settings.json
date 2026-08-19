@@ -1,0 +1,94 @@
+{
+  "title": "系统设置",
+  "section": {
+    "profile": "个人资料",
+    "security": "安全设置",
+    "preference": "偏好设置"
+  },
+  "profile": {
+    "nickname": "昵称",
+    "realName": "真实姓名",
+    "email": "邮箱",
+    "phone": "手机号",
+    "gender": "性别",
+    "bio": "个人简介"
+  },
+  "gender": {
+    "male": "男",
+    "female": "女",
+    "other": "其他"
+  },
+  "placeholder": {
+    "nickname": "请输入昵称",
+    "realName": "请输入真实姓名",
+    "email": "请输入邮箱",
+    "phone": "请输入手机号",
+    "bio": "介绍一下自己吧"
+  },
+  "validation": {
+    "required": "必填项",
+    "nickname": {
+      "required": "请输入昵称"
+    },
+    "realName": {
+      "required": "请输入真实姓名"
+    },
+    "email": {
+      "required": "请输入邮箱",
+      "format": "邮箱格式不正确"
+    },
+    "phone": {
+      "required": "请输入手机号",
+      "format": "手机号格式不正确"
+    },
+    "bio": {
+      "max": "简介不能超过 200 字"
+    },
+    "password": {
+      "required": "请输入密码",
+      "min": "密码至少 8 位",
+      "match": "两次输入的密码不一致"
+    },
+    "confirmPassword": {
+      "required": "请再次输入密码",
+      "match": "两次输入的密码不一致"
+    }
+  },
+  "security": {
+    "oldPassword": "当前密码",
+    "newPassword": "新密码",
+    "confirmPassword": "确认新密码",
+    "twoFactor": "双重验证",
+    "twoFactorDesc": "启用后登录需输入动态验证码",
+    "changePassword": "修改密码"
+  },
+  "preference": {
+    "language": "界面语言",
+    "theme": {
+      "light": "浅色",
+      "dark": "深色",
+      "system": "跟随系统"
+    },
+    "notification": {
+      "email": "邮件通知",
+      "sms": "短信通知",
+      "app": "应用内通知"
+    },
+    "timezone": "时区",
+    "weekStart": "每周起始日",
+    "density": {
+      "compact": "紧凑",
+      "default": "默认",
+      "loose": "宽松"
+    }
+  },
+  "save": {
+    "success": "设置已保存",
+    "failed": "保存失败，请重试"
+  },
+  "tab": {
+    "basic": "基础信息",
+    "security": "安全",
+    "preference": "偏好"
+  }
+}

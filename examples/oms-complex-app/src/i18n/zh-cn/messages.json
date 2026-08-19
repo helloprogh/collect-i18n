@@ -1,0 +1,73 @@
+{
+  "title": "消息通知",
+  "intro": "演示 Element Plus 消息与通知组件",
+  "button": {
+    "success": "成功消息",
+    "warning": "警告消息",
+    "error": "错误消息",
+    "info": "信息消息",
+    "confirm": "确认对话框",
+    "alert": "提示对话框",
+    "prompt": "输入对话框",
+    "notification": "发送通知",
+    "loading": "加载状态",
+    "successClose": "成功消息（可关闭）"
+  },
+  "msg": {
+    "success": {
+      "title": "操作成功",
+      "text": "数据已成功保存",
+      "send": "发送成功",
+      "import": "导入成功"
+    },
+    "warning": {
+      "title": "请注意",
+      "text": "当前操作可能存在风险",
+      "expire": "密码即将过期",
+      "limit": "已达到操作上限"
+    },
+    "error": {
+      "title": "操作失败",
+      "text": "网络异常，请稍后重试",
+      "submit": "提交失败，请检查表单",
+      "import": "导入失败：文件格式不正确"
+    },
+    "info": {
+      "title": "温馨提示",
+      "text": "系统将于今晚进行维护",
+      "session": "会话即将超时",
+      "version": "新版本可用"
+    }
+  },
+  "confirm": {
+    "title": "删除确认",
+    "content": "此操作将永久删除该记录，是否继续？",
+    "confirmText": "确认删除",
+    "cancelText": "我再想想"
+  },
+  "alert": {
+    "title": "系统通知",
+    "content": "恭喜，您已通过审核！"
+  },
+  "prompt": {
+    "title": "请输入验证码",
+    "inputPlaceholder": "6 位数字验证码",
+    "success": "验证成功"
+  },
+  "notification": {
+    "title": "新订单通知",
+    "body": "您有一笔新订单待处理",
+    "successTitle": "备份完成",
+    "successBody": "数据已备份至云端"
+  },
+  "dialog": {
+    "confirm": "确定",
+    "cancel": "取消"
+  },
+  "form": {
+    "error": "表单校验未通过，请检查输入"
+  },
+  "demo": {
+    "submit": "提交表单"
+  }
+}
