@@ -223,6 +223,43 @@ export function markerTolerantRegExp(value: string): RegExp {
 }
 
 /**
+ * DOM selectors that identify visible loading/skeleton overlays from common
+ * Vue component libraries. A matching element only counts as "loading" when
+ * it is actually painted (has client rects); apps can also opt in with the
+ * data-collect-i18n-loading attribute.
+ */
+export const LOADING_INDICATOR_SELECTORS = [
+  ".el-loading-mask",
+  ".el-loading-spinner",
+  ".el-skeleton",
+  ".el-skeleton__item",
+  ".el-icon.is-loading",
+  ".ant-spin-spinning",
+  "[data-collect-i18n-loading]",
+].join(",");
+
+/**
+ * True when an element (or the topmost element at a point) is a loading
+ * indicator. Kept dependency-free so it can run inside page.evaluate.
+ */
+export function isLoadingElement(
+  element: {
+    classList?: { contains(name: string): boolean };
+    dataset?: Record<string, string | undefined>;
+  } | null | undefined,
+): boolean {
+  if (!element) return false;
+  const classes = element.classList;
+  if (classes) {
+    if (classes.contains("el-loading-mask") || classes.contains("el-loading-spinner")) return true;
+    if (classes.contains("el-skeleton") || classes.contains("el-skeleton__item")) return true;
+    if (classes.contains("ant-spin-spinning")) return true;
+    if (classes.contains("el-icon") && classes.contains("is-loading")) return true;
+  }
+  return element.dataset?.collectI18nLoading !== undefined;
+}
+
+/**
  * Click a resolved control by its semantic wrapper when the accessible role
  * points at a covered native radio/checkbox input. Component libraries often
  * render the visible control as a label around that input; clicking the label
@@ -681,7 +718,14 @@ export class BrowserCollector {
         const view = window as RuntimeWindow;
         return document.readyState !== "loading" && Boolean(view.__COLLECT_I18N__ ?? view.__I18N_COLLECTOR__);
       }), 2_000, "Page became unresponsive during collector readiness check").catch(() => false);
-      if (ready) return;
+      if (ready) {
+        // Route components are frequently lazy-loaded (component: () =>
+        // import(...)). The collector runtime installs at startup while the
+        // route chunk is still fetching; give the chunk time to mount and any
+        // v-loading/skeleton overlay to clear before the first inspection.
+        await this.settleNavigation();
+        return;
+      }
       await new Promise((done) => setTimeout(done, 125));
     }
     throw new Error(`Collector runtime did not become ready after navigation: ${this.activePage.url()}`);
@@ -700,23 +744,103 @@ export class BrowserCollector {
     } catch { /* non-fatal */ }
   }
 
+  /**
+   * Wait for a navigation to fully settle before taking a snapshot or
+   * screenshot. A page is settled when all three hold:
+   * - document.readyState is past "loading";
+   * - no pending runtime descriptors remain (async service invocations);
+   * - no visible loading/skeleton overlay is painted, and no new JS/CSS
+   *   resources have been fetched for a short quiet window (covers lazy route
+   *   chunk imports that the runtime cannot see).
+   * Bounded: a permanently animated page yields after the timeout instead of
+   * wedging the collector.
+   */
   private async settleNavigation(timeoutMs = 6_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
+    let previousResourceCount = -1;
+    let resourceChangedAt = Date.now();
     while (Date.now() < deadline) {
       const state = await bounded(
-        this.activePage.evaluate(() => {
+        this.activePage.evaluate((loadingSelectors) => {
           const runtimeWindow = window as RuntimeWindow & { __COLLECT_I18N_PENDING__?: unknown[] };
+          let loadingCount = 0;
+          for (const element of document.querySelectorAll<HTMLElement>(loadingSelectors)) {
+            if (element.getClientRects().length > 0) loadingCount += 1;
+          }
           return {
             ready: document.readyState,
             pending: runtimeWindow.__COLLECT_I18N_PENDING__?.length ?? 0,
+            loadingCount,
+            resourceCount: performance.getEntriesByType("resource").length,
           };
-        }),
+        }, LOADING_INDICATOR_SELECTORS),
         1_500,
         "Page became unresponsive during inspection settle",
       ).catch(() => undefined);
-      if (state && state.ready !== "loading" && state.pending === 0) return;
+      if (!state) {
+        await new Promise((done) => setTimeout(done, 150));
+        continue;
+      }
+      if (state.resourceCount !== previousResourceCount) {
+        previousResourceCount = state.resourceCount;
+        resourceChangedAt = Date.now();
+      }
+      const resourcesQuiet = Date.now() - resourceChangedAt >= 300;
+      if (
+        state.ready !== "loading" &&
+        state.pending === 0 &&
+        state.loadingCount === 0 &&
+        resourcesQuiet
+      ) {
+        return;
+      }
       await new Promise((done) => setTimeout(done, 150));
     }
+  }
+
+  /**
+   * Best-effort wait until no visible loading/skeleton overlay remains.
+   * Returns when the page is clean or the deadline passes.
+   */
+  private async waitForLoadingCleared(timeoutMs = 8_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const loadingCount = await bounded(
+        this.activePage.evaluate((loadingSelectors) => {
+          let count = 0;
+          for (const element of document.querySelectorAll<HTMLElement>(loadingSelectors)) {
+            if (element.getClientRects().length > 0) count += 1;
+          }
+          return count;
+        }, LOADING_INDICATOR_SELECTORS),
+        1_500,
+        "Page became unresponsive while waiting for loading to clear",
+      ).catch(() => 0);
+      if (loadingCount === 0) return;
+      await new Promise((done) => setTimeout(done, 150));
+    }
+  }
+
+  /**
+   * True when the center of a target rectangle is currently covered by a
+   * loading/skeleton overlay. Used to avoid screenshots that show a spinner
+   * instead of the translated UI.
+   */
+  private async targetBlockedByLoading(rect: { x: number; y: number; width: number; height: number }): Promise<boolean> {
+    return bounded(
+      this.activePage.evaluate(({ rect, loadingSelectors }) => {
+        const top = document.elementFromPoint(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+        ) as (HTMLElement & { closest?: (selector: string) => HTMLElement | null }) | null;
+        if (!top) return false;
+        if (isLoadingElement(top)) return true;
+        const overlay = top.closest?.(loadingSelectors);
+        return Boolean(overlay && overlay.getClientRects().length > 0);
+      }, { rect, loadingSelectors: LOADING_INDICATOR_SELECTORS }),
+      2_000,
+      "Page became unresponsive while checking for a loading overlay",
+    );
   }
 
   async inspectRuntime(limit = 200): Promise<RuntimeInspection> {
@@ -898,11 +1022,19 @@ export class BrowserCollector {
     const page = this.activePage;
     const minimumGrade = target.evidenceGrade ?? "C";
     let resolvedTarget = await this.waitForKey(target.key, 5_000, minimumGrade);
+    // A slow mock or lazy chunk can leave a v-loading/skeleton overlay on the
+    // page. Wait for it to clear so the screenshot shows the translated UI
+    // instead of a spinner.
+    await this.waitForLoadingCleared();
     // Validation messages, dialogs and Teleports often animate into place.
     // Require two near-identical layout samples before drawing the marker.
     for (let sample = 0; sample < 6; sample += 1) {
       await page.waitForTimeout(100);
       const next = await this.waitForKey(target.key, 2_000, minimumGrade);
+      if (await this.targetBlockedByLoading(next.rect)) {
+        resolvedTarget = next;
+        continue;
+      }
       const delta = Math.max(
         Math.abs(next.rect.x - resolvedTarget.rect.x),
         Math.abs(next.rect.y - resolvedTarget.rect.y),
@@ -1032,6 +1164,7 @@ export class BrowserCollector {
     if (targets.length === 0) return [];
     const initial = await this.captureVisibleTargets(targets, "B");
     if (initial.length === 0) return [];
+    await this.waitForLoadingCleared();
     await this.activePage.waitForTimeout(100);
     const settledByKey = new Map(
       (await this.captureVisibleTargets(initial.map((target) => target.key), "B"))
@@ -1064,6 +1197,19 @@ export class BrowserCollector {
       rect.x + rect.width > 0 && rect.y + rect.height > 0,
     );
     if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
+    // Never persist a spinner screenshot as evidence: wait a short bounded
+    // window for a covering overlay to clear, then skip the key entirely if
+    // it is still loading so the task can be retried or handed to manual.
+    const loadingDeadline = Date.now() + 5_000;
+    while (Date.now() < loadingDeadline) {
+      if (!(await this.targetBlockedByLoading(resolvedTarget.rect))) break;
+      await page.waitForTimeout(150);
+    }
+    if (await this.targetBlockedByLoading(resolvedTarget.rect)) {
+      throw new Error(
+        `Loading overlay still covers target ${resolvedTarget.key}; skipping to avoid a spinner screenshot`,
+      );
+    }
     const marker = captureMarkerSpec(resolvedTarget.rect);
     await bounded(page.evaluate(({ id, style }) => {
       const runtimeWindow = window as RuntimeWindow;

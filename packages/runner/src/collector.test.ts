@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { captureMarkerSpec, clickResolvedLocator, isBrowserGoneError, isCausalProbeSafe, markerTolerantRegExp, resolveProjectUrl, stripInlineMarkers } from "./collector.js";
+import { LOADING_INDICATOR_SELECTORS, captureMarkerSpec, clickResolvedLocator, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, markerTolerantRegExp, resolveProjectUrl, stripInlineMarkers } from "./collector.js";
 
 describe("isBrowserGoneError", () => {
   it("detects crashed-browser Playwright errors", () => {
@@ -198,5 +198,34 @@ describe("clickResolvedLocator generic path", () => {
 
     expect(directClick).toHaveBeenNthCalledWith(1, { timeout: 2_000 });
     expect(directClick).toHaveBeenNthCalledWith(2, { timeout: 2_000, force: true });
+  });
+});
+
+
+describe("loading indicator detection", () => {
+  it("recognizes Element Plus and Ant Design loading overlays", () => {
+    expect(isLoadingElement({ classList: { contains: (name: string) => name === "el-loading-mask" } })).toBe(true);
+    expect(isLoadingElement({ classList: { contains: (name: string) => name === "el-loading-spinner" } })).toBe(true);
+    expect(isLoadingElement({ classList: { contains: (name: string) => name === "el-skeleton" } })).toBe(true);
+    expect(isLoadingElement({ classList: { contains: (name: string) => name === "ant-spin-spinning" } })).toBe(true);
+    expect(isLoadingElement({
+      classList: { contains: (name: string) => name === "el-icon" || name === "is-loading" },
+    })).toBe(true);
+  });
+
+  it("honors the opt-in data-collect-i18n-loading hook", () => {
+    expect(isLoadingElement({ dataset: { collectI18nLoading: "" } })).toBe(true);
+  });
+
+  it("ignores ordinary elements and null", () => {
+    expect(isLoadingElement(null)).toBe(false);
+    expect(isLoadingElement({ classList: { contains: () => false }, dataset: {} })).toBe(false);
+    expect(isLoadingElement({ classList: { contains: (name: string) => name === "el-loading-mask" } })).toBe(true);
+  });
+
+  it("exposes the shared selector list used by the collector", () => {
+    expect(LOADING_INDICATOR_SELECTORS).toContain(".el-loading-mask");
+    expect(LOADING_INDICATOR_SELECTORS).toContain(".el-skeleton");
+    expect(LOADING_INDICATOR_SELECTORS).toContain("[data-collect-i18n-loading]");
   });
 });
