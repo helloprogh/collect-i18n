@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.7`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.8`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -67,7 +67,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.7.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.8.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
