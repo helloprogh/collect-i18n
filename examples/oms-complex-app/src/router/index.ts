@@ -1,7 +1,7 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 const router = createRouter({
-  history: createWebHistory('/oms/web'),
+  history: createWebHashHistory(),
   routes: [
     { path: '/', redirect: '/dashboard' },
     { path: '/dashboard', name: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: 'common.menu.dashboard' } },

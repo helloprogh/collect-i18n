@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.6`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.7`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -67,7 +67,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.6.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.7.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -309,6 +309,9 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.7 发布说明](docs/release-notes-v0.3.7.md)
+- [1000 词条 OMS 应用性能分析 v0.3.7-r2](docs/performance-analysis-oms-app-v037-r2.md)
+- [1000 词条 OMS 应用性能分析 v0.3.6](docs/performance-analysis-oms-app.md)
 - [v0.3.6 发布说明](docs/release-notes-v0.3.6.md)
 - [v0.3.5 发布说明](docs/release-notes-v0.3.5.md)
 - [v0.3.4 发布说明](docs/release-notes-v0.3.4.md)

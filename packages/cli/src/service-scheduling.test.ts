@@ -39,6 +39,8 @@ describe("collector scheduling", () => {
       submitPlan: () => undefined,
       addEvidence: () => "evidence_primary",
       markTask: () => undefined,
+      taskByKey: () => undefined,
+      recordRouteCapture: () => undefined,
     };
     const fakeCollector = {
       executePlan: async (_plan: unknown, _source: unknown, checkpoint?: () => Promise<void>) => {

@@ -7,10 +7,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ViteDevServer } from "vite";
 import { discoverLocaleFiles } from "@collect-i18n/analyzer";
 import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
-import { BrowserCollector, parseTriggerPlan, type MockRule, type TriggerPlan } from "@collect-i18n/runner";
+import { BrowserCollector, isBrowserGoneError, parseTriggerPlan, type MockRule, type TriggerPlan } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
-import { StateStore, type TaskStatus } from "./store.js";
+import { preferredAgentRoute, StateStore, type TaskStatus } from "./store.js";
 
 function resolveProjectVite(projectRoot: string): string {
   return createRequire(resolve(projectRoot, "package.json")).resolve("vite");
@@ -320,7 +320,12 @@ export class LocalService {
   private async collector(sessionId: string): Promise<BrowserCollector> {
     if (sessionId !== this.options.sessionId) throw new Error(`服务不管理该采集会话：${sessionId}`);
     const existing = this.collectors.get(sessionId);
-    if (existing) return existing;
+    if (existing) {
+      // A crashed browser silently poisons the cached collector; heal it
+      // before handing it out so one dead tab cannot wedge the session.
+      await existing.ensureHealthy();
+      return existing;
+    }
     const { config } = this.options;
     const session = this.store?.session(sessionId);
     const routerMode = session
@@ -348,6 +353,33 @@ export class LocalService {
     }
     this.collectors.set(sessionId, collector);
     return collector;
+  }
+
+  private invalidateCollector(sessionId: string): void {
+    const existing = this.collectors.get(sessionId);
+    if (existing) void existing.close().catch(() => undefined);
+    this.collectors.delete(sessionId);
+  }
+
+  /**
+   * Run a browser-bound operation with one automatic retry after a browser
+   * process crash. Trigger plans are deterministic replays, so retrying the
+   * same operation against a freshly relaunched browser is safe.
+   */
+  private async withBrowser<T>(
+    sessionId: string,
+    operation: (collector: BrowserCollector) => Promise<T>,
+    retries = 1,
+  ): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const collector = await this.collector(sessionId);
+        return await operation(collector);
+      } catch (error) {
+        if (!isBrowserGoneError(error) || attempt >= retries) throw error;
+        this.invalidateCollector(sessionId);
+      }
+    }
   }
 
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -408,8 +440,7 @@ export class LocalService {
         if (!route) { store.markTask(seed.id, "needs_agent", "No high-confidence route is available"); continue; }
         const group = store.listTasks(sessionId, ["pending"]).filter((task) => this.reliableRoute(task) === route);
         try {
-          await this.exclusive(async () => {
-            const collector = await this.collector(sessionId);
+          await this.exclusive(() => this.withBrowser(sessionId, async (collector) => {
             collector.setMockRules([]);
             await collector.open(route);
             const inspection = await collector.inspectRuntimeSettled(2_000);
@@ -454,7 +485,7 @@ export class LocalService {
                 store.markTask(task.id, "needs_agent", error instanceof Error ? error.message : String(error));
               }
             }
-          });
+          }));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           for (const task of group.filter((candidate) => candidate.status === "pending" || candidate.status === "running")) {
@@ -482,10 +513,9 @@ export class LocalService {
     if (plan.targetKey !== task.keyPath) throw new Error(`计划目标 ${plan.targetKey} 与任务 ${task.keyPath} 不一致`);
     this.cancelManual();
     store.submitPlan(taskId, plan);
+    const additionalEvidence: Array<{ taskId: string; keyPath: string; evidenceId: string }> = [];
     try {
-      const additionalEvidence: Array<{ taskId: string; keyPath: string; evidenceId: string }> = [];
-      const evidence = await this.exclusive(async () => {
-        const collector = await this.collector(task.sessionId);
+      const evidence = await this.exclusive(() => this.withBrowser(task.sessionId, async (collector) => {
         const captureCheckpoint = async () => {
           additionalEvidence.push(...await this.captureVisibleBatch(
             task.sessionId,
@@ -498,17 +528,30 @@ export class LocalService {
         const primary = await collector.executePlan(plan, "agent", captureCheckpoint);
         await captureCheckpoint();
         return primary;
-      });
+      }));
       const evidenceId = store.addEvidence(taskId, evidence);
+      this.recordRouteCapture(task.sessionId, task.keyPath, 1 + additionalEvidence.length);
       return { taskId, evidenceId, evidence, additionalEvidence };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const next = task.attempts >= 1 ? "needs_manual" : "needs_agent";
       store.markTask(taskId, next, message);
+      // Failed plans are the strongest saturation signal: count partial
+      // checkpoint captures so a consistently low-yield route is skipped
+      // instead of grinding every anchor on it to needs_manual.
+      this.recordRouteCapture(task.sessionId, task.keyPath, additionalEvidence.length);
       throw new Error(message);
     } finally {
       void this.runDeterministicQueue(task.sessionId);
     }
+  }
+
+  private recordRouteCapture(sessionId: string, primaryKey: string, newCaptured: number): void {
+    const store = this.store!;
+    const task = store.taskByKey(sessionId, primaryKey);
+    const route = task ? preferredAgentRoute(task) : undefined;
+    if (!route) return;
+    store.recordRouteCapture(sessionId, route, newCaptured);
   }
 
   private async captureVisibleBatch(
@@ -572,9 +615,10 @@ export class LocalService {
     try {
       await this.exclusive(async () => {
         if (generation !== this.manualGeneration) return;
-        const collector = await this.collector(sessionId);
-        collector.setMockRules(mocks);
-        if (route) await collector.open(route);
+        await this.withBrowser(sessionId, async (collector) => {
+          collector.setMockRules(mocks);
+          if (route) await collector.open(route);
+        });
       });
     } catch (error) {
       if (generation === this.manualGeneration) {
@@ -602,9 +646,8 @@ export class LocalService {
     const deadline = Date.now() + 30 * 60_000;
     while (!this.stopping && generation === this.manualGeneration && Date.now() < deadline) {
       try {
-        const captured = await this.exclusive(async () => {
+        const captured = await this.exclusive(() => this.withBrowser(sessionId, async (collector) => {
           if (generation !== this.manualGeneration) return false;
-          const collector = await this.collector(sessionId);
           const target = await collector.waitForKey(keyPath, 750);
           if (generation !== this.manualGeneration) return false;
           const evidence = await collector.capture(target, "manual");
@@ -615,9 +658,10 @@ export class LocalService {
             keyPath,
             "manual",
             () => generation === this.manualGeneration,
+            collector,
           );
           return true;
-        });
+        }));
         if (captured) {
           if (generation === this.manualGeneration) this.manualActive = false;
           void this.runDeterministicQueue(sessionId);

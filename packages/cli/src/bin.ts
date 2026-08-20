@@ -265,7 +265,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.3.6")
+  .version("0.3.7")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -535,7 +535,8 @@ agent.command("next")
     const deadlineAt = typeof session.deadline_at === "string" ? session.deadline_at : undefined;
     const remainingSeconds = deadlineAt ? Math.max(0, Math.floor((Date.parse(deadlineAt) - Date.now()) / 1_000)) : undefined;
     const deadlineReached = remainingSeconds === 0;
-    const task = deadlineReached ? undefined : store.nextAgentTask(options.session);
+    const saturatedRoutes = store.saturatedRoutes(options.session);
+    const task = deadlineReached ? undefined : store.nextAgentTask(options.session, saturatedRoutes);
     const routeBatch = task ? store.agentRouteBatch(options.session, task) : undefined;
     const status = store.status(options.session); store.close();
     output(command, "agent.next", {
@@ -543,6 +544,7 @@ agent.command("next")
       reason: deadlineReached ? "deadline_reached" : !task ? "queue_empty" : undefined,
       deadlineAt,
       remainingSeconds,
+      saturatedRoutes,
       task,
       routeBatch,
       status,

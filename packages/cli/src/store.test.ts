@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
 import { afterEach, describe, expect, it } from "vitest";
-import { agentTaskPriority, preferredAgentRoute, representativeRouteTasks, StateStore, type StoredTask } from "./store.js";
+import { agentActionScore, agentTaskPriority, preferredAgentRoute, representativeRouteTasks, StateStore, type StoredTask } from "./store.js";
 
 const temporaryRoots: string[] = [];
 
@@ -85,6 +85,61 @@ function analysisWithOccurrence(
   }
 }
 
+function analysisForAgentQueue(): ProjectAnalysis {
+  const seed = analysisForKeys([
+    "static.title",
+    "static.chart",
+    "users.form.submit",
+    "users.table.delete",
+    "orders.form.save",
+  ]);
+  return {
+    ...seed,
+    source: {
+      ...seed.source,
+      occurrences: [
+        {
+          id: "occ_users_submit",
+          keyPath: "users.form.submit",
+          kind: "imperative_service",
+          location: { file: "src/views/UsersView.vue", line: 1, column: 0 },
+          expression: "t('users.form.submit')",
+          teleported: true,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [{ path: "/users", source: "router_config", confidence: 0.99 }],
+          actionHints: [{ kind: "click", selector: "[data-testid=users-submit]", source: "template", confidence: 0.99 }],
+        },
+        {
+          id: "occ_users_delete",
+          keyPath: "users.table.delete",
+          kind: "imperative_service",
+          location: { file: "src/views/UsersView.vue", line: 2, column: 0 },
+          expression: "t('users.table.delete')",
+          teleported: true,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [{ path: "/users", source: "router_config", confidence: 0.99 }],
+          actionHints: [],
+        },
+        {
+          id: "occ_orders_save",
+          keyPath: "orders.form.save",
+          kind: "component_prop",
+          location: { file: "src/views/OrdersView.vue", line: 1, column: 0 },
+          expression: "t('orders.form.save')",
+          component: "el-button",
+          property: "label",
+          teleported: false,
+          dynamic: false,
+          confidence: 0.99,
+          routeHints: [{ path: "/orders", source: "router_config", confidence: 0.99 }],
+          actionHints: [{ kind: "click", source: "template", confidence: 0.99 }],
+        },
+      ],
+    },
+  };
+}
 function analysisForFinalize(): ProjectAnalysis {
   const seed = analysisForKeys([
     "fixture.unused",
@@ -719,3 +774,168 @@ describe("StateStore transactions", () => {
     store.close();
   });
 });
+
+  it("scores interaction potential from action and imperative-service hints", () => {
+    const base: StoredTask = {
+      id: "task",
+      sessionId: "session",
+      keyPath: "dialog.body",
+      status: "needs_agent",
+      stage: "agent",
+      chinese: "Body",
+      relativeFile: "dialog.json",
+      occurrences: [],
+      routeHints: [],
+      actionHints: [],
+      attempts: 0,
+    };
+    expect(agentActionScore(base)).toBe(0);
+    expect(agentActionScore({ ...base, actionHints: [{ kind: "click" }, { kind: "click" }] })).toBe(4_000);
+    expect(agentActionScore({
+      ...base,
+      occurrences: [
+        { kind: "imperative_service" },
+        { kind: "text_range" },
+        { kind: "imperative_service" },
+      ],
+    })).toBe(1_600);
+  });
+
+  it("excludes zero-occurrence keys from the Agent anchor queue", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisForAgentQueue());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    for (const keyPath of [
+      "static.title",
+      "static.chart",
+      "users.form.submit",
+      "users.table.delete",
+      "orders.form.save",
+    ]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+
+    const selected: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const task = store.nextAgentTask(sessionId);
+      if (!task) break;
+      selected.push(task.keyPath);
+      store.markTask(task.id, "captured");
+    }
+    expect(selected).toHaveLength(3);
+    expect(selected).not.toContain("static.title");
+    expect(selected).not.toContain("static.chart");
+    expect(selected.sort()).toEqual(["orders.form.save", "users.form.submit", "users.table.delete"]);
+    store.close();
+  });
+
+  it("prefers static-literal anchors over dynamic-only interpolation keys", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const seed = analysisForKeys([
+      "users.form.submit",
+      "dashboard.chart.axis.month",
+      "orders.rows.1.amount",
+    ]);
+    const projectId = store.syncProject(projectRoot, {}, {
+      ...seed,
+      source: {
+        ...seed.source,
+        occurrences: [
+          {
+            id: "occ_users_submit",
+            keyPath: "users.form.submit",
+            kind: "imperative_service",
+            location: { file: "src/views/UsersView.vue", line: 1, column: 0 },
+            expression: "t('users.form.submit')",
+            teleported: true,
+            dynamic: false,
+            confidence: 0.99,
+            routeHints: [{ path: "/users", source: "router_config", confidence: 0.99 }],
+            actionHints: [],
+          },
+          {
+            id: "occ_dashboard_axis",
+            keyPath: "dashboard.chart.axis.month",
+            kind: "text_range",
+            location: { file: "src/views/DashboardView.vue", line: 1, column: 0 },
+            expression: "t(`dashboard.${section}.${name}`)",
+            teleported: false,
+            dynamic: true,
+            confidence: 0.82,
+            routeHints: [{ path: "/dashboard", source: "router_config", confidence: 0.99 }],
+            actionHints: [],
+          },
+          {
+            id: "occ_orders_row",
+            keyPath: "orders.rows.1.amount",
+            kind: "text_range",
+            location: { file: "src/views/OrdersView.vue", line: 1, column: 0 },
+            expression: "t(`orders.rows.${index}.amount`)",
+            teleported: false,
+            dynamic: true,
+            confidence: 0.82,
+            routeHints: [{ path: "/orders", source: "router_config", confidence: 0.99 }],
+            actionHints: [],
+          },
+        ],
+      },
+    });
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    for (const keyPath of ["users.form.submit", "dashboard.chart.axis.month", "orders.rows.1.amount"]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+
+    const first = store.nextAgentTask(sessionId);
+    expect(first?.keyPath).toBe("users.form.submit");
+    store.markTask(first!.id, "captured");
+
+    const second = store.nextAgentTask(sessionId);
+    expect(["dashboard.chart.axis.month", "orders.rows.1.amount"]).toContain(second?.keyPath);
+    store.close();
+  });
+
+  it("skips saturated routes when selecting the next Agent anchor", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisForAgentQueue());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    for (const keyPath of [
+      "static.title",
+      "static.chart",
+      "users.form.submit",
+      "users.table.delete",
+      "orders.form.save",
+    ]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+
+    store.recordRouteCapture(sessionId, "/users", 0);
+    store.recordRouteCapture(sessionId, "/users", 0);
+    expect(store.saturatedRoutes(sessionId)).toContain("/users");
+
+    const task = store.nextAgentTask(sessionId, store.saturatedRoutes(sessionId));
+    expect(task?.keyPath).toBe("orders.form.save");
+    store.close();
+  });
+
+  it("tracks consecutive low-yield capture rounds per route", async () => {
+    const store = await StateStore.open(root());
+    const sessionId = store.createSession(store.syncProject(root(), {}, analysis()), "http://127.0.0.1:5173");
+    store.recordRouteCapture(sessionId, "/dashboard", 5);
+    expect(store.saturatedRoutes(sessionId)).toEqual([]);
+    store.recordRouteCapture(sessionId, "/dashboard", 0);
+    expect(store.saturatedRoutes(sessionId)).toEqual([]);
+    store.recordRouteCapture(sessionId, "/dashboard", 1);
+    expect(store.saturatedRoutes(sessionId)).toContain("/dashboard");
+    store.recordRouteCapture(sessionId, "/dashboard", 9);
+    expect(store.saturatedRoutes(sessionId)).not.toContain("/dashboard");
+    store.close();
+  });

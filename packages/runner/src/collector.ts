@@ -192,6 +192,30 @@ export function isCausalProbeSafe(plan?: ParsedTriggerPlan): boolean {
 }
 
 /**
+ * Runtime-invisible provenance markers (U+2060-U+2063) appended after
+ * translated text pollute accessible names and exact text matches.
+ */
+const RUNTIME_MARKER_CHAR_RANGE = "\u2060-\u2063";
+const RUNTIME_MARKER_PATTERN = /\u2063[\u2060-\u2062]+\u2063/gu;
+const RUNTIME_MARKER_CHARS = /[\u2060-\u2063]/gu;
+
+export function stripInlineMarkers(value: string): string {
+  return value.replace(RUNTIME_MARKER_PATTERN, "").replace(RUNTIME_MARKER_CHARS, "");
+}
+
+/**
+ * Full-match regular expression that tolerates invisible runtime markers
+ * and whitespace between every character, matching how the runtime appends
+ * provenance tokens to rendered text (e.g. "新建" vs "新建\u2063\u2060\u2061\u2063").
+ */
+export function markerTolerantRegExp(value: string): RegExp {
+  const clean = stripInlineMarkers(value).trim();
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const gap = `[\\s${RUNTIME_MARKER_CHAR_RANGE}]*`;
+  return new RegExp(`^${escaped.split("").join(gap)}${gap}$`, "i");
+}
+
+/**
  * Click a resolved control by its semantic wrapper when the accessible role
  * points at a covered native radio/checkbox input. Component libraries often
  * render the visible control as a label around that input; clicking the label
@@ -199,7 +223,7 @@ export function isCausalProbeSafe(plan?: ParsedTriggerPlan): boolean {
  */
 export async function clickResolvedLocator(locator: Locator, timeoutMs: number): Promise<void> {
   const target = locator.first();
-  const inputType = await target.getAttribute("type", { timeout: timeoutMs }).catch(() => null);
+  const inputType = await target.getAttribute("type", { timeout: Math.min(timeoutMs, 5_000) }).catch(() => null);
   if (inputType === "radio" || inputType === "checkbox") {
     const wrappingLabel = target.locator("xpath=ancestor::label[1]");
     if ((await wrappingLabel.count().catch(() => 0)) > 0) {
@@ -209,7 +233,15 @@ export async function clickResolvedLocator(locator: Locator, timeoutMs: number):
     await target.check({ timeout: timeoutMs, force: true });
     return;
   }
-  await target.click({ timeout: timeoutMs });
+  // Element Plus overlays/Teleports animate in: the confirm button can be
+  // briefly "not visible" after the overlay mounts. Wait for visibility, then
+  // click; force-click as a last resort for animation edge cases.
+  await target.waitFor({ state: "visible", timeout: timeoutMs }).catch(() => undefined);
+  try {
+    await target.click({ timeout: timeoutMs });
+  } catch (error) {
+    await target.click({ timeout: Math.min(timeoutMs, 5_000), force: true });
+  }
 }
 
 function globToRegExp(glob: string): RegExp {
@@ -235,52 +267,119 @@ async function bounded<T>(operation: Promise<T>, timeoutMs: number, message: str
   }
 }
 
+/**
+ * True when a Playwright operation failed because the browser process or its
+ * persistent context died (crash, forced quit, resource exhaustion). These
+ * errors are fatal to the current BrowserContext but recoverable by relaunching
+ * the persistent profile.
+ */
+export function isBrowserGoneError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /browser has been closed|Target page, context or browser has been closed|Browser has been closed|browser context has been disposed/i.test(
+    error.message,
+  );
+}
+
 export class BrowserCollector {
   private context?: BrowserContext;
   private page?: Page;
   private readonly rules = new Map<string, ReturnType<typeof mockRuleSchema.parse>>();
+  private detectedGone = false;
+  private restarting = false;
 
   constructor(private readonly options: BrowserCollectorOptions) {}
 
   private async createFreshPage(restoredPages: Page[] = []): Promise<Page> {
     if (!this.context) throw new Error("Browser collector context is not running");
-    const page = await this.context.newPage();
-    await page.route("**/*", (route) => this.routeRequest(route));
-    this.page = page;
-    await Promise.all(restoredPages.filter((candidate) => candidate !== page).map((candidate) => candidate.close().catch(() => undefined)));
-    return page;
+    try {
+      const page = await this.context.newPage();
+      await page.route("**/*", (route) => this.routeRequest(route));
+      this.page = page;
+      await Promise.all(restoredPages.filter((candidate) => candidate !== page).map((candidate) => candidate.close().catch(() => undefined)));
+      return page;
+    } catch (error) {
+      if (!isBrowserGoneError(error)) throw error;
+      // The browser process died underneath us (heavy plan execution, forced
+      // quit, resource exhaustion). Relaunch the persistent profile once and
+      // reuse the freshly created page instead of poisoning the whole session.
+      this.detectedGone = true;
+      await this.restart();
+      if (!this.page || this.page.isClosed()) throw error;
+      return this.page;
+    }
   }
 
   async start(): Promise<void> {
-    if (this.context) return;
-    const playwrightModule = process.env.COLLECT_I18N_PLAYWRIGHT_MODULE || "playwright-core";
-    const { chromium } = await import(playwrightModule) as typeof import("playwright-core");
-    await mkdir(this.options.userDataDir, { recursive: true });
-    await mkdir(this.options.artifactDir, { recursive: true });
-    this.context = await chromium.launchPersistentContext(this.options.userDataDir, {
-      channel: this.options.channel === "chromium" ? undefined : (this.options.channel ?? "chrome"),
-      headless: this.options.headless ?? false,
-      viewport: this.options.viewport ?? { width: 1440, height: 960 },
-      locale: this.options.locale,
-    });
-    this.context.setDefaultTimeout(this.options.defaultTimeoutMs ?? 15_000);
-    // A persistent profile may restore a tab whose previous Vite navigation
-    // was interrupted by a crashed service. Reusing that tab can leave a new
-    // navigation permanently pending. Preserve cookies/storage, but always
-    // collect in a fresh page and discard restored tabs.
-    if (this.options.cookies?.length) {
-      await this.context.addCookies(this.options.cookies.map((cookie) => ({
-        ...cookie,
-        url: this.options.baseUrl,
-      })));
+    if (this.context && !this.detectedGone) return;
+    await this.restart();
+  }
+
+  /**
+   * Verify the browser and the collection page are usable before an
+   * operation, relaunching the persistent profile after a crash. The service
+   * calls this before every cached-collector use so a dead browser cannot
+   * wedge the session.
+   */
+  async ensureHealthy(): Promise<void> {
+    if (!this.context || this.detectedGone) {
+      await this.restart();
+      return;
     }
-    await this.createFreshPage(this.context.pages());
+    try {
+      await this.context.pages();
+    } catch (error) {
+      if (!isBrowserGoneError(error)) throw error;
+      await this.restart();
+      return;
+    }
+    if (!this.page || this.page.isClosed()) await this.createFreshPage();
+  }
+
+  /** Relaunch the persistent browser profile after a process crash. */
+  async restart(): Promise<void> {
+    if (this.restarting) throw new Error("Browser collector is already restarting");
+    this.restarting = true;
+    try {
+      await this.context?.close().catch(() => undefined);
+      this.context = undefined;
+      this.page = undefined;
+      // Give a freshly crashed Chrome process time to release its profile
+      // lock before relaunching into the same userDataDir.
+      await new Promise((done) => setTimeout(done, 250));
+      const playwrightModule = process.env.COLLECT_I18N_PLAYWRIGHT_MODULE || "playwright-core";
+      const { chromium } = await import(playwrightModule) as typeof import("playwright-core");
+      await mkdir(this.options.userDataDir, { recursive: true });
+      await mkdir(this.options.artifactDir, { recursive: true });
+      const context = await chromium.launchPersistentContext(this.options.userDataDir, {
+        channel: this.options.channel === "chromium" ? undefined : (this.options.channel ?? "chrome"),
+        headless: this.options.headless ?? false,
+        viewport: this.options.viewport ?? { width: 1440, height: 960 },
+        locale: this.options.locale,
+      });
+      context.setDefaultTimeout(this.options.defaultTimeoutMs ?? 15_000);
+      this.context = context;
+      // A persistent profile may restore a tab whose previous Vite navigation
+      // was interrupted by a crashed service. Reusing that tab can leave a new
+      // navigation permanently pending. Preserve cookies/storage, but always
+      // collect in a fresh page and discard restored tabs.
+      if (this.options.cookies?.length) {
+        await context.addCookies(this.options.cookies.map((cookie) => ({
+          ...cookie,
+          url: this.options.baseUrl,
+        })));
+      }
+      this.detectedGone = false;
+      await this.createFreshPage(context.pages());
+    } finally {
+      this.restarting = false;
+    }
   }
 
   async close(): Promise<void> {
     await this.context?.close();
     this.context = undefined;
     this.page = undefined;
+    this.detectedGone = false;
   }
 
   get activePage(): Page {
@@ -316,17 +415,56 @@ export class BrowserCollector {
   }
 
   private locator(value: PlanLocator): Locator {
-    const page = this.activePage;
+    return this.buildLocator(this.activePage, value);
+  }
+
+  private scopedLocator(scope: Locator, value: PlanLocator): Locator {
+    return this.buildLocator(scope, value);
+  }
+
+  private buildLocator(root: Page | Locator, value: PlanLocator): Locator {
     const locator = (() => {
       switch (value.kind) {
-        case "css": return page.locator(value.value);
-        case "role": return page.getByRole(value.value as never, { name: value.name });
-        case "text": return page.getByText(value.value, { exact: value.exact });
-        case "label": return page.getByLabel(value.value, { exact: value.exact });
-        case "testId": return page.getByTestId(value.value);
+        case "css": return root.locator(value.value);
+        case "role": return root.getByRole(value.value as never, { name: value.name ? markerTolerantRegExp(value.name) : undefined });
+        case "text": return value.exact
+          ? root.getByText(markerTolerantRegExp(value.value), { exact: true })
+          : root.getByText(stripInlineMarkers(value.value), { exact: false });
+        case "label": return value.exact
+          ? root.getByLabel(markerTolerantRegExp(value.value), { exact: true })
+          : root.getByLabel(stripInlineMarkers(value.value), { exact: false });
+        case "testId": return root.getByTestId(value.value);
       }
     })();
     return value.index === undefined ? locator : locator.nth(value.index);
+  }
+
+  /**
+   * Click a plan control. When several controls share the same name and a
+   * modal dialog is open (Element Plus message boxes are teleported to
+   * <body>), the confirm/action button inside the dialog is almost always the
+   * intended target -- sibling row-level buttons that also match are not, and
+   * clicking the first of them silently derails the plan.
+   */
+  private async clickControl(spec: PlanLocator, timeoutMs: number): Promise<void> {
+    const page = this.activePage;
+    const primary = this.locator(spec);
+    if (spec.index !== undefined) {
+      await clickResolvedLocator(primary, timeoutMs);
+      return;
+    }
+    const matchCount = await primary.count().catch(() => 0);
+    if (matchCount > 1) {
+      const dialog = page.locator('.el-message-box:visible, [role="dialog"]:visible').last();
+      if ((await dialog.count().catch(() => 0)) > 0) {
+        const scoped = this.scopedLocator(dialog, spec);
+        if ((await scoped.count().catch(() => 0)) > 0) {
+          await clickResolvedLocator(scoped, timeoutMs);
+          return;
+        }
+      }
+    }
+    await clickResolvedLocator(primary, timeoutMs);
   }
 
   private stepTimeout(timeoutMs?: number): number {
@@ -369,10 +507,10 @@ export class BrowserCollector {
 
   private async chooseCustomOption(locator: Locator, value: string, timeoutMs: number): Promise<void> {
     const page = this.activePage;
-    await locator.click({ timeout: timeoutMs });
+    await clickResolvedLocator(locator, timeoutMs);
     const options = page.locator('.el-select-dropdown:visible .el-select-dropdown__item, [role="option"]:visible');
-    let match = options.getByText(value, { exact: true });
-    if ((await match.count().catch(() => 0)) === 0) match = options.filter({ hasText: value });
+    let match = options.getByText(markerTolerantRegExp(value), { exact: true });
+    if ((await match.count().catch(() => 0)) === 0) match = options.filter({ hasText: stripInlineMarkers(value) });
     await match.first().click({ timeout: timeoutMs });
   }
 
@@ -399,7 +537,7 @@ export class BrowserCollector {
         case "hover": await this.locator(step.locator).hover({ timeout: step.timeoutMs }); break;
         case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
         case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;
-        case "waitForText": await this.activePage.getByText(step.text).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
+        case "waitForText": await this.activePage.getByText(stripInlineMarkers(step.text)).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
         case "reload": await this.open(this.activePage.url()); break;
         default: throw new Error(`Unsafe causal probe step: ${step.type}`);
       }
@@ -470,14 +608,14 @@ export class BrowserCollector {
         this.assertSameOrigin();
         switch (step.type) {
           case "goto": await this.open(step.path); break;
-          case "click": await clickResolvedLocator(this.locator(step.locator), this.stepTimeout(step.timeoutMs)); break;
+          case "click": await this.clickControl(step.locator, this.stepTimeout(step.timeoutMs)); break;
           case "fill": await this.fillInput(this.locator(step.locator), step.value, step.timeoutMs); break;
           case "press": await (await this.resolveEditable(this.locator(step.locator), this.stepTimeout(step.timeoutMs))).press(step.key, { timeout: step.timeoutMs }); break;
           case "select": await this.selectOption(this.locator(step.locator), step.value, step.timeoutMs); break;
           case "hover": await this.locator(step.locator).hover({ timeout: step.timeoutMs }); break;
           case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
           case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;
-          case "waitForText": await this.activePage.getByText(step.text).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
+          case "waitForText": await this.activePage.getByText(stripInlineMarkers(step.text)).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
           case "capture": await onCheckpoint?.(); break;
           case "reload": await this.open(this.activePage.url()); break;
         }
@@ -499,7 +637,10 @@ export class BrowserCollector {
       ]);
     } finally {
       if (timer) clearTimeout(timer);
-      if (this.context && (!this.page || this.page.isClosed())) await this.createFreshPage();
+      if (this.context && (!this.page || this.page.isClosed())) {
+        try { await this.createFreshPage(); }
+        catch { /* browser died while recovering; the next operation heals via ensureHealthy */ }
+      }
     }
   }
 

@@ -95,6 +95,15 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function isDynamicOccurrence(occurrence: unknown): boolean {
+  return (
+    typeof occurrence === "object" &&
+    occurrence !== null &&
+    "dynamic" in occurrence &&
+    (occurrence as { dynamic?: unknown }).dynamic === true
+  );
+}
+
 export function preferredAgentRoute(task: StoredTask): string | undefined {
   const hints = task.routeHints
     .map(asRecord)
@@ -113,16 +122,11 @@ export function preferredAgentRoute(task: StoredTask): string | undefined {
   return hints[0]?.path;
 }
 
-export function agentTaskPriority(task: StoredTask): number {
+/** Interaction potential of a task: how much a plan for this key can
+ * drive new visible states (dialogs, form validation, pagination, messages). */
+export function agentActionScore(task: StoredTask): number {
   const actionableHints = task.actionHints.filter(
     (hint) => typeof hint === "object" && hint !== null,
-  ).length;
-  const reliableRoutes = task.routeHints.filter(
-    (hint) =>
-      typeof hint === "object" &&
-      hint !== null &&
-      "confidence" in hint &&
-      Number((hint as { confidence?: unknown }).confidence) >= 0.8,
   ).length;
   const imperativeOccurrences = task.occurrences.filter(
     (occurrence) =>
@@ -131,10 +135,20 @@ export function agentTaskPriority(task: StoredTask): number {
       "kind" in occurrence &&
       String((occurrence as { kind?: unknown }).kind) === "imperative_service",
   ).length;
+  return Math.min(actionableHints, 5) * 2_000 + Math.min(imperativeOccurrences, 2) * 800;
+}
+
+export function agentTaskPriority(task: StoredTask): number {
+  const reliableRoutes = task.routeHints.filter(
+    (hint) =>
+      typeof hint === "object" &&
+      hint !== null &&
+      "confidence" in hint &&
+      Number((hint as { confidence?: unknown }).confidence) >= 0.8,
+  ).length;
   return (
     (task.attempts > 0 ? 100_000 : 0) +
-    Math.min(actionableHints, 5) * 2_000 +
-    Math.min(imperativeOccurrences, 2) * 800 +
+    agentActionScore(task) +
     Math.min(reliableRoutes, 2) * 300 +
     (task.occurrences.length > 0 ? 200 : -500)
   );
@@ -323,6 +337,15 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_tasks_session_status_key_path ON tasks(session_id, status, key_path);
       CREATE INDEX IF NOT EXISTS idx_evidence_session_key ON evidence(session_id, key_path);
       CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
+      CREATE TABLE IF NOT EXISTS agent_route_stats (
+        session_id TEXT NOT NULL,
+        route TEXT NOT NULL,
+        last_new_captured INTEGER NOT NULL DEFAULT 0,
+        consecutive_low INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, route),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
 
       INSERT OR IGNORE INTO session_locale_keys(session_id,key_path,chinese,english,relative_file,json_path)
       SELECT t.session_id,t.key_path,k.chinese,k.english,k.relative_file,k.json_path
@@ -563,18 +586,56 @@ export class StateStore {
     return row ? this.hydrateTask(row) : undefined;
   }
 
-  nextAgentTask(sessionId: string): StoredTask | undefined {
-    const tasks = this.listTasks(sessionId, ["needs_agent"], 2_000);
+  recordRouteCapture(sessionId: string, route: string, newCaptured: number): void {
+    const row = this.db.prepare(
+      "SELECT last_new_captured,consecutive_low FROM agent_route_stats WHERE session_id=? AND route=?",
+    ).get(sessionId, route) as { last_new_captured: number; consecutive_low: number } | undefined;
+    const low = newCaptured <= 1;
+    const consecutiveLow = low ? (row?.consecutive_low ?? 0) + 1 : 0;
+    this.db.prepare(
+      "INSERT INTO agent_route_stats(session_id,route,last_new_captured,consecutive_low,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(session_id,route) DO UPDATE SET last_new_captured=excluded.last_new_captured, consecutive_low=excluded.consecutive_low, updated_at=excluded.updated_at",
+    ).run(sessionId, route, newCaptured, consecutiveLow, new Date().toISOString());
+  }
+
+  saturatedRoutes(sessionId: string, threshold = 2): string[] {
+    const rows = this.db.prepare(
+      "SELECT route FROM agent_route_stats WHERE session_id=? AND consecutive_low>=?",
+    ).all(sessionId, threshold) as Array<{ route: string }>;
+    return rows.map((row) => row.route);
+  }
+
+  nextAgentTask(sessionId: string, excludedRoutes: string[] = []): StoredTask | undefined {
+    const excluded = new Set(excludedRoutes);
+    // Zero-occurrence keys are confirmed non-renderable and belong to
+    // finalize's skippedNoSource; never hand them to an Agent as an anchor.
+    const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2_000)
+      .filter((task) => task.occurrences.length > 0);
+    // Prefer anchors with at least one concrete literal occurrence. Keys that
+    // only match dynamic template interpolation (t(`dashboard.${x}`)) are
+    // low-confidence and mostly non-renderable; they stay in the queue and are
+    // anchored on only after every static anchor has been processed.
+    const staticCandidates = withOccurrences.filter((task) =>
+      task.occurrences.some((occurrence) => !isDynamicOccurrence(occurrence)));
+    const tasks = staticCandidates.length > 0 ? staticCandidates : withOccurrences;
     const routeCounts = new Map<string, number>();
+    const routeActionScores = new Map<string, number>();
     for (const task of tasks) {
       const route = preferredAgentRoute(task);
-      if (route) routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
+      if (!route) continue;
+      routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
+      routeActionScores.set(route, (routeActionScores.get(route) ?? 0) + agentActionScore(task));
     }
     return tasks
       .map((task, index) => {
         const route = preferredAgentRoute(task);
         const routeFanout = route ? routeCounts.get(route) ?? 1 : 0;
-        return { task, index, priority: routeFanout * 10_000 + agentTaskPriority(task) };
+        const routeActionScore = route ? routeActionScores.get(route) ?? 0 : 0;
+        const priority =
+          (route && excluded.has(route) ? -1_000_000 : 0) +
+          routeFanout * 10_000 +
+          Math.min(routeActionScore, 60_000) +
+          agentTaskPriority(task);
+        return { task, index, priority };
       })
       .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
   }
@@ -582,6 +643,7 @@ export class StateStore {
   agentRouteBatch(sessionId: string, anchor: StoredTask, limit = 12): AgentRouteBatch {
     const route = preferredAgentRoute(anchor);
     const candidates = this.listTasks(sessionId, ["needs_agent"], 2_000)
+      .filter((task) => task.occurrences.length > 0)
       .filter((task) => route ? preferredAgentRoute(task) === route : task.relativeFile === anchor.relativeFile);
     const selected = representativeRouteTasks(candidates, anchor, limit);
     const sourceFiles = new Set<string>();
