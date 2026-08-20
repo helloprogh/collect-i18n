@@ -43,12 +43,17 @@ describe("default project configuration", () => {
       export const locale = readCookie(LOCALE_COOKIE) === 'zh_CN' ? 'zh-CN' : 'en-US'
     `);
     await expect(createDefaultConfig(root)).resolves.toMatchObject({
-      browser: { cookies: [{ name: "x-gde-locale", value: "zh_CN" }] },
+      browser: {
+        cookies: [{ name: "x-gde-locale", value: "zh_CN" }],
+        localeCookie: { name: "x-gde-locale", value: "zh_CN" },
+      },
     });
   });
 
   it("does not invent a locale cookie when the project does not declare one", async () => {
     const root = await project("export const locale = 'zh-CN'");
-    await expect(createDefaultConfig(root)).resolves.toMatchObject({ browser: { cookies: [] } });
+    await expect(createDefaultConfig(root)).resolves.toMatchObject({
+      browser: { cookies: [], localeCookie: undefined },
+    });
   });
 });

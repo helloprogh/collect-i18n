@@ -344,6 +344,9 @@ export class LocalService {
       viewport: config.browser.viewport,
       locale: config.browser.locale,
       cookies: config.browser.cookies,
+      // Re-injected before every navigation so the app cannot switch away
+      // from the source locale after the profile was first provisioned.
+      localeCookie: config.browser.localeCookie,
       channel: "chrome",
     });
     await collector.start();

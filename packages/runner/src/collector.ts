@@ -20,6 +20,13 @@ export interface BrowserCollectorOptions {
   viewport?: { width: number; height: number };
   locale?: string;
   cookies?: Array<{ name: string; value: string }>;
+  /**
+   * Locale cookie injected on every page open (for example
+   * x-gde-locale=zh_CN). Some apps select their rendered language from this
+   * cookie; injecting it guarantees the source locale renders regardless of
+   * the persisted browser profile.
+   */
+  localeCookie?: { name: string; value: string };
   planTimeoutMs?: number;
 }
 
@@ -368,6 +375,13 @@ export class BrowserCollector {
           url: this.options.baseUrl,
         })));
       }
+      if (this.options.localeCookie) {
+        await context.addCookies([{
+          name: this.options.localeCookie.name,
+          value: this.options.localeCookie.value,
+          url: this.options.baseUrl,
+        }]);
+      }
       this.detectedGone = false;
       await this.createFreshPage(context.pages());
     } finally {
@@ -645,6 +659,10 @@ export class BrowserCollector {
   }
 
   async open(path = "/"): Promise<void> {
+    // Some apps decide the rendered language from a cookie on every load.
+    // Re-apply it on each navigation so a cleared/stale profile cannot switch
+    // the UI away from the source locale mid-run.
+    await this.applyLocaleCookie();
     const navigationTimeout = Math.max(90_000, (this.options.defaultTimeoutMs ?? 15_000) * 6);
     await this.activePage.goto(this.sameOriginUrl(path), {
       // `domcontentloaded` is allowed to remain pending when a transformed
@@ -669,7 +687,43 @@ export class BrowserCollector {
     throw new Error(`Collector runtime did not become ready after navigation: ${this.activePage.url()}`);
   }
 
+  /**
+   * Best-effort locale cookie injection before a navigation. Never throws:
+   * a cookie that fails to set must not block collection of an app that does
+   * not use cookies for locale selection.
+   */
+  private async applyLocaleCookie(): Promise<void> {
+    const cookie = this.options.localeCookie;
+    if (!cookie || !this.context) return;
+    try {
+      await this.context.addCookies([{ ...cookie, url: this.options.baseUrl }]);
+    } catch { /* non-fatal */ }
+  }
+
+  private async settleNavigation(timeoutMs = 6_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const state = await bounded(
+        this.activePage.evaluate(() => {
+          const runtimeWindow = window as RuntimeWindow & { __COLLECT_I18N_PENDING__?: unknown[] };
+          return {
+            ready: document.readyState,
+            pending: runtimeWindow.__COLLECT_I18N_PENDING__?.length ?? 0,
+          };
+        }),
+        1_500,
+        "Page became unresponsive during inspection settle",
+      ).catch(() => undefined);
+      if (state && state.ready !== "loading" && state.pending === 0) return;
+      await new Promise((done) => setTimeout(done, 150));
+    }
+  }
+
   async inspectRuntime(limit = 200): Promise<RuntimeInspection> {
+    // A lazy route chunk or a late Teleport can keep the page navigating while
+    // the service asks for a snapshot. Wait for the navigation to settle first
+    // so the snapshot is not aborted by the evaluation timeout.
+    await this.settleNavigation();
     return bounded(this.activePage.evaluate((maximum) => {
       const runtimeWindow = window as RuntimeWindow & { __COLLECT_I18N_PENDING__?: unknown[] };
       const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
@@ -692,7 +746,7 @@ export class BrowserCollector {
         pendingDescriptors: runtimeWindow.__COLLECT_I18N_PENDING__?.length ?? 0,
         snapshots,
       };
-    }, Math.max(1, Math.min(limit, 2_000))), 3_000, "Runtime inspection timed out while the page was navigating");
+    }, Math.max(1, Math.min(limit, 2_000))), 8_000, "Runtime inspection timed out while the page was navigating");
   }
 
   async inspectRuntimeSettled(

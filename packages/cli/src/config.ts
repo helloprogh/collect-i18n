@@ -90,6 +90,7 @@ async function detectLocaleCookies(projectRoot: string): Promise<Array<{ name: s
 export async function createDefaultConfig(projectRootInput: string): Promise<ProjectConfig> {
   const projectRoot = resolve(projectRootInput);
   const appPort = await findAvailablePort();
+  const detectedLocaleCookies = await detectLocaleCookies(projectRoot);
   return ProjectConfigSchema.parse({
     version: 1,
     projectRoot,
@@ -102,7 +103,12 @@ export async function createDefaultConfig(projectRootInput: string): Promise<Pro
       workingDirectory: projectRoot,
       healthPath: "/",
     },
-    browser: { headless: false, locale: "zh-CN", cookies: await detectLocaleCookies(projectRoot) },
+    browser: {
+      headless: false,
+      locale: "zh-CN",
+      cookies: detectedLocaleCookies,
+      localeCookie: detectedLocaleCookies[0],
+    },
     instrumentation: { enabled: true, devOnly: true },
   });
 }

@@ -67,6 +67,13 @@ export const ProjectConfigSchema = z
           )
           .max(20)
           .default([]),
+        localeCookie: z
+          .object({
+            name: z.string().min(1).max(200),
+            value: z.string().max(4_000),
+          })
+          .strict()
+          .optional(),
         timeoutMs: z.number().int().positive().default(15_000),
       })
       .default({
