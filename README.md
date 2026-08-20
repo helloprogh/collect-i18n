@@ -310,6 +310,7 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
 - [v0.3.10 发布说明](docs/release-notes-v0.3.10.md)
+- [1000 词条 OMS 应用性能分析 v0.3.10](docs/performance-analysis-oms-app-v0310.md)
 - [v0.3.9 发布说明](docs/release-notes-v0.3.9.md)
 - [v0.3.8 发布说明](docs/release-notes-v0.3.8.md)
 - [v0.3.7 发布说明](docs/release-notes-v0.3.7.md)
