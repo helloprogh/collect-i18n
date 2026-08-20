@@ -14,6 +14,7 @@ const THIN_BORDER = {
   bottom: { style: "thin" },
   right: { style: "thin" },
 } as const;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function applyCellBorders(
   worksheet: ExcelJS.Worksheet,
@@ -38,9 +39,49 @@ function imageExtension(file: string): "png" | "jpeg" | undefined {
 function imageMatchesExtension(buffer: Buffer, extension: "png" | "jpeg"): boolean {
   if (extension === "png") {
     return buffer.length >= 8
-      && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      && buffer.subarray(0, 8).equals(PNG_SIGNATURE);
   }
   return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+}
+
+function pngDimensions(buffer: Buffer): { width: number; height: number } | undefined {
+  if (buffer.length < 24) return undefined;
+  if (!buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return undefined;
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function jpegDimensions(buffer: Buffer): { width: number; height: number } | undefined {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return undefined;
+  let offset = 2;
+  while (offset + 4 <= buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = buffer[offset + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2;
+      continue;
+    }
+    const segmentLength = buffer.readUInt16BE(offset + 2);
+    if (segmentLength < 2) return undefined;
+    if (
+      marker >= 0xc0 && marker <= 0xcf
+      && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
+    ) {
+      if (offset + 9 > buffer.length) return undefined;
+      return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + segmentLength;
+  }
+  return undefined;
+}
+
+function imageDimensions(
+  buffer: Buffer,
+  extension: "png" | "jpeg",
+): { width: number; height: number } | undefined {
+  return extension === "png" ? pngDimensions(buffer) : jpegDimensions(buffer);
 }
 
 function validateRows(rows: WorkbookExportRow[]): void {
@@ -122,13 +163,21 @@ export async function exportTranslationWorkbook(
         throw new Error(`Screenshot integrity check failed for Key Path: ${source.keyPath}`);
       }
       const imageId = workbook.addImage({ base64: buffer.toString("base64"), extension });
-      row.height = 88;
-      // ExcelJS supports fractional two-cell anchors at runtime, although its
-      // declarations require concrete Anchor instances for this shape.
+      const dimensions = imageDimensions(buffer, extension);
+      if (!dimensions) {
+        throw new Error(`Unable to read screenshot dimensions: ${source.screenshotPath}`);
+      }
+      const columnPixels = Math.round((worksheet.getColumn(3).width ?? 30) * 7 + 5);
+      const displayWidth = Math.max(60, columnPixels - 8);
+      const displayHeight = Math.max(30, Math.round((displayWidth * dimensions.height) / dimensions.width));
+      row.height = displayHeight + 10;
+      // Use a fixed one-cell anchor with an explicit pixel size so the
+      // embedded screenshot keeps its source aspect ratio instead of being
+      // stretched to fill a fixed two-cell span.
       const imageRange = {
-        tl: { col: 2.05, row: row.number - 0.95 },
-        br: { col: 2.95, row: row.number - 0.05 },
-        editAs: "twoCell",
+        tl: { col: 2.1, row: row.number - 0.95 },
+        ext: { width: displayWidth, height: displayHeight },
+        editAs: "oneCell",
       } as unknown as Parameters<typeof worksheet.addImage>[1];
       worksheet.addImage(imageId, imageRange);
       imageCount += 1;

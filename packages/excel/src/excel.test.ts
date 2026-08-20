@@ -13,8 +13,8 @@ const ONE_PIXEL_PNG = Buffer.from(
   "base64",
 );
 
-const RED_PIXEL_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGAAAAAASUVORK5CYII=",
+const LANDSCAPE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAIAAADwyuo0AAAADklEQVR4nGP4jwQYkDkANvEX6SAXxcIAAAAASUVORK5CYII=",
   "base64",
 );
 
@@ -104,13 +104,13 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getCell(2, 3).text).toBe("");
   });
 
-  it("keeps two-cell screenshot anchors paired with their keys after sorting and leaves missing screenshots blank", async () => {
+  it("keeps one-cell screenshot anchors aspect-matched to their keys after sorting and leaves missing screenshots blank", async () => {
     const item = await fixture();
     const middleScreenshot = join(item.root, "middle.png");
     const lastScreenshot = join(item.root, "last.png");
     await Promise.all([
       writeFile(middleScreenshot, ONE_PIXEL_PNG),
-      writeFile(lastScreenshot, RED_PIXEL_PNG),
+      writeFile(lastScreenshot, LANDSCAPE_PNG),
     ]);
 
     await exportTranslationWorkbook([
@@ -130,18 +130,22 @@ describe("four-column translation workbook export", () => {
       if (!image.buffer) throw new Error(`Missing embedded image bytes for ${keyPath}`);
 
       anchoredHashes.set(keyPath, sha256(Buffer.from(image.buffer)));
-      expect(drawing.range.tl.col).toBeGreaterThan(2);
-      expect(drawing.range.br.col).toBeLessThan(3);
-      expect(drawing.range.br.col).toBeGreaterThan(drawing.range.tl.col);
-      expect(drawing.range.tl.row).toBeGreaterThan(rowNumber - 1);
-      expect(drawing.range.br.row).toBeLessThan(rowNumber);
-      expect(drawing.range.br.row).toBeGreaterThan(drawing.range.tl.row);
-      expect((drawing.range as typeof drawing.range & { editAs?: string }).editAs).toBe("twoCell");
+      expect(drawing.range.tl.nativeCol).toBe(2);
+      expect(drawing.range.tl.nativeRow + 1).toBe(rowNumber);
+      expect(drawing.range.br).toBeUndefined();
+      expect((drawing.range as typeof drawing.range & { editAs?: string }).editAs).toBe("oneCell");
+      const ext = (drawing.range as typeof drawing.range & { ext?: { width: number; height: number } }).ext;
+      expect(ext).toBeDefined();
+      expect(ext!.width).toBeGreaterThan(0);
+      expect(ext!.height).toBeGreaterThan(0);
+      const sourceRatio = keyPath === "m.middle" ? 1 : 2;
+      expect(ext!.width / ext!.height).toBeCloseTo(sourceRatio, 1);
+      expect(sheet.getRow(rowNumber).height).toBe(ext!.height + 10);
     }
 
     expect([...anchoredHashes.keys()].sort()).toEqual(["m.middle", "z.last"]);
     expect(anchoredHashes.get("m.middle")).toBe(sha256(ONE_PIXEL_PNG));
-    expect(anchoredHashes.get("z.last")).toBe(sha256(RED_PIXEL_PNG));
+    expect(anchoredHashes.get("z.last")).toBe(sha256(LANDSCAPE_PNG));
     expect(anchoredHashes.has("a.empty")).toBe(false);
     const emptyRowNumber = rows.get("a.empty")!;
     expect(sheet.getCell(emptyRowNumber, 3).text).toBe("");

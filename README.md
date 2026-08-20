@@ -67,7 +67,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.10.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.11.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -309,6 +309,7 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.11 发布说明](docs/release-notes-v0.3.11.md)
 - [v0.3.10 发布说明](docs/release-notes-v0.3.10.md)
 - [1000 词条 OMS 应用性能分析 v0.3.10](docs/performance-analysis-oms-app-v0310.md)
 - [v0.3.9 发布说明](docs/release-notes-v0.3.9.md)

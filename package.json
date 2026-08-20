@@ -1,6 +1,6 @@
 {
   "name": "collect-i18n",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
