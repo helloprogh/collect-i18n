@@ -759,6 +759,7 @@ export class BrowserCollector {
     const deadline = Date.now() + timeoutMs;
     let previousResourceCount = -1;
     let resourceChangedAt = Date.now();
+    let cleanSince = -1;
     while (Date.now() < deadline) {
       const state = await bounded(
         this.activePage.evaluate((loadingSelectors) => {
@@ -778,6 +779,7 @@ export class BrowserCollector {
         "Page became unresponsive during inspection settle",
       ).catch(() => undefined);
       if (!state) {
+        cleanSince = -1;
         await new Promise((done) => setTimeout(done, 150));
         continue;
       }
@@ -785,14 +787,22 @@ export class BrowserCollector {
         previousResourceCount = state.resourceCount;
         resourceChangedAt = Date.now();
       }
-      const resourcesQuiet = Date.now() - resourceChangedAt >= 300;
-      if (
+      const clean =
         state.ready !== "loading" &&
         state.pending === 0 &&
-        state.loadingCount === 0 &&
-        resourcesQuiet
-      ) {
-        return;
+        state.loadingCount === 0;
+      if (!clean) {
+        cleanSince = -1;
+      } else if (cleanSince < 0) {
+        cleanSince = Date.now();
+      }
+      if (cleanSince >= 0) {
+        const cleanFor = Date.now() - cleanSince;
+        const resourcesQuiet = Date.now() - resourceChangedAt >= 300;
+        // Two consecutive clean samples (>=300ms) settle immediately when the
+        // resource stream is quiet; a polling page that keeps fetching must
+        // not stall the collector, so settle after a bounded 1s grace.
+        if (cleanFor >= 300 && (resourcesQuiet || cleanFor >= 1_000)) return;
       }
       await new Promise((done) => setTimeout(done, 150));
     }
@@ -829,6 +839,24 @@ export class BrowserCollector {
   private async targetBlockedByLoading(rect: { x: number; y: number; width: number; height: number }): Promise<boolean> {
     return bounded(
       this.activePage.evaluate(({ rect, loadingSelectors }) => {
+        // Mirror of the exported isLoadingElement() helper. Module functions
+        // are not in scope inside page.evaluate and functions nested in
+        // argument objects cannot be serialized, so the check is inlined here
+        // and kept in sync with isLoadingElement().
+        const isLoadingElement = (element: {
+          classList?: { contains(name: string): boolean };
+          dataset?: Record<string, string | undefined>;
+        } | null | undefined): boolean => {
+          if (!element) return false;
+          const classes = element.classList;
+          if (classes) {
+            if (classes.contains("el-loading-mask") || classes.contains("el-loading-spinner")) return true;
+            if (classes.contains("el-skeleton") || classes.contains("el-skeleton__item")) return true;
+            if (classes.contains("ant-spin-spinning")) return true;
+            if (classes.contains("el-icon") && classes.contains("is-loading")) return true;
+          }
+          return element.dataset?.collectI18nLoading !== undefined;
+        };
         const top = document.elementFromPoint(
           rect.x + rect.width / 2,
           rect.y + rect.height / 2,
