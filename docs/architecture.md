@@ -42,7 +42,7 @@ flowchart LR
 3. `start` 创建会话，加载目标项目自身的 Vite 配置，同时追加 Collect I18n 插件；目标源码和配置文件不落盘修改。
 4. 服务按高置信路由批量处理 `pending` 任务。能在真实页面定位 key 的任务进入 `captured`，其余进入 `needs_agent`。
 5. Skill 从 `agent next` 取得一个任务，生成版本化 TriggerPlan，经 `agent submit` 校验后由 `agent execute` 顺序执行。
-6. Agent 队列处理完后，`finalize` 对未解决项做保守定案：源码无 occurrence，或全部 occurrence 都是 `aria-*` / 原生 `title` 的非可视内容时记为 `skipped`；其余转入 `needs_manual`。每次判定都写入带原因的系统事件。
+6. `start` 创建会话时即把「源码无 occurrence」与「全部 occurrence 非可视」的词条预分类为 `skipped`（带原因事件）；Agent 队列处理完后，`finalize` 对剩余未解决项做同样的保守复核：无 occurrence 或全部非可视时记为 `skipped`，其余转入 `needs_manual`。
 7. `manual open` 打开目标路由并持续监听；人工触发真实状态后自动采集。
 8. `export` 从会话目录与证据表生成工作簿；`import` 先对照同一会话目录做 dry-run，再按授权写入 `en-us`。
 

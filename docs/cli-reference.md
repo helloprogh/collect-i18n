@@ -175,7 +175,7 @@ collect-i18n agent execute --session <session-id> --task <task-id> --plan-file <
 collect-i18n finalize --session <session-id>
 ```
 
-只能在 `pending` 与 `running` 都归零后执行。命令收拢仍为 `needs_agent` 的任务：
+只能在 `pending` 与 `running` 都归零后执行。会话创建时已把「无 occurrence」与「全部 occurrence 非可视」的词条预分类为 `skipped`；命令收拢仍为 `needs_agent` 的任务并复核同样的判定：
 
 - 没有任何源码 occurrence 的词条记为 `skipped`，原因是 `no_source_occurrence`；
 - occurrence 全部是 `aria-*` 或原生元素 `title` 的非可视词条记为 `skipped`，原因是 `non_visual_source_only`；

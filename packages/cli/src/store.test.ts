@@ -33,7 +33,24 @@ function analysis(chinese = "保存", duplicate = false): ProjectAnalysis {
   };
   return {
     catalog: { keys: duplicate ? [key, { ...key, id: "duplicate" }] : [key], files: [], diagnostics: [] },
-    source: { occurrences: [], routeHints: [], actionHints: [], diagnostics: [], scannedFiles: [] },
+    source: {
+      occurrences: [{
+        id: "occ_form_save",
+        keyPath: "form.save",
+        kind: "text_range",
+        location: { file: "src/views/JobsView.vue", line: 1, column: 0 },
+        expression: "t('form.save')",
+        teleported: false,
+        dynamic: false,
+        confidence: 0.99,
+        routeHints: [],
+        actionHints: [],
+      }],
+      routeHints: [],
+      actionHints: [],
+      diagnostics: [],
+      scannedFiles: [],
+    },
     unusedKeys: [key],
     unknownKeys: [],
   };
@@ -539,6 +556,28 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("pre-classifies no-source and non-visual-only keys as skipped when the session is created", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisForFinalize());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    expect(store.taskByKey(sessionId, "fixture.unused")).toMatchObject({ status: "skipped" });
+    expect(store.taskByKey(sessionId, "fixture.accessible")).toMatchObject({ status: "skipped" });
+    expect(store.taskByKey(sessionId, "fixture.nativeTitle")).toMatchObject({ status: "skipped" });
+    expect(store.taskByKey(sessionId, "fixture.visible")).toMatchObject({ status: "needs_agent" });
+    expect(store.status(sessionId)).toMatchObject({
+      counts: { total: 4, skipped: 3, needs_agent: 1, pending: 0 },
+      exportReady: true,
+    });
+    const skipReasons = store.events(sessionId)
+      .filter((event) => event.type === "task.skipped")
+      .map((event) => (event.data as { reason?: string })?.reason)
+      .sort();
+    expect(skipReasons).toEqual(["no_source_occurrence", "non_visual_source_only", "non_visual_source_only"]);
+    store.close();
+  });
+
   it("finalizes unresolved keys without inventing screenshots for non-visual content", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -639,7 +678,7 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
-  it("reports unique screenshots separately from duplicate evidence", async () => {
+  it("deduplicates identical screenshot content and keeps distinct pixels as separate evidence", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
     const projectId = store.syncProject(projectRoot, {}, analysis());
@@ -647,13 +686,13 @@ describe("StateStore transactions", () => {
     const task = store.nextTask(sessionId, ["needs_agent"]);
     if (!task) throw new Error("missing fixture task");
 
-    store.addEvidence(task.id, evidence("agent"));
-    store.addEvidence(task.id, { ...evidence("agent"), screenshotPath: "D:/evidence/form.save-latest.png" });
-
+    const firstId = store.addEvidence(task.id, evidence("agent"));
+    const dedupedId = store.addEvidence(task.id, { ...evidence("agent"), screenshotPath: "D:/evidence/form.save-latest.png" });
+    expect(dedupedId).toBe(firstId);
     expect(store.status(sessionId)).toMatchObject({
-      screenshotCount: 2,
+      screenshotCount: 1,
       uniqueScreenshotCount: 1,
-      duplicateEvidenceCount: 1,
+      duplicateEvidenceCount: 0,
       coveragePercent: 100,
       manualPercent: 0,
       exportReady: true,
@@ -666,6 +705,13 @@ describe("StateStore transactions", () => {
         deferred: 0,
         failed: 0,
       },
+    });
+
+    store.addEvidence(task.id, { ...evidence("agent"), screenshotPath: "D:/evidence/form.save-other.png", screenshotSha256: "1".repeat(64) });
+    expect(store.status(sessionId)).toMatchObject({
+      screenshotCount: 2,
+      uniqueScreenshotCount: 1,
+      duplicateEvidenceCount: 1,
     });
     store.close();
   });
@@ -735,11 +781,14 @@ describe("StateStore transactions", () => {
 
     expect(collected).toEqual(keyPaths);
     expect(new Set(collected).size).toBe(2_101);
-    expect(store.finalizeUnresolved(sessionId).skippedNoSource).toHaveLength(2_101);
     expect(store.status(sessionId).counts).toMatchObject({
       needs_agent: 0,
       skipped: 2_101,
+      total: 2_101,
     });
+    // No-source keys are pre-classified at session creation, so finalize
+    // finds nothing left to classify.
+    expect(store.finalizeUnresolved(sessionId).skippedNoSource).toHaveLength(0);
     store.close();
   });
 

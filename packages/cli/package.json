@@ -1,6 +1,6 @@
 {
   "name": "@collect-i18n/cli",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "type": "module",
   "main": "dist/bin.js",

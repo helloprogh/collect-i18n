@@ -88,4 +88,41 @@ Do not invent UI copy in the mock. Use response shape/value evidence from the pr
 
 Prefer a source-proven route path that reveals several related pending keys at each checkpoint. The service captures visible A/B-grade keys at every `capture` step and after the target succeeds, including custom Vue component props, fragment/slot/Teleport host text, and Element Plus service text. A TriggerPlan still has exactly one `targetKey`; checkpoints may cover related states on the same route, never unrelated pages.
 
+## High-fan-out table sweep
+
+When the route's source or the route batch shows a paginated table (`.el-pagination`, `el-table` with `page` state), cover every page with one sweep plan instead of authoring one plan per row key:
+
+```json
+{
+  "version": 1,
+  "targetKey": "orders.rows.9.amount",
+  "route": "/orders",
+  "steps": [
+    { "type": "goto", "path": "/orders" },
+    { "type": "capture" },
+    { "type": "click", "locator": { "kind": "css", "value": ".el-pagination .btn-next" } },
+    { "type": "wait", "milliseconds": 300 },
+    { "type": "capture" },
+    { "type": "click", "locator": { "kind": "css", "value": ".el-pagination .btn-next" } },
+    { "type": "wait", "milliseconds": 300 },
+    { "type": "capture" },
+    { "type": "waitForKey", "key": "orders.rows.9.amount", "timeoutMs": 10000 }
+  ],
+  "rationale": "Sweep every orders page; each capture checkpoint records the visible row keys on that page."
+}
+```
+
+Put a `capture` checkpoint after the initial state and after every page turn. End on the page that renders the anchor target so primary evidence stays attributable. Prefer the largest safe page sweep within the 40-step budget (a 3-page sweep of a dense table captures dozens of keys in one execution); never author per-row plans for keys a checkpoint will collect.
+
+## Dynamic keys and renamed render targets
+
+A `dynamic` occurrence (`t(`common.status.${row.status}`)`, `t(`dashboard.${metric.key}`)`) can only render a concrete catalog key when the app state supplies the matching value. Before retrying a timed-out target:
+
+1. Read the occurrence expression from the task's source evidence.
+2. If the mock/table data provably renders a different key (for example the source renders `dashboard.metric.totalUsers` but the catalog key is `dashboard.metric.newUsers`), the key is unreachable; do not loop on it. Stop, and let the finalize/manual queue classify it.
+3. If the data could plausibly render the target with one state change (a status cell, a metric card), make exactly one source-evidenced attempt (for example open the page whose mock data uses that status, or `select` the option that renders it). After that attempt, stop retrying.
+4. Never invent a mock response whose shape is not source-evidenced just to force a key to render.
+
+Repeatedly re-planning the same dead dynamic key is the single largest Agent time sink; one evidence-driven attempt per key is the accuracy-first bound.
+
 Never add a page or phrase to the project to make these patterns succeed.

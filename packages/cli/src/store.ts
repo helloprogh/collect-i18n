@@ -7,6 +7,14 @@ import type { CollectedEvidence } from "@collect-i18n/runner";
 
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
 export const MAX_AGENT_ATTEMPTS = 2;
+
+function isNonVisualOccurrence(occurrence: unknown): boolean {
+  if (typeof occurrence !== "object" || occurrence === null) return false;
+  const item = occurrence as { property?: unknown; component?: unknown };
+  const property = typeof item.property === "string" ? item.property.toLowerCase() : "";
+  if (property.startsWith("aria-")) return true;
+  return property === "title" && !item.component;
+}
 export type EventOrigin = "system" | "deterministic" | "agent" | "manual" | "unknown";
 
 export interface StoredTask {
@@ -410,6 +418,15 @@ export class StateStore {
       for (const key of keys) {
         const occurrences = occurrenceQuery.all(projectId, key.key_path) as Array<{ data_json: string }>;
         const parsed = occurrences.map((row) => parseJson<Record<string, unknown>>(row.data_json, {}));
+        const noSource = parsed.length === 0;
+        const nonVisualOnly = !noSource && parsed.every(isNonVisualOccurrence);
+        if (noSource || nonVisualOnly) {
+          const taskId = stableId("task", `${id}:${key.key_path}`);
+          const reason = noSource ? "no_source_occurrence" : "non_visual_source_only";
+          insertTask.run(taskId, id, key.key_path, "skipped", "agent", now);
+          this.addEvent(id, "task.skipped", { taskId, keyPath: key.key_path, stage: "agent", origin: "system", reason });
+          continue;
+        }
         const deterministic = parsed.some((occurrence) =>
           (occurrence.kind === "native_dom" || occurrence.kind === "text_range" || occurrence.kind === "component_prop") && (
             (typeof occurrence.location === "object" && occurrence.location !== null &&
@@ -780,13 +797,6 @@ export class StateStore {
       skippedNonVisual: [],
       needsManual: [],
     };
-    const isNonVisualOccurrence = (occurrence: unknown): boolean => {
-      if (typeof occurrence !== "object" || occurrence === null) return false;
-      const item = occurrence as { property?: unknown; component?: unknown };
-      const property = typeof item.property === "string" ? item.property.toLowerCase() : "";
-      if (property.startsWith("aria-")) return true;
-      return property === "title" && !item.component;
-    };
 
     this.transaction(() => {
       const update = this.db.prepare(
@@ -826,7 +836,7 @@ export class StateStore {
   }
 
   addEvidence(taskId: string, evidence: CollectedEvidence): string {
-    const id = `evidence_${randomUUID()}`;
+    let id = `evidence_${randomUUID()}`;
     this.transaction(() => {
       const task = this.task(taskId);
       if (!task) throw new Error(`任务不存在：${taskId}`);
@@ -844,8 +854,23 @@ export class StateStore {
       }
       const session = this.session(task.sessionId);
       if (!session || session.status !== "running") throw new Error(`会话已结束，不能写入截图证据：${task.sessionId}`);
-      this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?)")
-        .run(id, task.sessionId, taskId, task.keyPath, evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt);
+      const existing = this.db.prepare(
+        "SELECT id,data_json FROM evidence WHERE session_id=? AND task_id=? AND key_path=? ORDER BY captured_at DESC, rowid DESC LIMIT 1",
+      ).get(task.sessionId, taskId, task.keyPath) as { id: string; data_json: string } | undefined;
+      const existingSha = existing ? parseJson<{ screenshotSha256?: string }>(existing.data_json, {}).screenshotSha256 : undefined;
+      const isDuplicateContent = Boolean(
+        existing && existingSha && evidence.screenshotSha256 && existingSha === evidence.screenshotSha256,
+      );
+      if (isDuplicateContent) {
+        // The same key rendered identical pixels (for example a re-check after
+        // scrolling); refresh the row instead of recording duplicate evidence.
+        id = existing!.id;
+        this.db.prepare("UPDATE evidence SET source=?,screenshot_path=?,route=?,data_json=?,captured_at=? WHERE id=?")
+          .run(evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt, existing!.id);
+      } else {
+        this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?)")
+          .run(id, task.sessionId, taskId, task.keyPath, evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt);
+      }
       const now = new Date().toISOString();
       this.db.prepare("UPDATE tasks SET status='captured',last_error=NULL,updated_at=? WHERE id=?").run(now, taskId);
       this.addEvent(task.sessionId, "task.captured", {
