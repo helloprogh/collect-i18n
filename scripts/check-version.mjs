@@ -1,0 +1,43 @@
+import { access, readFile } from 'node:fs/promises'
+import path from 'node:path'
+
+const repositoryRoot = path.resolve(import.meta.dirname, '..')
+const packageFiles = [
+  'packages/analyzer/package.json',
+  'packages/cli/package.json',
+  'packages/core/package.json',
+  'packages/excel/package.json',
+  'packages/runner/package.json',
+  'packages/runtime/package.json',
+  'packages/vite-vue/package.json',
+]
+
+async function json(relativePath) {
+  return JSON.parse(await readFile(path.join(repositoryRoot, relativePath), 'utf8'))
+}
+
+const manifest = await json('package.json')
+const expected = manifest.version
+const failures = []
+for (const relativePath of packageFiles) {
+  const item = await json(relativePath)
+  if (item.version !== expected) failures.push(`${relativePath}: ${item.version} != ${expected}`)
+}
+
+const cli = await readFile(path.join(repositoryRoot, 'packages/cli/src/bin.ts'), 'utf8')
+if (!cli.includes(`.version("${expected}")`)) failures.push('CLI --version is out of sync')
+
+const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8')
+if (!readme.includes(`当前版本为 \`v${expected}\``)) failures.push('README current version is out of sync')
+if (!readme.includes(`collect-i18n-skill-v${expected}.zip`)) failures.push('README package filename is out of sync')
+
+try {
+  await access(path.join(repositoryRoot, `docs/release-notes-v${expected}.md`))
+} catch {
+  failures.push(`missing docs/release-notes-v${expected}.md`)
+}
+
+if (failures.length) {
+  throw new Error(`Version consistency check failed:\n${failures.join('\n')}`)
+}
+console.log(`Version consistency passed (${expected}).`)

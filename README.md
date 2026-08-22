@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.9`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.13`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -30,7 +30,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 语义 radio/checkbox 会自动通过可见 label 激活被组件库包装的原生控件；通常无需为 Element Plus 编写专用选择器。
 - 初始化会避开已占用的本机 Vite 端口；用户提供的端到端截止时间会持久化，Agent 到期后停止领取新任务并立即进入定案导出。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
-- Agent 队列结束后会进行可审计定案：源码无引用或仅用于 `aria-*` / 原生 `title` 的非可视词条明确留空，其余未解决词条进入人工辅助，不伪造截图。
+- Agent 队列结束后会进行可审计定案：可证明无源码引用或仅用于 `aria-*` / 原生 `title` 的非可视词条明确留空；存在未解析动态调用时不把无 occurrence 当成死键，其余未解决词条进入人工辅助，不伪造截图。
 - 人工只需完成正常业务操作。目标 key 出现后，工具自动高亮、截图并保存证据。
 - 随时导出进度 Excel；没有截图的词条保留空白截图单元格，不阻塞翻译任务交付。
 - 支持翻译回稿校验，并按 Key Path 安全写回 `en-us` JSON。
@@ -67,7 +67,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.12.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.13.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -132,9 +132,10 @@ Agent 队列为空后，Skill 执行：
 finalize --session <session-id>
 ```
 
-该步骤只把“语言包存在但源码无引用”以及“源码中仅用于 `aria-*` 或原生
-`title` 的非可视内容”记为 `skipped`，并在事件中保存原因；其余未取证词条统一
-进入 `needs_manual`。它只改变任务分类，不生成截图，也不会把内部状态写入 Excel。
+该步骤只把“语言包存在、源码无引用且项目不存在未解析动态调用”以及“源码中仅用于
+`aria-*` 或原生 `title` 的非可视内容”记为 `skipped`，并在事件中保存原因；动态来源
+不确定和其余未取证词条统一进入 `needs_manual`。它只改变任务分类，不生成截图，也不会
+把内部状态写入 Excel。
 
 ## 人工辅助
 
@@ -173,7 +174,9 @@ zh-cn/users/form.json
 → users.form.nameRequired
 ```
 
-扫描器只接受 JSON 叶子字符串。无效 JSON、非字符串叶子、重复 Key Path 和源码中的未知 key 会作为诊断返回。运行时拼接或远程下发的动态 key 不能保证获得完整的静态关联。
+扫描器只接受 JSON 叶子字符串。无效 JSON、非字符串叶子、重复 Key Path 和源码中的未知 key 会作为诊断返回。动态模板会关联全部匹配的目录词条；对于 `t(variable)`、动态 `v-t` 或远程下发 key 等无法静态确定的调用，工具不会把无 occurrence 词条自动判为死键，而会保守交给人工确认。
+
+若项目把翻译调用封装为 `translate(...)`、`i18nBridge.lookup(...)` 等自定义函数，可在 `config.json` 的 `source.translationCallees` 数组中登记完整调用名；扫描器会对这些调用执行与内置 `t` 相同的静态与动态分析。
 
 首次初始化会自动识别常见开发命令和语言 Cookie。需要调整语言包根目录、Vite 地址、启动命令、浏览器参数或 Cookie 时，编辑：
 
@@ -309,6 +312,7 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.13 发布说明](docs/release-notes-v0.3.13.md)
 - [v0.3.12 发布说明](docs/release-notes-v0.3.12.md)
 - [v0.3.11 发布说明](docs/release-notes-v0.3.11.md)
 - [v0.3.10 发布说明](docs/release-notes-v0.3.10.md)

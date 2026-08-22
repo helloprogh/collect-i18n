@@ -89,6 +89,33 @@ const label = t(resolveKey())`,
     )
   })
 
+  it('recognizes explicitly configured translation wrappers', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'src', 'views', 'users', 'Create.vue'),
+      `<script setup>
+const pendingLabel = translate(resolveKey())
+</script>
+<template><h1>{{ translate('custom.title') }}</h1></template>`,
+    )
+
+    const result = await scanProjectSources({
+      projectRoot: root,
+      translationCallees: ['translate'],
+    })
+
+    expect(result.occurrences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ keyPath: 'custom.title', dynamic: false }),
+      ]),
+    )
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'dynamic_translation_key' }),
+      ]),
+    )
+  })
+
   it('detects hash and history router modes from vue-router factories', async () => {
     const root = await createWorkspace()
     await writeFile(
@@ -196,6 +223,29 @@ const options = [{ key: 'orders.actions.approve' }, { key: 'orders.actions.rejec
       'orders.actions.reject',
     ]))
     expect(keys.has('other.unrelated')).toBe(false)
+  })
+
+  it('does not truncate dynamic template namespaces after 200 catalog keys', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'src', 'views', 'users', 'Create.vue'),
+      `<template><p>{{ t(\`orders.rows.\${row.id}.label\`) }}</p></template>`,
+    )
+    const catalogKeys = Array.from(
+      { length: 250 },
+      (_, index) => `orders.rows.${index}.label`,
+    )
+
+    const result = await scanProjectSources({ projectRoot: root, catalogKeys })
+    const keys = new Set(result.occurrences.map((occurrence) => occurrence.keyPath))
+
+    expect(keys.size).toBe(250)
+    expect(keys.has('orders.rows.249.label')).toBe(true)
+    expect(result.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'dynamic_translation_key' }),
+      ]),
+    )
   })
 
   it('attaches a statically imported route to occurrences in its Vue component', async () => {

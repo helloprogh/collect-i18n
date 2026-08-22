@@ -8,6 +8,10 @@ import type { CollectedEvidence } from "@collect-i18n/runner";
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
 export const MAX_AGENT_ATTEMPTS = 2;
 
+function evidenceGradeRank(grade: unknown): number {
+  return grade === "A" ? 3 : grade === "B" ? 2 : grade === "C" ? 1 : 0;
+}
+
 function isNonVisualOccurrence(occurrence: unknown): boolean {
   if (typeof occurrence !== "object" || occurrence === null) return false;
   const item = occurrence as { property?: unknown; component?: unknown };
@@ -263,6 +267,7 @@ export class StateStore {
         root TEXT NOT NULL UNIQUE,
         config_json TEXT NOT NULL,
         router_mode TEXT,
+        has_unresolved_dynamic INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -326,6 +331,8 @@ export class StateStore {
         key_path TEXT NOT NULL,
         source TEXT NOT NULL,
         screenshot_path TEXT NOT NULL,
+        screenshot_sha256 TEXT,
+        evidence_grade TEXT,
         route TEXT NOT NULL,
         data_json TEXT NOT NULL,
         captured_at TEXT NOT NULL,
@@ -369,6 +376,57 @@ export class StateStore {
     if (!projectColumns.some((column) => column.name === "router_mode")) {
       this.db.exec("ALTER TABLE projects ADD COLUMN router_mode TEXT");
     }
+    if (!projectColumns.some((column) => column.name === "has_unresolved_dynamic")) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN has_unresolved_dynamic INTEGER NOT NULL DEFAULT 0");
+    }
+    const evidenceColumns = this.db.prepare("PRAGMA table_info(evidence)").all() as Array<{ name: string }>;
+    if (!evidenceColumns.some((column) => column.name === "screenshot_sha256")) {
+      this.db.exec("ALTER TABLE evidence ADD COLUMN screenshot_sha256 TEXT");
+    }
+    if (!evidenceColumns.some((column) => column.name === "evidence_grade")) {
+      this.db.exec("ALTER TABLE evidence ADD COLUMN evidence_grade TEXT");
+    }
+    const legacyEvidence = this.db.prepare(
+      "SELECT id,data_json FROM evidence WHERE screenshot_sha256 IS NULL OR evidence_grade IS NULL",
+    ).all() as Array<{ id: string; data_json: string }>;
+    const hydrateEvidence = this.db.prepare(
+      "UPDATE evidence SET screenshot_sha256=?,evidence_grade=? WHERE id=?",
+    );
+    for (const row of legacyEvidence) {
+      const data = parseJson<{ screenshotSha256?: string; evidenceGrade?: string }>(row.data_json, {});
+      hydrateEvidence.run(data.screenshotSha256 ?? null, data.evidenceGrade ?? null, row.id);
+    }
+    // Older databases may already contain repeated hashes. Keep the strongest
+    // (then newest) row before enforcing content identity for future writes.
+    const duplicateGroups = this.db.prepare(`
+      SELECT session_id,task_id,screenshot_sha256
+      FROM evidence
+      WHERE screenshot_sha256 IS NOT NULL
+      GROUP BY session_id,task_id,screenshot_sha256
+      HAVING COUNT(*)>1
+    `).all() as Array<{ session_id: string; task_id: string; screenshot_sha256: string }>;
+    const duplicateRows = this.db.prepare(`
+      SELECT id,evidence_grade,captured_at,rowid
+      FROM evidence
+      WHERE session_id=? AND task_id=? AND screenshot_sha256=?
+    `);
+    const deleteEvidence = this.db.prepare("DELETE FROM evidence WHERE id=?");
+    for (const group of duplicateGroups) {
+      const rows = duplicateRows.all(group.session_id, group.task_id, group.screenshot_sha256) as Array<{
+        id: string; evidence_grade: string | null; captured_at: string; rowid: number
+      }>;
+      rows.sort((left, right) =>
+        evidenceGradeRank(right.evidence_grade) - evidenceGradeRank(left.evidence_grade)
+        || right.captured_at.localeCompare(left.captured_at)
+        || right.rowid - left.rowid,
+      );
+      for (const duplicate of rows.slice(1)) deleteEvidence.run(duplicate.id);
+    }
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_task_sha
+      ON evidence(session_id,task_id,screenshot_sha256)
+      WHERE screenshot_sha256 IS NOT NULL;
+    `);
   }
 
   syncProject(projectRoot: string, config: unknown, analysis: ProjectAnalysis): string {
@@ -378,8 +436,11 @@ export class StateStore {
     this.transaction(() => {
       const active = this.db.prepare("SELECT id FROM sessions WHERE project_id=? AND status='running' LIMIT 1").get(projectId) as { id: string } | undefined;
       if (active) throw new Error(`项目存在活动采集会话，请先停止服务：${active.id}`);
-      this.db.prepare("INSERT INTO projects(id, root, config_json, router_mode, created_at, updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET root=excluded.root,config_json=excluded.config_json,router_mode=excluded.router_mode,updated_at=excluded.updated_at")
-        .run(projectId, root, JSON.stringify(config), analysis.routerMode ?? null, now, now);
+      const hasUnresolvedDynamic = analysis.source.diagnostics.some(
+        (diagnostic) => diagnostic.code === "dynamic_translation_key",
+      );
+      this.db.prepare("INSERT INTO projects(id, root, config_json, router_mode, has_unresolved_dynamic, created_at, updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET root=excluded.root,config_json=excluded.config_json,router_mode=excluded.router_mode,has_unresolved_dynamic=excluded.has_unresolved_dynamic,updated_at=excluded.updated_at")
+        .run(projectId, root, JSON.stringify(config), analysis.routerMode ?? null, hasUnresolvedDynamic ? 1 : 0, now, now);
       // Refreshing the shared catalog while a session is active would make its
       // task-to-key joins observe a half-new snapshot, so the active-session
       // guard and the replacement live in this same write transaction.
@@ -413,17 +474,41 @@ export class StateStore {
         WHERE project_id=?
       `).run(id, projectId);
       const keys = this.db.prepare("SELECT key_path FROM session_locale_keys WHERE session_id=? ORDER BY key_path").all(id) as Array<{ key_path: string }>;
-      const occurrenceQuery = this.db.prepare("SELECT data_json FROM occurrences WHERE project_id=? AND key_path=?");
-      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,updated_at) VALUES(?,?,?,?,?,?)");
+      const occurrenceRows = this.db.prepare(
+        "SELECT key_path,data_json FROM occurrences WHERE project_id=? ORDER BY key_path",
+      ).all(projectId) as Array<{ key_path: string; data_json: string }>;
+      const occurrencesByKey = new Map<string, Array<Record<string, unknown>>>();
+      for (const row of occurrenceRows) {
+        const values = occurrencesByKey.get(row.key_path) ?? [];
+        values.push(parseJson<Record<string, unknown>>(row.data_json, {}));
+        occurrencesByKey.set(row.key_path, values);
+      }
+      const project = this.db.prepare(
+        "SELECT has_unresolved_dynamic FROM projects WHERE id=?",
+      ).get(projectId) as { has_unresolved_dynamic: number } | undefined;
+      const hasUnresolvedDynamic = Number(project?.has_unresolved_dynamic ?? 0) === 1;
+      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,last_error,updated_at) VALUES(?,?,?,?,?,?,?)");
       for (const key of keys) {
-        const occurrences = occurrenceQuery.all(projectId, key.key_path) as Array<{ data_json: string }>;
-        const parsed = occurrences.map((row) => parseJson<Record<string, unknown>>(row.data_json, {}));
+        const parsed = occurrencesByKey.get(key.key_path) ?? [];
         const noSource = parsed.length === 0;
         const nonVisualOnly = !noSource && parsed.every(isNonVisualOccurrence);
+        if (noSource && hasUnresolvedDynamic) {
+          const taskId = stableId("task", `${id}:${key.key_path}`);
+          const message = "存在无法静态解析的动态 i18n 调用，需运行时或人工确认";
+          insertTask.run(taskId, id, key.key_path, "needs_manual", "manual", message, now);
+          this.addEvent(id, "task.needs_manual", {
+            taskId,
+            keyPath: key.key_path,
+            stage: "manual",
+            origin: "system",
+            reason: "unresolved_dynamic_source",
+          });
+          continue;
+        }
         if (noSource || nonVisualOnly) {
           const taskId = stableId("task", `${id}:${key.key_path}`);
           const reason = noSource ? "no_source_occurrence" : "non_visual_source_only";
-          insertTask.run(taskId, id, key.key_path, "skipped", "agent", now);
+          insertTask.run(taskId, id, key.key_path, "skipped", "agent", null, now);
           this.addEvent(id, "task.skipped", { taskId, keyPath: key.key_path, stage: "agent", origin: "system", reason });
           continue;
         }
@@ -437,7 +522,7 @@ export class StateStore {
             ))
           ),
         );
-        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", now);
+        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", null, now);
       }
       this.addEvent(id, "session.created", { projectId, keyCount: keys.length, origin: "system" });
     });
@@ -521,7 +606,7 @@ export class StateStore {
   }
 
   session(sessionId: string): Record<string, unknown> | undefined {
-    return this.db.prepare(`SELECT s.*, p.root AS project_root FROM sessions s JOIN projects p ON p.id=s.project_id WHERE s.id=?`).get(sessionId) as Record<string, unknown> | undefined;
+    return this.db.prepare(`SELECT s.*, p.root AS project_root, p.has_unresolved_dynamic FROM sessions s JOIN projects p ON p.id=s.project_id WHERE s.id=?`).get(sessionId) as Record<string, unknown> | undefined;
   }
 
   /** Router history mode detected for the project, if any. */
@@ -542,12 +627,16 @@ export class StateStore {
     for (const row of rows) { counts[row.status] = Number(row.count); counts.total += Number(row.count); }
     const current = this.db.prepare("SELECT key_path,stage,status,last_error FROM tasks WHERE session_id=? AND status IN ('running','needs_manual') ORDER BY updated_at LIMIT 1").get(sessionId) as Record<string, unknown> | undefined;
     const evidenceCounts = this.db.prepare(`
-      SELECT COUNT(*) AS total,COUNT(DISTINCT key_path) AS unique_keys
+      SELECT
+        COUNT(*) AS total,
+        COUNT(DISTINCT key_path) AS captured_keys,
+        COUNT(*) - COUNT(DISTINCT task_id || ':' || COALESCE(screenshot_sha256,id)) AS duplicate_hashes
       FROM evidence WHERE session_id=?
-    `).get(sessionId) as { total: number; unique_keys: number };
-    const screenshotCount = Number(evidenceCounts.total);
-    const uniqueScreenshotCount = Number(evidenceCounts.unique_keys);
-    const duplicateEvidenceCount = Math.max(0, screenshotCount - uniqueScreenshotCount);
+    `).get(sessionId) as { total: number; captured_keys: number; duplicate_hashes: number };
+    const evidenceCount = Number(evidenceCounts.total);
+    const capturedKeyCount = Number(evidenceCounts.captured_keys);
+    const historicalEvidenceCount = Math.max(0, evidenceCount - capturedKeyCount);
+    const duplicateHashCount = Math.max(0, Number(evidenceCounts.duplicate_hashes));
     const coveragePercent = counts.total === 0 ? 100 : Number(((counts.captured / counts.total) * 100).toFixed(2));
     const manualPercent = counts.total === 0 ? 0 : Number(((counts.needs_manual / counts.total) * 100).toFixed(2));
     const automaticProcessed = Math.max(0, counts.total - counts.pending - counts.running);
@@ -557,9 +646,16 @@ export class StateStore {
     return {
       ...session,
       counts,
-      screenshotCount,
-      uniqueScreenshotCount,
-      duplicateEvidenceCount,
+      evidenceCount,
+      capturedKeyCount,
+      historicalEvidenceCount,
+      duplicateHashCount,
+      // Backward-compatible aliases for v0.3.x clients. These now describe
+      // actual content identity instead of treating every historical state as
+      // a duplicate.
+      screenshotCount: evidenceCount,
+      uniqueScreenshotCount: capturedKeyCount,
+      duplicateEvidenceCount: duplicateHashCount,
       coveragePercent,
       manualPercent,
       exportReady: counts.pending === 0 && counts.running === 0,
@@ -719,8 +815,13 @@ export class StateStore {
     };
   }
 
-  private hydrateTask(row: Record<string, unknown>): StoredTask {
-    const occurrences = (this.db.prepare("SELECT data_json FROM occurrences WHERE project_id=? AND key_path=?").all(row.project_id as string, row.key_path as string) as Array<{ data_json: string }>).map((item) => parseJson<Record<string, unknown>>(item.data_json, {}));
+  private hydrateTask(
+    row: Record<string, unknown>,
+    prefetchedOccurrences?: ReadonlyMap<string, Array<Record<string, unknown>>>,
+  ): StoredTask {
+    const occurrences = prefetchedOccurrences?.get(String(row.key_path)) ??
+      (this.db.prepare("SELECT data_json FROM occurrences WHERE project_id=? AND key_path=?").all(row.project_id as string, row.key_path as string) as Array<{ data_json: string }>)
+        .map((item) => parseJson<Record<string, unknown>>(item.data_json, {}));
     const routeHints = occurrences.flatMap((item) => Array.isArray(item.routeHints) ? item.routeHints : []);
     const actionHints = occurrences.flatMap((item) => Array.isArray(item.actionHints) ? item.actionHints : []);
     return {
@@ -738,6 +839,25 @@ export class StateStore {
       lastError: typeof row.last_error === "string" ? row.last_error : undefined,
       plan: parseJson(row.plan_json, undefined),
     };
+  }
+
+  private hydrateTasks(rows: Array<Record<string, unknown>>): StoredTask[] {
+    if (rows.length === 0) return [];
+    const projectId = String(rows[0]!.project_id);
+    const keyPaths = [...new Set(rows.map((row) => String(row.key_path)))];
+    const occurrenceRows = this.db.prepare(`
+      SELECT key_path,data_json
+      FROM occurrences
+      WHERE project_id=? AND key_path IN (${keyPaths.map(() => "?").join(",")})
+      ORDER BY key_path
+    `).all(projectId, ...keyPaths) as Array<{ key_path: string; data_json: string }>;
+    const occurrencesByKey = new Map<string, Array<Record<string, unknown>>>();
+    for (const occurrence of occurrenceRows) {
+      const values = occurrencesByKey.get(occurrence.key_path) ?? [];
+      values.push(parseJson<Record<string, unknown>>(occurrence.data_json, {}));
+      occurrencesByKey.set(occurrence.key_path, values);
+    }
+    return rows.map((row) => this.hydrateTask(row, occurrencesByKey));
   }
 
   submitPlan(taskId: string, plan: unknown): void {
@@ -797,6 +917,7 @@ export class StateStore {
       skippedNonVisual: [],
       needsManual: [],
     };
+    const hasUnresolvedDynamic = Number(this.session(sessionId)?.has_unresolved_dynamic ?? 0) === 1;
 
     this.transaction(() => {
       const update = this.db.prepare(
@@ -806,10 +927,12 @@ export class StateStore {
         const noSource = task.occurrences.length === 0;
         const nonVisualOnly =
           !noSource && task.occurrences.every((occurrence) => isNonVisualOccurrence(occurrence));
-        const nextStatus: TaskStatus = noSource || nonVisualOnly ? "skipped" : "needs_manual";
+        const nextStatus: TaskStatus = (noSource && !hasUnresolvedDynamic) || nonVisualOnly
+          ? "skipped"
+          : "needs_manual";
         const nextStage = nextStatus === "needs_manual" ? "manual" : task.stage;
         const reason = noSource
-          ? "no_source_occurrence"
+          ? hasUnresolvedDynamic ? "unresolved_dynamic_source" : "no_source_occurrence"
           : nonVisualOnly
             ? "non_visual_source_only"
             : "assisted_manual_fallback";
@@ -843,7 +966,7 @@ export class StateStore {
       if (evidence.key !== task.keyPath) {
         throw new Error(`Evidence key ${evidence.key} does not match task key ${task.keyPath}`);
       }
-      const gradeRank = evidence.evidenceGrade === "A" ? 3 : evidence.evidenceGrade === "B" ? 2 : 1;
+      const gradeRank = evidenceGradeRank(evidence.evidenceGrade);
       const requiredRank = evidence.source === "deterministic" ? 3 : evidence.source === "agent" ? 2 : 1;
       if (gradeRank < requiredRank) {
         throw new Error(
@@ -854,22 +977,39 @@ export class StateStore {
       }
       const session = this.session(task.sessionId);
       if (!session || session.status !== "running") throw new Error(`会话已结束，不能写入截图证据：${task.sessionId}`);
-      const existing = this.db.prepare(
-        "SELECT id,data_json FROM evidence WHERE session_id=? AND task_id=? AND key_path=? ORDER BY captured_at DESC, rowid DESC LIMIT 1",
-      ).get(task.sessionId, taskId, task.keyPath) as { id: string; data_json: string } | undefined;
-      const existingSha = existing ? parseJson<{ screenshotSha256?: string }>(existing.data_json, {}).screenshotSha256 : undefined;
-      const isDuplicateContent = Boolean(
-        existing && existingSha && evidence.screenshotSha256 && existingSha === evidence.screenshotSha256,
-      );
-      if (isDuplicateContent) {
-        // The same key rendered identical pixels (for example a re-check after
-        // scrolling); refresh the row instead of recording duplicate evidence.
-        id = existing!.id;
-        this.db.prepare("UPDATE evidence SET source=?,screenshot_path=?,route=?,data_json=?,captured_at=? WHERE id=?")
-          .run(evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt, existing!.id);
+      const existing = this.db.prepare(`
+        SELECT id,source,screenshot_path,evidence_grade,data_json,captured_at
+        FROM evidence
+        WHERE session_id=? AND task_id=? AND screenshot_sha256=?
+        LIMIT 1
+      `).get(task.sessionId, taskId, evidence.screenshotSha256) as {
+        id: string; source: string; screenshot_path: string; evidence_grade: string | null;
+        data_json: string; captured_at: string
+      } | undefined;
+      if (existing) {
+        id = existing.id;
+        // Identical pixels are one piece of evidence. Only replace its
+        // provenance when the new observation is at least as strong, so a
+        // later manual observation cannot downgrade deterministic A evidence.
+        if (gradeRank >= evidenceGradeRank(existing.evidence_grade)) {
+          this.db.prepare(`
+            UPDATE evidence
+            SET source=?,screenshot_path=?,screenshot_sha256=?,evidence_grade=?,route=?,data_json=?,captured_at=?
+            WHERE id=?
+          `).run(
+            evidence.source,
+            evidence.screenshotPath,
+            evidence.screenshotSha256,
+            evidence.evidenceGrade ?? "C",
+            evidence.route,
+            JSON.stringify(evidence),
+            evidence.capturedAt,
+            existing.id,
+          );
+        }
       } else {
-        this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?)")
-          .run(id, task.sessionId, taskId, task.keyPath, evidence.source, evidence.screenshotPath, evidence.route, JSON.stringify(evidence), evidence.capturedAt);
+        this.db.prepare("INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,screenshot_sha256,evidence_grade,route,data_json,captured_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id, task.sessionId, taskId, task.keyPath, evidence.source, evidence.screenshotPath, evidence.screenshotSha256, evidence.evidenceGrade ?? "C", evidence.route, JSON.stringify(evidence), evidence.capturedAt);
       }
       const now = new Date().toISOString();
       this.db.prepare("UPDATE tasks SET status='captured',last_error=NULL,updated_at=? WHERE id=?").run(now, taskId);
@@ -934,9 +1074,20 @@ export class StateStore {
   listTasks(sessionId: string, statuses?: TaskStatus[], limit = 500): StoredTask[] {
     const bounded = Math.max(1, Math.min(limit, 2_000));
     const rows = statuses?.length
-      ? this.db.prepare(`SELECT id FROM tasks WHERE session_id=? AND status IN (${statuses.map(() => "?").join(",")}) ORDER BY updated_at,key_path LIMIT ?`).all(sessionId, ...statuses, bounded)
-      : this.db.prepare("SELECT id FROM tasks WHERE session_id=? ORDER BY updated_at,key_path LIMIT ?").all(sessionId, bounded);
-    return (rows as Array<{ id: string }>).map((row) => this.task(row.id)).filter((task): task is StoredTask => Boolean(task));
+      ? this.db.prepare(`
+          SELECT t.*,k.chinese,k.relative_file,s.project_id
+          FROM tasks t JOIN sessions s ON s.id=t.session_id
+          JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
+          WHERE t.session_id=? AND t.status IN (${statuses.map(() => "?").join(",")})
+          ORDER BY t.updated_at,t.key_path LIMIT ?
+        `).all(sessionId, ...statuses, bounded)
+      : this.db.prepare(`
+          SELECT t.*,k.chinese,k.relative_file,s.project_id
+          FROM tasks t JOIN sessions s ON s.id=t.session_id
+          JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
+          WHERE t.session_id=? ORDER BY t.updated_at,t.key_path LIMIT ?
+        `).all(sessionId, bounded);
+    return this.hydrateTasks(rows as Array<Record<string, unknown>>);
   }
 
   taskPage(sessionId: string, statuses?: TaskStatus[], afterKey?: string, limit = 500): TaskPage {
@@ -947,29 +1098,30 @@ export class StateStore {
     if (afterKey) parameters.push(afterKey);
     parameters.push(bounded + 1);
     const rows = this.db.prepare(`
-      SELECT t.id,t.key_path
-      FROM tasks t
+      SELECT t.*,k.chinese,k.relative_file,s.project_id
+      FROM tasks t JOIN sessions s ON s.id=t.session_id
+      JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
       WHERE t.session_id=?${statusClause}${cursorClause}
       ORDER BY t.key_path
       LIMIT ?
-    `).all(...parameters) as Array<{ id: string; key_path: string }>;
+    `).all(...parameters) as Array<Record<string, unknown>>;
     const hasMore = rows.length > bounded;
     const pageRows = hasMore ? rows.slice(0, bounded) : rows;
-    const items = pageRows.map((row) => this.task(row.id)).filter((task): task is StoredTask => Boolean(task));
+    const items = this.hydrateTasks(pageRows);
     return {
       items,
-      nextAfterKey: hasMore ? pageRows.at(-1)?.key_path ?? null : null,
+      nextAfterKey: hasMore ? String(pageRows.at(-1)?.key_path ?? "") || null : null,
       hasMore,
     };
   }
 
   listEvidence(sessionId: string, limit = 500): Array<Record<string, unknown>> {
-    return (this.db.prepare("SELECT id,task_id,key_path,source,screenshot_path,route,data_json,captured_at FROM evidence WHERE session_id=? ORDER BY captured_at DESC LIMIT ?").all(sessionId, Math.max(1, Math.min(limit, 2_000))) as Array<Record<string, unknown>>)
+    return (this.db.prepare("SELECT id,task_id,key_path,source,screenshot_path,screenshot_sha256,evidence_grade,route,data_json,captured_at FROM evidence WHERE session_id=? ORDER BY captured_at DESC LIMIT ?").all(sessionId, Math.max(1, Math.min(limit, 2_000))) as Array<Record<string, unknown>>)
       .map((row) => ({ ...row, data: parseJson(row.data_json, {}) }));
   }
 
   evidence(evidenceId: string): Record<string, unknown> | undefined {
-    return this.db.prepare("SELECT id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at FROM evidence WHERE id=?").get(evidenceId) as Record<string, unknown> | undefined;
+    return this.db.prepare("SELECT id,session_id,task_id,key_path,source,screenshot_path,screenshot_sha256,evidence_grade,route,data_json,captured_at FROM evidence WHERE id=?").get(evidenceId) as Record<string, unknown> | undefined;
   }
 
   events(sessionId: string, after = 0): StoredEvent[] {

@@ -8,6 +8,10 @@ export interface SessionStatus {
   screenshotCount: number;
   uniqueScreenshotCount: number;
   duplicateEvidenceCount: number;
+  evidenceCount: number;
+  capturedKeyCount: number;
+  historicalEvidenceCount: number;
+  duplicateHashCount: number;
   coveragePercent: number;
   manualPercent: number;
   exportReady: boolean;

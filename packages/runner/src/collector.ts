@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
@@ -1254,10 +1254,13 @@ export class BrowserCollector {
     await page.waitForTimeout(50);
 
     const timestamp = new Date().toISOString().replaceAll(":", "-");
-    const screenshotPath = resolve(this.options.artifactDir, `${safeFilePart(resolvedTarget.key)}-${timestamp}.png`);
+    const temporaryScreenshotPath = resolve(
+      this.options.artifactDir,
+      `${safeFilePart(resolvedTarget.key)}-${timestamp}-${randomUUID()}.tmp.png`,
+    );
     try {
       await bounded(
-        page.screenshot({ path: screenshotPath, fullPage: false }),
+        page.screenshot({ path: temporaryScreenshotPath, fullPage: false }),
         30_000,
         `Timed out capturing screenshot for i18n key: ${resolvedTarget.key}`,
       );
@@ -1269,8 +1272,25 @@ export class BrowserCollector {
       ).catch(() => undefined);
     }
     const screenshotSha256 = createHash("sha256")
-      .update(await readFile(screenshotPath))
+      .update(await readFile(temporaryScreenshotPath))
       .digest("hex");
+    const screenshotPath = resolve(
+      this.options.artifactDir,
+      `${safeFilePart(resolvedTarget.key)}-${screenshotSha256}.png`,
+    );
+    try {
+      await rename(temporaryScreenshotPath, screenshotPath);
+    } catch (error) {
+      // On Windows rename does not replace an existing destination. Identical
+      // content already has the canonical path, so discard only the temporary
+      // file after verifying the destination exists.
+      try {
+        await access(screenshotPath);
+        await rm(temporaryScreenshotPath, { force: true });
+      } catch {
+        throw error;
+      }
+    }
     return {
       ...resolvedTarget,
       evidenceGrade: causalVerified ? "A" : resolvedTarget.evidenceGrade,

@@ -1,6 +1,6 @@
 {
   "name": "collect-i18n",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -10,13 +10,16 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm typecheck && pnpm lint:skill && pnpm lint:version",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:benchmark": "node benchmarks/vue-i18n-1000/verify-project.mjs examples/vue-i18n-translation-lab && pnpm --dir examples/vue-i18n-translation-lab run build",
     "test:watch": "vitest",
     "dev": "pnpm --filter @collect-i18n/studio dev",
     "cli": "pnpm --filter @collect-i18n/cli dev",
     "lint:skill": "node scripts/package-skill.mjs --check",
-    "package:skill": "pnpm build && pnpm --filter @collect-i18n/cli build:bundle && node scripts/package-skill.mjs"
+    "lint:version": "node scripts/check-version.mjs",
+    "package:skill": "pnpm lint:version && pnpm build && pnpm --filter @collect-i18n/cli build:bundle && node scripts/package-skill.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
