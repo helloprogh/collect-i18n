@@ -22,10 +22,15 @@ export const ProjectConfigSchema = z
         exclude: z
           .array(z.string().min(1))
           .default(['**/node_modules/**', '**/dist/**', '**/.git/**']),
+        translationCallees: z
+          .array(z.string().regex(/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u))
+          .max(50)
+          .default([]),
       })
       .default({
         include: ['src/**/*.{vue,ts,tsx,js,jsx}'],
         exclude: ['**/node_modules/**', '**/dist/**', '**/.git/**'],
+        translationCallees: [],
       }),
     locales: z
       .object({

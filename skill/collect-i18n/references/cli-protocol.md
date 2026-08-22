@@ -49,9 +49,11 @@ Status counts are authoritative:
 - `needs_agent`: tasks available to the Skill.
 - `needs_manual`: tasks handed to assisted human fallback.
 - `failed`: tasks that stopped with a recorded error.
-- `screenshotCount`: all persisted evidence records, including replacements.
-- `uniqueScreenshotCount`: distinct keys with screenshot evidence; use this for user-visible progress.
-- `duplicateEvidenceCount`: replacement evidence beyond the latest unique-key set.
+- `evidenceCount`: all persisted distinct-content evidence records.
+- `capturedKeyCount`: distinct keys with screenshot evidence; use this for user-visible progress.
+- `historicalEvidenceCount`: additional distinct UI states retained for already captured keys.
+- `duplicateHashCount`: repeated task/content hashes; normally zero because the store enforces uniqueness.
+- `screenshotCount`, `uniqueScreenshotCount`, `duplicateEvidenceCount`: compatibility aliases for evidence count, captured-key count, and duplicate-hash count.
 - `coveragePercent`: captured tasks divided by total tasks.
 - `manualPercent`: currently queued manual tasks divided by total tasks.
 - `exportReady`: deterministic work is settled, so a clean progress workbook can be delivered.
@@ -78,9 +80,9 @@ The queue prioritizes the largest reliable route batch, then retryable/source-ev
 
 Run only after `pending` and `running` are both zero, and after Agent processing is exhausted or the deadline is reached. The command settles remaining `needs_agent` tasks without creating evidence:
 
-- `skippedNoSource`: locale keys with no source occurrence (`no_source_occurrence`);
+- `skippedNoSource`: locale keys with no source occurrence when the project has no unresolved dynamic translation call (`no_source_occurrence`);
 - `skippedNonVisual`: keys whose occurrences are all `aria-*` or native-element `title` properties (`non_visual_source_only`);
-- `needsManual`: every other unresolved key (`assisted_manual_fallback`).
+- `needsManual`: unresolved dynamic-source keys (`unresolved_dynamic_source`) and every other unresolved key (`assisted_manual_fallback`).
 
 The result contains `settled`, the exact `keys` in each category, and the latest `status`. These classifications remain in SQLite/events only. Do not add status columns, notes, colors, or placeholders to the workbook.
 

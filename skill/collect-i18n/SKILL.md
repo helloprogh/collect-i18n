@@ -69,7 +69,7 @@ For each returned task:
 4. Save the JSON below `.collect-i18n/plans/`.
 5. Run `agent submit`, then `agent execute`.
 6. Accept the task only when execution returns evidence with the target key, visible rectangle, route, and screenshot path. Count checkpoint and final-state `additionalEvidence` as completed work. A successful route plan should normally remove dozens of keys; do not create separate plans for keys captured at checkpoints.
-7. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. For a `dynamic` occurrence that times out, read the expression from source; if it renders a different key than the catalog key, stop retrying immediately (finalize will classify it) — repeated re-planning of the same dead dynamic key is the largest time sink. After the second failure the service moves it to `needs_manual` and rejects further Agent execution. Never bypass that state with a saved task id.
+7. On the first failure, call `agent next` again and make one evidence-driven correction only when the task is returned. A task whose occurrences are all `dynamic` is automatically moved to `needs_manual` after its first failed execution; do not try to reopen it with a saved task id. Other tasks move to `needs_manual` after the second failure. Read dynamic expressions before planning so the single allowed attempt is source-evidenced and targets a state that can actually render the catalog key.
 
 `agent next` prioritizes the unresolved route with the largest fan-out, then an actionable anchor inside that route. Process one route plan at a time so browser state and failure evidence remain attributable. If the same route remains, make one focused follow-up plan only for states the first route plan missed; do not restart source analysis. Never alter source code to make an Agent plan succeed.
 
@@ -77,7 +77,7 @@ For each returned task:
 
 ### 3. Finalize, deliver on time, and hand off the irreducible remainder
 
-Poll `status` between tasks. When `deadlineAt` is reached, or when `agent next` returns `done`, first require `pending` and `running` to be zero, then run `finalize --session <id>` exactly once. Do not classify keys from prose or coverage targets. Keys with no source occurrence and source-only non-visual `aria-*`/native `title` keys are pre-classified as `skipped` when the session starts; finalize re-checks the same predicate and every other unresolved key becomes `needs_manual`.
+Poll `status` between tasks. When `deadlineAt` is reached, or when `agent next` returns `done`, first require `pending` and `running` to be zero, then run `finalize --session <id>` exactly once. Do not classify keys from prose or coverage targets. Keys with no source occurrence are pre-classified as `skipped` only when the project has no unresolved dynamic translation calls; otherwise they enter `needs_manual` with reason `unresolved_dynamic_source`. Source-only non-visual `aria-*`/native `title` keys remain safely skipped. Finalize re-checks the same predicates and every other unresolved key becomes `needs_manual`.
 
 After finalization, run `export` immediately even if manual items remain. Confirm finalized category counts, unique screenshot count, duplicate evidence count, coverage, manual percentage, row count, and embedded image count.
 

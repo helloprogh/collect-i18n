@@ -8,7 +8,7 @@ function config(): ProjectConfig {
     version: 1,
     projectRoot: "D:/project",
     stateDirectory: ".collect-i18n",
-    source: { include: [], exclude: [] },
+    source: { include: [], exclude: [], translationCallees: [] },
     locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
     app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
     browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },

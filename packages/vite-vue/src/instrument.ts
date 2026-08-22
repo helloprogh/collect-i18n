@@ -9,7 +9,6 @@ import {
   type ElementNode,
   type InterpolationNode,
   type RootNode,
-  type SimpleExpressionNode,
   type TemplateChildNode,
 } from '@vue/compiler-dom'
 import { parse as parseSfc, type SFCBlock } from '@vue/compiler-sfc'

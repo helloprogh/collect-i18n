@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ViteDevServer } from "vite";
 import { discoverLocaleFiles } from "@collect-i18n/analyzer";
 import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
-import { BrowserCollector, isBrowserGoneError, parseTriggerPlan, type MockRule, type TriggerPlan } from "@collect-i18n/runner";
+import { BrowserCollector, isBrowserGoneError, parseTriggerPlan, type MockRule } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
 import { preferredAgentRoute, StateStore, type TaskStatus } from "./store.js";
@@ -537,8 +537,15 @@ export class LocalService {
       return { taskId, evidenceId, evidence, additionalEvidence };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const next = task.attempts >= 1 ? "needs_manual" : "needs_agent";
-      store.markTask(taskId, next, message);
+      const dynamicOnly = task.occurrences.length > 0 && task.occurrences.every(
+        (occurrence) => typeof occurrence === "object" && occurrence !== null &&
+          "dynamic" in occurrence && (occurrence as { dynamic?: unknown }).dynamic === true,
+      );
+      const next = dynamicOnly || task.attempts >= 1 ? "needs_manual" : "needs_agent";
+      const failure = dynamicOnly
+        ? `动态 Key 已完成唯一一次自动尝试，转人工确认：${message}`
+        : message;
+      store.markTask(taskId, next, failure);
       // Failed plans are the strongest saturation signal: count partial
       // checkpoint captures so a consistently low-yield route is skipped
       // instead of grinding every anchor on it to needs_manual.

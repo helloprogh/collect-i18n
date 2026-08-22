@@ -53,7 +53,7 @@ describe("collector scheduling", () => {
       version: 1,
       projectRoot: "D:/project",
       stateDirectory: ".collect-i18n",
-      source: { include: [], exclude: [] },
+      source: { include: [], exclude: [], translationCallees: [] },
       locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
       app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
       browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
@@ -87,6 +87,62 @@ describe("collector scheduling", () => {
       "checkpoint.1",
       "checkpoint.2",
       "checkpoint.3",
+    ]);
+  });
+
+  it("moves a dynamic-only key to manual after its first failed Agent attempt", async () => {
+    const transitions: Array<{ status: string; error?: string }> = [];
+    const fakeStore = {
+      task: () => ({
+        id: "task_dynamic",
+        sessionId: "session_test",
+        keyPath: "orders.rows.249.label",
+        attempts: 0,
+        occurrences: [{ dynamic: true }],
+      }),
+      submitPlan: () => undefined,
+      markTask: (_taskId: string, status: string, error?: string) => {
+        transitions.push({ status, error });
+      },
+      taskByKey: () => undefined,
+      recordRouteCapture: () => undefined,
+    };
+    const fakeCollector = {
+      executePlan: async () => { throw new Error("target timed out"); },
+    };
+    const config = {
+      version: 1,
+      projectRoot: "D:/project",
+      stateDirectory: ".collect-i18n",
+      source: { include: [], exclude: [], translationCallees: [] },
+      locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
+      app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
+      browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
+      instrumentation: { enabled: true, devOnly: true },
+    } as ProjectConfig;
+    const service = new LocalService({ config, sessionId: "session_test", capability: "c".repeat(43) });
+    const internals = service as unknown as {
+      store: typeof fakeStore;
+      collector: () => Promise<typeof fakeCollector>;
+      executeAgent: (taskId: string, plan: unknown) => Promise<unknown>;
+      captureVisibleBatch: () => Promise<[]>;
+      runDeterministicQueue: () => Promise<void>;
+    };
+    internals.store = fakeStore;
+    internals.collector = async () => fakeCollector;
+    internals.captureVisibleBatch = async () => [];
+    internals.runDeterministicQueue = async () => undefined;
+
+    await expect(internals.executeAgent("task_dynamic", {
+      version: 1,
+      targetKey: "orders.rows.249.label",
+      steps: [{ type: "waitForKey", key: "orders.rows.249.label", timeoutMs: 100 }],
+    })).rejects.toThrow("target timed out");
+    expect(transitions).toEqual([
+      expect.objectContaining({
+        status: "needs_manual",
+        error: expect.stringContaining("唯一一次自动尝试"),
+      }),
     ]);
   });
 
@@ -155,7 +211,7 @@ describe("collector scheduling", () => {
       version: 1,
       projectRoot: "D:/project",
       stateDirectory: ".collect-i18n",
-      source: { include: [], exclude: [] },
+      source: { include: [], exclude: [], translationCallees: [] },
       locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
       app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
       browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
@@ -220,7 +276,7 @@ describe("collector scheduling", () => {
       version: 1,
       projectRoot: "D:/project",
       stateDirectory: ".collect-i18n",
-      source: { include: [], exclude: [] },
+      source: { include: [], exclude: [], translationCallees: [] },
       locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
       app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
       browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },

@@ -42,7 +42,7 @@ flowchart LR
 3. `start` 创建会话，加载目标项目自身的 Vite 配置，同时追加 Collect I18n 插件；目标源码和配置文件不落盘修改。
 4. 服务按高置信路由批量处理 `pending` 任务。能在真实页面定位 key 的任务进入 `captured`，其余进入 `needs_agent`。
 5. Skill 从 `agent next` 取得一个任务，生成版本化 TriggerPlan，经 `agent submit` 校验后由 `agent execute` 顺序执行。
-6. `start` 创建会话时即把「源码无 occurrence」与「全部 occurrence 非可视」的词条预分类为 `skipped`（带原因事件）；Agent 队列处理完后，`finalize` 对剩余未解决项做同样的保守复核：无 occurrence 或全部非可视时记为 `skipped`，其余转入 `needs_manual`。
+6. `start` 创建会话时即把「可证明无 occurrence」与「全部 occurrence 非可视」的词条预分类为 `skipped`（带原因事件）；如果项目存在未解析动态调用，无 occurrence 词条改为 `needs_manual`。Agent 队列处理完后，`finalize` 对剩余未解决项做同样的保守复核。
 7. `manual open` 打开目标路由并持续监听；人工触发真实状态后自动采集。
 8. `export` 从会话目录与证据表生成工作簿；`import` 先对照同一会话目录做 dry-run，再按授权写入 `en-us`。
 
@@ -134,9 +134,11 @@ TriggerPlan 是版本化 JSON DSL，当前只允许：
 静态扫描、Agent 返回文本或仅出现中文字符串都不能替代上述证据。Excel 中没有截图的行表示当前会话没有可嵌入证据，不代表隐藏的“待翻译”状态。
 
 `skipped` 也不会产生合成证据。当前只允许两类可审计原因：
-`no_source_occurrence`（语言包有词条但源码没有引用）和
+`no_source_occurrence`（语言包有词条、源码没有引用，且项目不存在无法解析的动态翻译调用）和
 `non_visual_source_only`（所有引用都仅服务于非可视可访问性/原生提示属性）。
-任何仍可能在界面中显示的 occurrence 都进入人工队列，避免为了降低人工比例而错误留空。
+如果扫描器发现无法映射到具体 Key 的动态调用，无 occurrence 词条以
+`unresolved_dynamic_source` 进入人工队列。任何仍可能在界面中显示的 occurrence
+都进入人工队列，避免为了降低人工比例而错误留空。
 
 ## 数据与文件写入
 

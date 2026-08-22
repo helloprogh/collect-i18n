@@ -119,9 +119,11 @@ collect-i18n status --session <session-id>
 | `needs_manual` | 等待人工兜底 |
 | `failed` | 记录了终止错误 |
 | `skipped` | 明确跳过 |
-| `screenshotCount` | 已持久化证据数 |
-| `uniqueScreenshotCount` | 已有截图的唯一 Key 数，工作台默认使用此值 |
-| `duplicateEvidenceCount` | 同一 Key 的历史替换证据数 |
+| `evidenceCount` | 已持久化的不同内容证据数 |
+| `capturedKeyCount` | 已有截图的唯一 Key 数，工作台默认使用此值 |
+| `historicalEvidenceCount` | 同一 Key 的不同界面状态历史数 |
+| `duplicateHashCount` | 重复内容哈希数；正常情况下为 0 |
+| `screenshotCount` / `uniqueScreenshotCount` / `duplicateEvidenceCount` | v0.3.x 兼容别名，分别对应上述证据数、唯一 Key 数和重复哈希数 |
 | `coveragePercent` | 已截图词条占比 |
 | `manualPercent` | 当前人工队列占比 |
 | `exportReady` | 确定性队列是否已经结束，可以交付进度 Excel |
@@ -175,9 +177,10 @@ collect-i18n agent execute --session <session-id> --task <task-id> --plan-file <
 collect-i18n finalize --session <session-id>
 ```
 
-只能在 `pending` 与 `running` 都归零后执行。会话创建时已把「无 occurrence」与「全部 occurrence 非可视」的词条预分类为 `skipped`；命令收拢仍为 `needs_agent` 的任务并复核同样的判定：
+只能在 `pending` 与 `running` 都归零后执行。会话创建时会预分类可证明的死键和非可视词条；命令收拢仍为 `needs_agent` 的任务并复核同样的判定：
 
-- 没有任何源码 occurrence 的词条记为 `skipped`，原因是 `no_source_occurrence`；
+- 没有任何源码 occurrence 且项目不存在未解析动态调用的词条记为 `skipped`，原因是 `no_source_occurrence`；
+- 项目存在未解析动态调用时，无 occurrence 词条进入 `needs_manual`，原因是 `unresolved_dynamic_source`；
 - occurrence 全部是 `aria-*` 或原生元素 `title` 的非可视词条记为 `skipped`，原因是 `non_visual_source_only`；
 - 其余词条进入 `needs_manual`，原因是 `assisted_manual_fallback`。
 
@@ -231,7 +234,8 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
   "stateDirectory": ".collect-i18n",
   "source": {
     "include": ["src/**/*.{vue,ts,tsx,js,jsx}"],
-    "exclude": ["**/node_modules/**", "**/dist/**", "**/.git/**"]
+    "exclude": ["**/node_modules/**", "**/dist/**", "**/.git/**"],
+    "translationCallees": ["translate", "i18nBridge.lookup"]
   },
   "locales": {
     "source": "zh-cn",
@@ -260,6 +264,8 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
   }
 }
 ```
+
+`source.translationCallees` 用于登记项目封装的翻译函数，按完整调用名精确匹配；内置的 `t`、`$t` 和常见 i18n 对象调用无需重复配置。未配置的普通业务函数不会被当作翻译调用。
 
 当前服务以编程方式启动 Vite；`app.devCommand`、`app.workingDirectory` 和 `app.healthPath` 会保存用于项目描述，但不是当前启动器的执行入口。0.1.0 启动器实际消费 `app.baseUrl`、`browser.headless`、`browser.viewport`、`browser.locale`、`browser.cookies`、`browser.localeCookie` 与 `browser.timeoutMs`；`instrumentation.enabled` 必须为 `true`，否则运行时采集会拒绝启动。`instrumentation.devOnly` 当前仅作为版本化配置保留。修改 `baseUrl` 时必须使用回环地址和一个空闲端口。
 

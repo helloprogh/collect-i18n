@@ -152,8 +152,12 @@ function calleeName(node: unknown): string | undefined {
   return undefined
 }
 
-function isTranslationCallee(name: string | undefined): boolean {
+function isTranslationCallee(
+  name: string | undefined,
+  configured?: ReadonlySet<string>,
+): boolean {
   if (!name) return false
+  if (configured?.has(name)) return true
   if (name === 't' || name === '$t' || name.endsWith('.$t')) return true
   if (!name.endsWith('.t')) return false
   return /(?:^|\.)(?:\$?i18n|locale|translator)(?:\.|$)/i.test(name)
@@ -218,19 +222,25 @@ function catalogTemplateCandidates(
 ): string[] {
   if (!catalogKeys?.size || quasis.length < 2) return []
   const pattern = new RegExp(`^${quasis.map(escapeRegularExpression).join('.+?')}$`, 'u')
-  return [...catalogKeys].filter((key) => pattern.test(key)).slice(0, 200)
+  // Do not truncate dynamic namespaces. A truncated expansion makes the
+  // remaining matching catalog keys look unused, which can incorrectly move
+  // renderable keys to the skipped queue. Large expansions are handled by the
+  // store's batched occurrence loading instead.
+  return [...catalogKeys].filter((key) => pattern.test(key))
 }
 
 function translationMatches(
   expression: string,
   catalogKeys?: ReadonlySet<string>,
+  translationCallees?: ReadonlySet<string>,
 ): TranslationMatch[] {
   const matches: TranslationMatch[] = []
-  const staticCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(\s*(['"`])([^'"`]*?)\2/g
+  const calleePattern = '((?:(?:[$A-Za-z_][\\w$]*)\\.)*[$A-Za-z_][\\w$]*)'
+  const staticCall = new RegExp(`(?:^|[^\\w$])${calleePattern}\\s*\\(\\s*(['"\u0060])([^'"\u0060]*?)\\2`, 'g')
   let match: RegExpExecArray | null
   while ((match = staticCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1])) continue
+    if (!isTranslationCallee(match[1], translationCallees)) continue
     if (match[2] === '`' && match[3].includes('${')) continue
     matches.push({
       keyPath: match[3],
@@ -241,10 +251,10 @@ function translationMatches(
     })
   }
 
-  const templateCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(\s*`([^`]*)`/g
+  const templateCall = new RegExp(`(?:^|[^\\w$])${calleePattern}\\s*\\(\\s*\u0060([^\u0060]*)\u0060`, 'g')
   while ((match = templateCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1]) || !match[2].includes('${')) continue
+    if (!isTranslationCallee(match[1], translationCallees) || !match[2].includes('${')) continue
     const quasis = match[2].split(/\$\{[^}]+\}/gu)
     const candidates = catalogTemplateCandidates(quasis, catalogKeys)
     if (candidates.length) {
@@ -267,10 +277,10 @@ function translationMatches(
     }
   }
 
-  const anyCall = /(?:^|[^\w$])((?:(?:[$A-Za-z_][\w$]*)\.)*\$?t)\s*\(/g
+  const anyCall = new RegExp(`(?:^|[^\\w$])${calleePattern}\\s*\\(`, 'g')
   while ((match = anyCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1])) continue
+    if (!isTranslationCallee(match[1], translationCallees)) continue
     if (matches.some((candidate) => candidate.offset === callOffset)) continue
     matches.push({
       expression: match[1],
@@ -386,6 +396,7 @@ interface TemplateScanContext {
   actionHints: ActionHint[]
   diagnostics: AnalysisDiagnostic[]
   catalogKeys?: ReadonlySet<string>
+  translationCallees?: ReadonlySet<string>
 }
 
 function templateService(expression: string):
@@ -406,7 +417,11 @@ function scanTemplateExpression(
   descriptor: { component?: string; property?: string } = {},
 ): void {
   const service = templateService(expression)
-  for (const match of translationMatches(expression, context.catalogKeys)) {
+  for (const match of translationMatches(
+    expression,
+    context.catalogKeys,
+    context.translationCallees,
+  )) {
     const location = sourceLocation(
       context.file,
       context.source,
@@ -761,6 +776,7 @@ interface ScriptScanContext {
   diagnostics: AnalysisDiagnostic[]
   occurrences: Occurrence[]
   catalogKeys?: ReadonlySet<string>
+  translationCallees?: ReadonlySet<string>
 }
 
 interface ComponentRouteLink {
@@ -1140,7 +1156,7 @@ function scanScript(
       }
     }
 
-    if (!isTranslationCallee(currentCallee)) return
+    if (!isTranslationCallee(currentCallee, context.translationCallees)) return
     const firstArgument = Array.isArray(node.arguments) ? node.arguments[0] : undefined
     const staticKeyPath = staticString(firstArgument)
     const resolvedBinding = staticKeyPath === undefined
@@ -1165,7 +1181,6 @@ function scanScript(
       ? [staticKeyPath]
       : [...new Set([...(resolvedBinding?.values ?? []), ...templateCandidates])]
           .filter(Boolean)
-          .slice(0, 200)
     const start = context.baseOffset + (node.start ?? 0)
     const end = context.baseOffset + (node.end ?? node.start ?? 0)
     const location = sourceLocation(context.file, context.source, start, end)
@@ -1267,6 +1282,7 @@ async function scanSourceFile(
   projectRoot: string,
   absoluteFile: string,
   catalogKeys?: ReadonlySet<string>,
+  translationCallees?: ReadonlySet<string>,
 ): Promise<FileScanResult> {
   const source = await readFile(absoluteFile, 'utf8')
   const file = portable(path.relative(projectRoot, absoluteFile))
@@ -1298,6 +1314,7 @@ async function scanSourceFile(
       diagnostics,
       occurrences,
       catalogKeys,
+      translationCallees,
     }
     scanScript(content, context, parserPlugins)
     if (context.routerMode === 'hash') routerMode = 'hash'
@@ -1352,6 +1369,7 @@ async function scanSourceFile(
           actionHints,
           diagnostics,
           catalogKeys,
+          translationCallees,
         })
       } catch (error) {
         diagnostics.push({
@@ -1439,6 +1457,7 @@ export interface ScanProjectSourcesOptions {
   include?: string[]
   exclude?: string[]
   catalogKeys?: string[]
+  translationCallees?: string[]
 }
 
 export async function scanProjectSources(
@@ -1447,6 +1466,9 @@ export async function scanProjectSources(
   const projectRoot = path.resolve(options.projectRoot)
   const catalogKeys = options.catalogKeys?.length
     ? new Set(options.catalogKeys)
+    : undefined
+  const translationCallees = options.translationCallees?.length
+    ? new Set(options.translationCallees)
     : undefined
   const files = await fg(
     options.include?.length
@@ -1469,7 +1491,12 @@ export async function scanProjectSources(
   )
 
   const results = await Promise.all(
-    files.sort().map((file) => scanSourceFile(projectRoot, path.resolve(file), catalogKeys)),
+    files.sort().map((file) => scanSourceFile(
+      projectRoot,
+      path.resolve(file),
+      catalogKeys,
+      translationCallees,
+    )),
   )
   const actualFileByCandidate = new Map(
     files.map((file) => [

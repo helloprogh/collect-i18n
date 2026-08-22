@@ -462,6 +462,52 @@ describe("StateStore transactions", () => {
     migratedStore.close();
   });
 
+  it("migrates legacy evidence identity columns and removes repeated hashes", async () => {
+    const projectRoot = root();
+    const legacyStore = await StateStore.open(projectRoot);
+    const projectId = legacyStore.syncProject(projectRoot, {}, analysis());
+    const sessionId = legacyStore.createSession(projectId, "http://127.0.0.1:5173");
+    const task = legacyStore.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+    legacyStore.addEvidence(task.id, evidence("agent"));
+    legacyStore.close();
+
+    const legacyDb = new DatabaseSync(join(projectRoot, ".collect-i18n", "state.sqlite"));
+    legacyDb.exec(`
+      DROP INDEX idx_evidence_task_sha;
+      ALTER TABLE evidence DROP COLUMN screenshot_sha256;
+      ALTER TABLE evidence DROP COLUMN evidence_grade;
+      ALTER TABLE projects DROP COLUMN has_unresolved_dynamic;
+    `);
+    legacyDb.prepare(`
+      INSERT INTO evidence(id,session_id,task_id,key_path,source,screenshot_path,route,data_json,captured_at)
+      VALUES(?,?,?,?,?,?,?,?,?)
+    `).run(
+      "evidence_legacy_duplicate",
+      sessionId,
+      task.id,
+      task.keyPath,
+      "manual",
+      "D:/evidence/legacy-duplicate.png",
+      "http://127.0.0.1:5173/form",
+      JSON.stringify(evidence("manual")),
+      new Date().toISOString(),
+    );
+    legacyDb.close();
+
+    const migratedStore = await StateStore.open(projectRoot);
+    expect(migratedStore.listEvidence(sessionId)).toEqual([
+      expect.objectContaining({
+        source: "agent",
+        screenshot_sha256: "0".repeat(64),
+        evidence_grade: "B",
+      }),
+    ]);
+    expect(database(migratedStore).prepare("SELECT has_unresolved_dynamic FROM projects WHERE id=?")
+      .get(projectId)).toEqual({ has_unresolved_dynamic: 0 });
+    migratedStore.close();
+  });
+
   it("rolls back the session row when task creation fails", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -575,6 +621,35 @@ describe("StateStore transactions", () => {
       .map((event) => (event.data as { reason?: string })?.reason)
       .sort();
     expect(skipReasons).toEqual(["no_source_occurrence", "non_visual_source_only", "non_visual_source_only"]);
+    store.close();
+  });
+
+  it("keeps no-source keys for manual confirmation when unresolved dynamic calls exist", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const input = analysisForKeys(["dynamic.possible", "static.known"]);
+    input.source.occurrences = input.source.occurrences.filter(
+      (occurrence) => occurrence.keyPath === "static.known",
+    );
+    input.source.diagnostics.push({
+      code: "dynamic_translation_key",
+      severity: "warning",
+      message: "dynamic",
+    });
+    const projectId = store.syncProject(projectRoot, {}, input);
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    expect(store.taskByKey(sessionId, "dynamic.possible")).toMatchObject({
+      status: "needs_manual",
+      stage: "manual",
+      lastError: expect.stringContaining("动态 i18n"),
+    });
+    expect(store.events(sessionId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "task.needs_manual",
+        data: expect.objectContaining({ reason: "unresolved_dynamic_source" }),
+      }),
+    ]));
     store.close();
   });
 
@@ -693,6 +768,10 @@ describe("StateStore transactions", () => {
       screenshotCount: 1,
       uniqueScreenshotCount: 1,
       duplicateEvidenceCount: 0,
+      evidenceCount: 1,
+      capturedKeyCount: 1,
+      historicalEvidenceCount: 0,
+      duplicateHashCount: 0,
       coveragePercent: 100,
       manualPercent: 0,
       exportReady: true,
@@ -711,8 +790,25 @@ describe("StateStore transactions", () => {
     expect(store.status(sessionId)).toMatchObject({
       screenshotCount: 2,
       uniqueScreenshotCount: 1,
-      duplicateEvidenceCount: 1,
+      duplicateEvidenceCount: 0,
+      evidenceCount: 2,
+      capturedKeyCount: 1,
+      historicalEvidenceCount: 1,
+      duplicateHashCount: 0,
     });
+
+    const repeatedFirstId = store.addEvidence(task.id, {
+      ...evidence("manual"),
+      screenshotPath: "D:/evidence/form.save-first-again.png",
+    });
+    expect(repeatedFirstId).toBe(firstId);
+    expect(store.status(sessionId)).toMatchObject({
+      evidenceCount: 2,
+      historicalEvidenceCount: 1,
+      duplicateHashCount: 0,
+    });
+    const retained = store.listEvidence(sessionId).find((item) => item.id === firstId);
+    expect(retained).toMatchObject({ source: "agent", evidence_grade: "B" });
     store.close();
   });
 
