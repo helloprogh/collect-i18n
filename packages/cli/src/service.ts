@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ViteDevServer } from "vite";
 import { discoverLocaleFiles } from "@collect-i18n/analyzer";
 import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
-import { BrowserCollector, isBrowserGoneError, parseTriggerPlan, type MockRule } from "@collect-i18n/runner";
+import { BrowserCollector, collectorErrorCode, isBrowserGoneError, parseTriggerPlan, type MockRule } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
 import { preferredAgentRoute, StateStore, type TaskStatus } from "./store.js";
@@ -38,6 +38,18 @@ interface ServiceOptions {
 const CAPABILITY_COOKIE_PREFIX = "collect_i18n_cap_";
 const MAX_PAGE_SIZE = 500;
 const taskStatuses = new Set<TaskStatus>(["pending", "running", "captured", "needs_agent", "needs_manual", "failed", "skipped"]);
+
+/**
+ * F5: surface the structured collector error code in stored failure messages
+ * (for example "[loading_overlay_persists] Loading overlay still covers ...")
+ * so operators and downstream tooling can classify retries without parsing
+ * prose. Plain errors keep their original message.
+ */
+function describeFailure(error: unknown): string {
+  const code = collectorErrorCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return code ? `[${code}] ${message}` : message;
+}
 
 class InvalidQueryParameterError extends Error {
   readonly code = "invalid_query_parameter";
@@ -348,6 +360,9 @@ export class LocalService {
       // from the source locale after the profile was first provisioned.
       localeCookie: config.browser.localeCookie,
       channel: "chrome",
+      extraLoadingSelectors: config.browser.loadingSelectors,
+      loadingCropMarginPx: config.browser.loadingCropMarginPx,
+      loadingClearWaitMs: config.browser.loadingClearWaitMs,
     });
     await collector.start();
     if (this.stopping) {
@@ -485,7 +500,7 @@ export class LocalService {
                   store.markTask(task.id, "pending", "Deterministic capture was interrupted");
                   break;
                 }
-                store.markTask(task.id, "needs_agent", error instanceof Error ? error.message : String(error));
+                store.markTask(task.id, "needs_agent", describeFailure(error));
               }
             }
           }));
@@ -543,8 +558,8 @@ export class LocalService {
       );
       const next = dynamicOnly || task.attempts >= 1 ? "needs_manual" : "needs_agent";
       const failure = dynamicOnly
-        ? `动态 Key 已完成唯一一次自动尝试，转人工确认：${message}`
-        : message;
+        ? `动态 Key 已完成唯一一次自动尝试，转人工确认：${describeFailure(error)}`
+        : describeFailure(error);
       store.markTask(taskId, next, failure);
       // Failed plans are the strongest saturation signal: count partial
       // checkpoint captures so a consistently low-yield route is skipped
@@ -683,7 +698,7 @@ export class LocalService {
         if (!/timed out|timeout/i.test(message)) {
           // Navigation can briefly replace the execution context; keep the
           // listener alive, but retain the latest diagnostic for the operator.
-          this.store?.markTask(taskId, "needs_manual", message);
+          this.store?.markTask(taskId, "needs_manual", describeFailure(error));
         }
       }
       await new Promise((done) => setTimeout(done, 150));

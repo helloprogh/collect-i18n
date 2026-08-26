@@ -1,0 +1,47 @@
+{
+  "title": "商品中心",
+  "subtitle": "自定义 spinner + el-select 筛选,触发 800ms 加载遮罩;错误按钮打 /api/boom",
+  "toolbar": {
+    "refresh": "刷新商品",
+    "triggerError": "触发接口错误"
+  },
+  "filter": {
+    "label": "商品分类",
+    "placeholder": "请选择分类"
+  },
+  "columns": {
+    "name": "商品名称",
+    "category": "分类",
+    "price": "单价",
+    "stock": "库存",
+    "online": "上架状态",
+    "actions": "操作"
+  },
+  "status": {
+    "online": "已上架",
+    "offline": "已下架"
+  },
+  "state": {
+    "loading": "商品加载中…",
+    "empty": "该分类下暂无商品",
+    "error": "商品加载失败:{code}",
+    "loaded": "共 {total} 件商品"
+  },
+  "boom": {
+    "error": "接口异常:{code}",
+    "detail": "后端返回:{message}",
+    "requestId": "请求号 {requestId}"
+  },
+  "stock": {
+    "low": "库存紧张",
+    "ok": "库存充足",
+    "empty": "无库存"
+  },
+  "aria": {
+    "refresh": "刷新商品列表",
+    "triggerError": "触发 /api/boom 错误接口"
+  },
+  "nonVisual": {
+    "tableTitle": "商品列表表格"
+  }
+}

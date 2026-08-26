@@ -1,0 +1,9 @@
+{
+  "name": "@collect-i18n/skill-cli",
+  "version": "0.3.14",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "title": "经营数据看板",
+  "subtitle": "指标来自 GET /api/dashboard,动态词条按指标 key 生成",
+  "refresh": "刷新指标",
+  "lastUpdated": "数据更新时间 {time}",
+  "loading": "指标加载中…",
+  "metric": {
+    "revenue": "今日营收",
+    "orders": "今日订单",
+    "users": "活跃用户",
+    "conversion": "转化率",
+    "refundRate": "退款率"
+  },
+  "aria": {
+    "refresh": "重新拉取指标数据"
+  }
+}

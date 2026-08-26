@@ -1,0 +1,19 @@
+# dsh-collect-i18n bundle patch: mounts the collect-i18n plugin into the
+# host composition of a dsh profile. The plugin registers its collect_i18n_*
+# tools into the shared tools registry and one usage section into the global
+# system prompt, so every session of the profile can drive i18n screenshot
+# collection, Excel export/import, and the whole collect-i18n CLI protocol
+# through natural language.
+#
+# Install: dsh plugin --profile <name> add <this package> (npm name or a
+# local absolute path). The dsh plugin command pnpm-installs the package into
+# the profile and reconciles it into the profile's dsh.profile.bundles list.
+- insert:
+    - id: collect-i18n
+      # Node-resolvable package name -- must stay in sync with package.json
+      # 'name'. Quoted because '@' is a reserved indicator in YAML.
+      name: '@collect-i18n/dsh-plugin'
+      config:
+        # Absolute path to cli/bootstrap.mjs; empty = bundled engine inside
+        # this package. Useful to point at a repo checkout while developing.
+        cliPath: ''

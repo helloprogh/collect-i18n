@@ -1,0 +1,53 @@
+{
+  "title": "Messages",
+  "subtitle": "ElMessage / ElNotification / ElMessageBox / message-style loading demos",
+  "buttons": {
+    "success": "Success Message",
+    "warning": "Warning Message",
+    "error": "Error Message",
+    "info": "Info Message",
+    "notification": "Desktop Notification",
+    "alert": "Alert Box",
+    "confirm": "Confirm Box",
+    "prompt": "Prompt Box",
+    "loading": "Message Loading (1.2s)"
+  },
+  "msg": {
+    "success": "This is a success message",
+    "warning": "This is a warning message",
+    "error": "This is an error message",
+    "info": "This is an info message"
+  },
+  "notification": {
+    "title": "System Notice",
+    "message": "You have a new todo to handle.",
+    "close": "Got it"
+  },
+  "alert": {
+    "title": "Hint",
+    "message": "This is an alert box demo message.",
+    "ok": "OK"
+  },
+  "confirm": {
+    "title": "Please Confirm",
+    "message": "Proceed with this action?",
+    "ok": "Proceed",
+    "cancel": "Cancel",
+    "success": "Confirmed",
+    "cancelled": "Action cancelled"
+  },
+  "prompt": {
+    "title": "Please Input",
+    "message": "Enter your note:",
+    "placeholder": "Note content",
+    "ok": "Submit",
+    "cancel": "Cancel",
+    "success": "You entered: {value}"
+  },
+  "loading": {
+    "message": "Processing, please wait…"
+  },
+  "aria": {
+    "sectionTitle": "Message center actions"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "product": "API 实验台",
+  "title": "接口·哈希路由·加载遮罩示例",
+  "switchLocale": "Switch to English",
+  "localeLabel": "语言",
+  "nav": {
+    "dashboard": "数据看板",
+    "orders": "订单管理",
+    "products": "商品中心",
+    "messages": "消息中心",
+    "settings": "系统设置",
+    "login": "登录"
+  },
+  "userMenu": {
+    "label": "账户",
+    "settings": "偏好设置",
+    "logout": "退出登录"
+  },
+  "footer": {
+    "copyright": "© 2026 API Hash Lab",
+    "version": "示例版本 0.1.0"
+  }
+}

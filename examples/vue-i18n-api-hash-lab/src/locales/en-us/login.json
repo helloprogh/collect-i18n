@@ -1,0 +1,23 @@
+{
+  "title": "Sign In",
+  "subtitle": "POST /api/login, button loading and failure toast",
+  "username": "Username",
+  "usernamePlaceholder": "Enter username",
+  "password": "Password",
+  "passwordPlaceholder": "Enter password (at least 6 chars)",
+  "submit": "Sign In",
+  "submitting": "Signing in…",
+  "success": "Welcome back, {username}!",
+  "failed": "Sign in failed: {code}",
+  "tip": "Any username + password of 6+ characters signs in successfully",
+  "forgot": "Forgot password?",
+  "aria": {
+    "username": "Username input",
+    "password": "Password input",
+    "submit": "Sign in button"
+  },
+  "validation": {
+    "usernameRequired": "Please enter username",
+    "passwordRequired": "Please enter password"
+  }
+}

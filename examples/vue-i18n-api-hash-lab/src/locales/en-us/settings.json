@@ -1,0 +1,36 @@
+{
+  "title": "Settings",
+  "subtitle": "el-form validation (required/email/minLength), with aria-label and native title non-visual keys",
+  "form": {
+    "name": "Username",
+    "namePlaceholder": "Enter username",
+    "email": "Email",
+    "emailPlaceholder": "Enter email address",
+    "password": "Password",
+    "passwordPlaceholder": "At least 6 characters",
+    "save": "Save Settings",
+    "saveSuccess": "Settings saved",
+    "saveFail": "Save failed, try again"
+  },
+  "validation": {
+    "nameRequired": "Please enter username",
+    "emailRequired": "Please enter email",
+    "emailInvalid": "Invalid email format",
+    "passwordRequired": "Please enter password",
+    "passwordMinLength": "Password must be at least {min} characters"
+  },
+  "lang": {
+    "label": "Interface language",
+    "hint": "Language switch takes effect via cookie"
+  },
+  "aria": {
+    "name": "Username input",
+    "email": "Email input",
+    "password": "Password input",
+    "save": "Save settings button"
+  },
+  "nonVisual": {
+    "hint": "This area carries explanatory text via native title attributes",
+    "themeTitle": "Theme appearance note"
+  }
+}

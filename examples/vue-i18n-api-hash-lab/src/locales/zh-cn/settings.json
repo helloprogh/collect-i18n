@@ -1,0 +1,36 @@
+{
+  "title": "系统设置",
+  "subtitle": "el-form 校验(required/email/minLength),含 aria-label 与原生 title 非可视词条",
+  "form": {
+    "name": "用户名",
+    "namePlaceholder": "请输入用户名",
+    "email": "邮箱",
+    "emailPlaceholder": "请输入邮箱地址",
+    "password": "密码",
+    "passwordPlaceholder": "至少 6 位密码",
+    "save": "保存设置",
+    "saveSuccess": "设置已保存",
+    "saveFail": "保存失败,请重试"
+  },
+  "validation": {
+    "nameRequired": "请输入用户名",
+    "emailRequired": "请输入邮箱",
+    "emailInvalid": "邮箱格式不正确",
+    "passwordRequired": "请输入密码",
+    "passwordMinLength": "密码长度不能少于 {min} 位"
+  },
+  "lang": {
+    "label": "界面语言",
+    "hint": "语言切换通过 Cookie 生效"
+  },
+  "aria": {
+    "name": "用户名输入框",
+    "email": "邮箱输入框",
+    "password": "密码输入框",
+    "save": "保存设置按钮"
+  },
+  "nonVisual": {
+    "hint": "此区域使用原生 title 属性承载说明文字",
+    "themeTitle": "主题外观说明"
+  }
+}

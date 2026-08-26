@@ -1,0 +1,23 @@
+{
+  "title": "登录",
+  "subtitle": "POST /api/login,按钮 loading 与失败提示",
+  "username": "账号",
+  "usernamePlaceholder": "请输入账号",
+  "password": "密码",
+  "passwordPlaceholder": "请输入密码(至少 6 位)",
+  "submit": "登 录",
+  "submitting": "登录中…",
+  "success": "登录成功,欢迎回来 {username}!",
+  "failed": "登录失败:{code}",
+  "tip": "任意账号 + 6 位以上密码可登录成功",
+  "forgot": "忘记密码?",
+  "aria": {
+    "username": "账号输入框",
+    "password": "密码输入框",
+    "submit": "登录按钮"
+  },
+  "validation": {
+    "usernameRequired": "请输入账号",
+    "passwordRequired": "请输入密码"
+  }
+}

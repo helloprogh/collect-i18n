@@ -1,0 +1,17 @@
+{
+  "title": "Operations Dashboard",
+  "subtitle": "Metrics come from GET /api/dashboard; dynamic keys follow each metric key",
+  "refresh": "Refresh Metrics",
+  "lastUpdated": "Updated at {time}",
+  "loading": "Loading metrics…",
+  "metric": {
+    "revenue": "Revenue Today",
+    "orders": "Orders Today",
+    "users": "Active Users",
+    "conversion": "Conversion Rate",
+    "refundRate": "Refund Rate"
+  },
+  "aria": {
+    "refresh": "Reload metric data"
+  }
+}

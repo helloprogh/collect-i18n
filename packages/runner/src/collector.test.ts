@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { LOADING_INDICATOR_SELECTORS, captureMarkerSpec, clickResolvedLocator, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, markerTolerantRegExp, resolveProjectUrl, stripInlineMarkers } from "./collector.js";
+import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, stripInlineMarkers } from "./collector.js";
 
 describe("isBrowserGoneError", () => {
   it("detects crashed-browser Playwright errors", () => {
@@ -226,6 +226,122 @@ describe("loading indicator detection", () => {
   it("exposes the shared selector list used by the collector", () => {
     expect(LOADING_INDICATOR_SELECTORS).toContain(".el-loading-mask");
     expect(LOADING_INDICATOR_SELECTORS).toContain(".el-skeleton");
+    expect(LOADING_INDICATOR_SELECTORS).toContain(".n-spin-body");
+    expect(LOADING_INDICATOR_SELECTORS).toContain(".arco-spin-mask");
+    expect(LOADING_INDICATOR_SELECTORS).toContain("#nprogress");
     expect(LOADING_INDICATOR_SELECTORS).toContain("[data-collect-i18n-loading]");
   });
 });
+describe("F1: configurable loading selectors", () => {
+  it("keeps the built-in list as the default", () => {
+    expect(mergedLoadingSelectors()).toEqual(LOADING_INDICATOR_SELECTOR_LIST);
+  });
+
+  it("appends project selectors without losing built-ins", () => {
+    expect(mergedLoadingSelectors([".custom-spinner", " .table-loading "])).toEqual([
+      ...LOADING_INDICATOR_SELECTOR_LIST,
+      ".custom-spinner",
+      ".table-loading",
+    ]);
+    expect(mergedLoadingSelectors([""])).toEqual(LOADING_INDICATOR_SELECTOR_LIST);
+  });
+});
+
+describe("F3: multi-point sampling geometry", () => {
+  const viewport = { width: 1440, height: 900 };
+
+  it("samples the center plus the four corner pixels of the target", () => {
+    const points = loadingSamplePoints({ x: 100, y: 50, width: 200, height: 100 }, viewport);
+    expect(points).toHaveLength(5);
+    expect(points[0]).toEqual({ x: 200, y: 100 });
+    const corners = points.slice(1).sort((a, b) => a.x - b.x || a.y - b.y);
+    expect(corners).toEqual([
+      { x: 100, y: 50 },
+      { x: 100, y: 149 },
+      { x: 299, y: 50 },
+      { x: 299, y: 149 },
+    ]);
+  });
+
+  it("clamps viewport-edge rectangles and falls back to the center", () => {
+    const points = loadingSamplePoints({ x: -20, y: -10, width: 10, height: 10 }, viewport);
+    expect(points.length).toBeGreaterThan(0);
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+    }
+    expect(loadingSamplePoints({ x: 0, y: 0, width: 1, height: 1 }, viewport)).toEqual([{ x: 0, y: 0 }]);
+  });
+});
+
+describe("F3: target blocked any-hit rule", () => {
+  it("blocks as soon as a single sampled point is covered", () => {
+    expect(computeTargetBlocked(0, 5)).toBe(false);
+    expect(computeTargetBlocked(1, 5)).toBe(true);
+    expect(computeTargetBlocked(3, 5)).toBe(true);
+  });
+
+  it("never blocks an unsampled target", () => {
+    expect(computeTargetBlocked(1, 0)).toBe(false);
+  });
+});
+
+describe("F2: crop fallback geometry", () => {
+  const viewport = { width: 1440, height: 900 };
+
+  it("inflates the target rect by the 48px default margin", () => {
+    expect(cropClipForTarget({ x: 100, y: 50, width: 200, height: 100 }, viewport)).toEqual({
+      x: 52,
+      y: 2,
+      width: 296,
+      height: 196,
+    });
+    expect(cropClipForTarget({ x: 100, y: 50, width: 200, height: 100 }, viewport, 0)).toEqual({
+      x: 100,
+      y: 50,
+      width: 200,
+      height: 100,
+    });
+  });
+
+  it("clamps to the viewport and keeps a minimum size", () => {
+    const clip = cropClipForTarget({ x: 1400, y: 850, width: 200, height: 100 }, viewport);
+    expect(clip.x + clip.width).toBeLessThanOrEqual(1440);
+    expect(clip.y + clip.height).toBeLessThanOrEqual(900);
+    expect(clip.width).toBeGreaterThanOrEqual(1);
+    expect(clip.height).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("F5: structured collector errors", () => {
+  it("carries a machine-readable code and details", () => {
+    const error = new CollectorError(
+      "loading_overlay_timeout",
+      "Loading overlay still covers target dashboard.title; skipping to avoid a spinner screenshot",
+      { key: "dashboard.title" },
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("CollectorError");
+    expect(error.code).toBe("loading_overlay_timeout");
+    expect(error.details).toEqual({ key: "dashboard.title" });
+    expect(error.message).toContain("Loading overlay still covers target");
+  });
+
+  it("classifies only CollectorError instances", () => {
+    expect(collectorErrorCode(new CollectorError("key_not_found", "Timed out waiting for i18n key: x", { key: "x" })))
+      .toBe("key_not_found");
+    expect(collectorErrorCode(new Error("Timed out waiting for i18n key: x"))).toBeUndefined();
+    expect(collectorErrorCode("loading_overlay_timeout")).toBeUndefined();
+  });
+
+  it("keeps origin-navigation failures code-tagged without breaking the message contract", () => {
+    try {
+      resolveProjectUrl("https://evil.example/x", { baseUrl: "http://127.0.0.1:5173/" });
+      expect.unreachable("cross-origin navigation should throw");
+    } catch (error) {
+      expect((error as Error).message).toMatch(/outside project origin/);
+      expect(collectorErrorCode(error)).toBe("navigation_out_of_origin");
+    }
+  });
+});
+

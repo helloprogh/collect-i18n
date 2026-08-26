@@ -1,0 +1,53 @@
+{
+  "title": "消息中心",
+  "subtitle": "ElMessage / ElNotification / ElMessageBox / 消息型 loading 演练",
+  "buttons": {
+    "success": "成功消息",
+    "warning": "警告消息",
+    "error": "错误消息",
+    "info": "信息消息",
+    "notification": "桌面通知",
+    "alert": "Alert 弹框",
+    "confirm": "Confirm 确认",
+    "prompt": "Prompt 输入",
+    "loading": "消息型 loading(1.2s)"
+  },
+  "msg": {
+    "success": "这是一条成功消息",
+    "warning": "这是一条警告消息",
+    "error": "这是一条错误消息",
+    "info": "这是一条信息消息"
+  },
+  "notification": {
+    "title": "系统通知",
+    "message": "您有一条新的待办事项需要处理。",
+    "close": "知道了"
+  },
+  "alert": {
+    "title": "操作提示",
+    "message": "这是一段 Alert 弹框演示文案。",
+    "ok": "确定"
+  },
+  "confirm": {
+    "title": "请确认",
+    "message": "确认执行该操作吗?",
+    "ok": "确认执行",
+    "cancel": "取消",
+    "success": "已确认执行",
+    "cancelled": "已取消操作"
+  },
+  "prompt": {
+    "title": "请输入",
+    "message": "请输入您的备注信息:",
+    "placeholder": "备注内容",
+    "ok": "提交",
+    "cancel": "取消",
+    "success": "您输入了:{value}"
+  },
+  "loading": {
+    "message": "正在处理,请稍候…"
+  },
+  "aria": {
+    "sectionTitle": "消息中心操作区"
+  }
+}

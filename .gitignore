@@ -9,4 +9,6 @@ coverage/
 .vscode/
 .tools/
 release/*.zip
+release/*.tgz
 packages/cli/bundle/
+.agent-teams/

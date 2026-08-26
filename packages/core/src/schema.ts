@@ -80,6 +80,12 @@ export const ProjectConfigSchema = z
           .strict()
           .optional(),
         timeoutMs: z.number().int().positive().default(15_000),
+        loadingSelectors: z
+          .array(z.string().min(1).max(200))
+          .max(50)
+          .optional(),
+        loadingCropMarginPx: z.number().int().min(0).max(500).optional(),
+        loadingClearWaitMs: z.number().int().positive().optional(),
       })
       .default({
         headless: true,

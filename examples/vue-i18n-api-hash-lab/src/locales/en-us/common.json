@@ -1,0 +1,23 @@
+{
+  "product": "API Playground",
+  "title": "Interface · Hash Router · Loading Overlay Demo",
+  "switchLocale": "切换为中文",
+  "localeLabel": "Language",
+  "nav": {
+    "dashboard": "Dashboard",
+    "orders": "Orders",
+    "products": "Products",
+    "messages": "Messages",
+    "settings": "Settings",
+    "login": "Login"
+  },
+  "userMenu": {
+    "label": "Account",
+    "settings": "Preferences",
+    "logout": "Sign Out"
+  },
+  "footer": {
+    "copyright": "© 2026 API Hash Lab",
+    "version": "Demo v0.1.0"
+  }
+}

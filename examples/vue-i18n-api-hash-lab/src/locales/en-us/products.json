@@ -1,0 +1,47 @@
+{
+  "title": "Products",
+  "subtitle": "Custom spinner + el-select filter triggers an 800ms overlay; error button hits /api/boom",
+  "toolbar": {
+    "refresh": "Refresh Products",
+    "triggerError": "Trigger API Error"
+  },
+  "filter": {
+    "label": "Category",
+    "placeholder": "Select a category"
+  },
+  "columns": {
+    "name": "Product Name",
+    "category": "Category",
+    "price": "Price",
+    "stock": "Stock",
+    "online": "Status",
+    "actions": "Actions"
+  },
+  "status": {
+    "online": "On Sale",
+    "offline": "Off Shelf"
+  },
+  "state": {
+    "loading": "Loading products…",
+    "empty": "No products in this category",
+    "error": "Failed to load products: {code}",
+    "loaded": "{total} products"
+  },
+  "boom": {
+    "error": "API error: {code}",
+    "detail": "Backend says: {message}",
+    "requestId": "Request {requestId}"
+  },
+  "stock": {
+    "low": "Low stock",
+    "ok": "In stock",
+    "empty": "Out of stock"
+  },
+  "aria": {
+    "refresh": "Refresh product list",
+    "triggerError": "Trigger the /api/boom error endpoint"
+  },
+  "nonVisual": {
+    "tableTitle": "Products table"
+  }
+}

@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.3.13`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.3.14`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -28,6 +28,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 一次 Agent 或人工操作建立业务状态后，会批量采集该状态中已挂载的其他 A/B 级词条；每个词条仍单独重新定位、标记和截图。
 - Agent 按路由批量规划：返回全量 section/kind/service 统计、相关源码文件和最多 12 条代表样本，并可在一个 TriggerPlan 的多个 `capture` 检查点连续采集初始页、校验、弹窗、抽屉、表格和消息状态。
 - 语义 radio/checkbox 会自动通过可见 label 激活被组件库包装的原生控件；通常无需为 Element Plus 编写专用选择器。
+- 截图前会等待可见 loading/skeleton 遮罩清除。内置选择器：`.el-loading-mask`、`.el-loading-spinner`、`.el-skeleton`、`.el-skeleton__item`、`.el-icon.is-loading`、`.ant-spin-spinning`、`.n-spin-body`、`.arco-spin-mask`、`.arco-spin-loading`、`#nprogress` 与页面标记 `[data-collect-i18n-loading]`；项目自定义遮罩可经配置 `browser.loadingSelectors` 追加选择器。
 - 初始化会避开已占用的本机 Vite 端口；用户提供的端到端截止时间会持久化，Agent 到期后停止领取新任务并立即进入定案导出。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
 - Agent 队列结束后会进行可审计定案：可证明无源码引用或仅用于 `aria-*` / 原生 `title` 的非可视词条明确留空；存在未解析动态调用时不把无 occurrence 当成死键，其余未解决词条进入人工辅助，不伪造截图。
@@ -67,7 +68,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.13.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.3.14.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -312,6 +313,7 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.3.14 发布说明](docs/release-notes-v0.3.14.md)
 - [v0.3.13 发布说明](docs/release-notes-v0.3.13.md)
 - [v0.3.12 发布说明](docs/release-notes-v0.3.12.md)
 - [v0.3.11 发布说明](docs/release-notes-v0.3.11.md)

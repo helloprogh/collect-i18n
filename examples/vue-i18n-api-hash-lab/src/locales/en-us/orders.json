@@ -1,0 +1,80 @@
+{
+  "title": "Orders",
+  "subtitle": "Paginated via GET /api/orders; page turns trigger a v-loading overlay",
+  "toolbar": {
+    "refresh": "Refresh",
+    "new": "New Order",
+    "filter": "Filter"
+  },
+  "columns": {
+    "orderNo": "Order No.",
+    "customer": "Customer",
+    "status": "Status",
+    "amount": "Amount",
+    "createdAt": "Created At",
+    "actions": "Actions"
+  },
+  "status": {
+    "pending": "Pending",
+    "paid": "Paid",
+    "shipped": "Shipped",
+    "delivered": "Delivered",
+    "cancelled": "Cancelled"
+  },
+  "pagination": {
+    "total": "{count} items",
+    "pageSize": "{size} / page",
+    "first": "First",
+    "prev": "Prev",
+    "next": "Next",
+    "last": "Last"
+  },
+  "state": {
+    "loading": "Loading orders…",
+    "empty": "No orders yet",
+    "error": "Failed to load orders: {code} {message}"
+  },
+  "filter": {
+    "placeholder": "Search by order no. or customer"
+  },
+  "create": {
+    "title": "New Order",
+    "orderNo": "Order No.",
+    "customer": "Customer Name",
+    "amount": "Amount",
+    "message": "Create this order?",
+    "ok": "Create",
+    "cancel": "Cancel",
+    "success": "Order created",
+    "fail": "Create failed",
+    "saved": "The new order has been submitted to the list"
+  },
+  "detail": {
+    "title": "Order Detail",
+    "drawerAria": "Close order detail drawer",
+    "close": "Close",
+    "items": "Line Items",
+    "notFound": "Order not found"
+  },
+  "actions": {
+    "view": "View",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete Order",
+    "deleteConfirmMessage": "Delete order {orderNo}? This cannot be undone.",
+    "deleteOk": "Delete",
+    "deleteCancel": "Cancel",
+    "deleteSuccess": "Order deleted",
+    "deleteFail": "Delete failed"
+  },
+  "aria": {
+    "refresh": "Refresh order list",
+    "openCreate": "Open new order dialog",
+    "viewDetail": "View order detail",
+    "deleteOrder": "Delete current order",
+    "closeDialog": "Close dialog",
+    "closeDrawer": "Close drawer"
+  },
+  "nonVisual": {
+    "title": "Orders section title"
+  }
+}

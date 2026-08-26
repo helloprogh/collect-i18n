@@ -1,0 +1,80 @@
+{
+  "title": "订单管理",
+  "subtitle": "分页接口 GET /api/orders,翻页触发 v-loading 遮罩",
+  "toolbar": {
+    "refresh": "刷新",
+    "new": "新建订单",
+    "filter": "筛选"
+  },
+  "columns": {
+    "orderNo": "订单号",
+    "customer": "客户",
+    "status": "状态",
+    "amount": "金额",
+    "createdAt": "创建时间",
+    "actions": "操作"
+  },
+  "status": {
+    "pending": "待支付",
+    "paid": "已支付",
+    "shipped": "已发货",
+    "delivered": "已送达",
+    "cancelled": "已取消"
+  },
+  "pagination": {
+    "total": "共 {count} 条",
+    "pageSize": "{size} 条/页",
+    "first": "首页",
+    "prev": "上一页",
+    "next": "下一页",
+    "last": "末页"
+  },
+  "state": {
+    "loading": "订单列表加载中…",
+    "empty": "暂无订单数据",
+    "error": "订单加载失败:{code} {message}"
+  },
+  "filter": {
+    "placeholder": "输入订单号或客户名筛选"
+  },
+  "create": {
+    "title": "新建订单",
+    "orderNo": "订单号",
+    "customer": "客户名称",
+    "amount": "金额",
+    "message": "确认创建该订单?",
+    "ok": "创建",
+    "cancel": "取消",
+    "success": "订单创建成功",
+    "fail": "订单创建失败",
+    "saved": "新订单已提交至列表"
+  },
+  "detail": {
+    "title": "订单详情",
+    "drawerAria": "关闭订单详情抽屉",
+    "close": "关闭",
+    "items": "商品明细",
+    "notFound": "未找到订单数据"
+  },
+  "actions": {
+    "view": "查看",
+    "delete": "删除",
+    "deleteConfirmTitle": "删除订单",
+    "deleteConfirmMessage": "确定删除订单 {orderNo}?该操作不可恢复。",
+    "deleteOk": "删除",
+    "deleteCancel": "取消",
+    "deleteSuccess": "订单已删除",
+    "deleteFail": "删除失败"
+  },
+  "aria": {
+    "refresh": "刷新订单列表",
+    "openCreate": "打开新建订单对话框",
+    "viewDetail": "查看订单详情",
+    "deleteOrder": "删除当前订单",
+    "closeDialog": "关闭对话框",
+    "closeDrawer": "关闭抽屉"
+  },
+  "nonVisual": {
+    "title": "订单区域标题"
+  }
+}

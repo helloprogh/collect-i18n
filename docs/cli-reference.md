@@ -256,7 +256,10 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
       { "name": "x-gde-locale", "value": "zh_CN" }
     ],
     "localeCookie": { "name": "x-gde-locale", "value": "zh_CN" },
-    "timeoutMs": 15000
+    "timeoutMs": 15000,
+    "loadingSelectors": [".custom-spinner"],
+    "loadingCropMarginPx": 48,
+    "loadingClearWaitMs": 5000
   },
   "instrumentation": {
     "enabled": true,
@@ -270,3 +273,5 @@ collect-i18n import --session <session-id> --file <absolute-xlsx-path> --apply
 当前服务以编程方式启动 Vite；`app.devCommand`、`app.workingDirectory` 和 `app.healthPath` 会保存用于项目描述，但不是当前启动器的执行入口。0.1.0 启动器实际消费 `app.baseUrl`、`browser.headless`、`browser.viewport`、`browser.locale`、`browser.cookies`、`browser.localeCookie` 与 `browser.timeoutMs`；`instrumentation.enabled` 必须为 `true`，否则运行时采集会拒绝启动。`instrumentation.devOnly` 当前仅作为版本化配置保留。修改 `baseUrl` 时必须使用回环地址和一个空闲端口。
 
 `browser.cookies` 会在采集上下文创建后写入目标应用源，可用于设置语言选择等非敏感 Cookie。`browser.localeCookie` 是其中用于语言选择的单个 Cookie；采集器会在每次打开页面/导航前重新注入它，防止应用被持久化配置切走源语言。`localeCookie` 与 `cookies` 都要求值以明文保存在目标项目的 `.collect-i18n/config.json` 中；不要在这里保存生产会话或长期访问令牌，并确保整个 `.collect-i18n/` 已被目标项目忽略。
+
+加载遮罩检测支持按项目定制：内置选择器覆盖 `.el-loading-mask`、`.el-loading-spinner`、`.el-skeleton`、`.el-skeleton__item`、`.el-icon.is-loading`、`.ant-spin-spinning`（Element Plus / Ant Design）、`.n-spin-body`（naive-ui）、`.arco-spin-mask`、`.arco-spin-loading`（Arco Design）、`#nprogress`（NProgress）与页面标记 `[data-collect-i18n-loading]`；`browser.loadingSelectors` 可在此基础上追加项目自定义 spinner 选择器。目标矩形按中心+四角共 5 点采样，任一点命中遮罩即视为阻塞（any-hit 规则）；`browser.loadingCropMarginPx` 控制整帧闸门未通过（页面其他区域仍有加载遮罩）时裁剪兜底截图向外扩展的像素（默认 48）；`browser.loadingClearWaitMs` 控制截图前等待覆盖遮罩清除的有界窗口（默认 5000ms，与改造前固定等待一致）。全部为可选字段，省略时使用上述默认值。

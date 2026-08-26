@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ProjectConfigSchema } from "@collect-i18n/core";
 import { createDefaultConfig, findAvailablePort } from "./config.js";
 
 const roots: string[] = [];
@@ -55,5 +56,16 @@ describe("default project configuration", () => {
     await expect(createDefaultConfig(root)).resolves.toMatchObject({
       browser: { cookies: [], localeCookie: undefined },
     });
+  });
+
+  it("accepts backward-compatible custom loading selectors in the browser config", async () => {
+    const root = await project("export const locale = 'zh-CN'");
+    const config = await createDefaultConfig(root);
+    expect(config.browser.loadingSelectors).toBeUndefined();
+    const parsed = ProjectConfigSchema.parse({
+      ...config,
+      browser: { ...config.browser, loadingSelectors: [".custom-spinner"] },
+    });
+    expect(parsed.browser.loadingSelectors).toEqual([".custom-spinner"]);
   });
 });

@@ -28,6 +28,21 @@ export interface BrowserCollectorOptions {
    */
   localeCookie?: { name: string; value: string };
   planTimeoutMs?: number;
+  /**
+   * Additional CSS selectors that identify loading/skeleton overlays from the
+   * project's own component libraries (naive-ui, Arco, NProgress, custom
+   * skeleton screens, ...). They are appended to the built-in Element Plus /
+   * Ant Design / opt-in list so existing detection can never regress; pass []
+   * to keep only the built-ins.
+   */
+  extraLoadingSelectors?: string[];
+  /** Pixels of padding added around the target rectangle in the crop fallback
+   * capture. Default 48, clamped to the viewport. */
+  loadingCropMarginPx?: number;
+  /** Bounded window (ms) to wait for a covering overlay to clear before a
+   * capture is skipped with loading_overlay_timeout. Default 5_000 (matches
+   * the pre-F2 hard-coded settle wait so default behavior is unchanged). */
+  loadingClearWaitMs?: number;
 }
 
 export interface RuntimeTargetSnapshot {
@@ -71,7 +86,11 @@ export function resolveProjectUrl(
     ? new URL(path)
     : buildProjectUrl(base.origin, path, options.viteBase ?? "/", options.hashRouter === true);
   if (target.origin !== base.origin) {
-    throw new Error(`TriggerPlan cannot navigate outside project origin: ${target.origin}`);
+    throw new CollectorError(
+      "navigation_out_of_origin",
+      `TriggerPlan cannot navigate outside project origin: ${target.origin}`,
+      { target: target.toString() },
+    );
   }
   return target.toString();
 }
@@ -223,20 +242,178 @@ export function markerTolerantRegExp(value: string): RegExp {
 }
 
 /**
- * DOM selectors that identify visible loading/skeleton overlays from common
- * Vue component libraries. A matching element only counts as "loading" when
- * it is actually painted (has client rects); apps can also opt in with the
- * data-collect-i18n-loading attribute.
+ * Built-in DOM selectors that identify visible loading/skeleton overlays from
+ * common Vue component libraries. A matching element only counts as "loading"
+ * when it is actually painted (has client rects); apps can also opt in with
+ * the data-collect-i18n-loading attribute.
  */
-export const LOADING_INDICATOR_SELECTORS = [
+export const LOADING_INDICATOR_SELECTOR_LIST = [
   ".el-loading-mask",
   ".el-loading-spinner",
   ".el-skeleton",
   ".el-skeleton__item",
   ".el-icon.is-loading",
   ".ant-spin-spinning",
+  // naive-ui mounts .n-spin-body only while its Spin is loading.
+  ".n-spin-body",
+  // Arco Design renders the mask and the loading label only while loading.
+  ".arco-spin-mask",
+  ".arco-spin-loading",
+  // NProgress mounts #nprogress only while a top progress bar is active.
+  "#nprogress",
   "[data-collect-i18n-loading]",
-].join(",");
+];
+
+/** Backwards-compatible joined selector string used by tests and callers. */
+export const LOADING_INDICATOR_SELECTORS = LOADING_INDICATOR_SELECTOR_LIST.join(",");
+
+/**
+ * Merge project-supplied loading selectors (F1: configurable selectors) with
+ * the built-in list. Custom selectors are appended so built-in detection can
+ * never regress while apps can still mark their own spinners.
+ */
+export function mergedLoadingSelectors(custom?: string[]): string[] {
+  const extra = (custom ?? []).map((selector) => selector.trim()).filter((selector) => selector.length > 0);
+  return [...LOADING_INDICATOR_SELECTOR_LIST, ...extra];
+}
+
+/**
+ * Multi-point sampling geometry (F3): the center plus the four corner pixels
+ * of the target rectangle (5 points), clamped into the viewport. Points that
+ * fall outside the rectangle after clamping are skipped; a degenerate rect
+ * falls back to its center point.
+ */
+export function loadingSamplePoints(
+  rect: { x: number; y: number; width: number; height: number },
+  viewport: { width: number; height: number },
+): Array<{ x: number; y: number }> {
+  const candidates = rect.width > 0 && rect.height > 0
+    ? [
+        { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.width - 1, y: rect.y },
+        { x: rect.x, y: rect.y + rect.height - 1 },
+        { x: rect.x + rect.width - 1, y: rect.y + rect.height - 1 },
+      ]
+    : [{ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }];
+  const points: Array<{ x: number; y: number }> = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const x = Math.max(0, Math.min(viewport.width - 1, Math.round(candidate.x)));
+    const y = Math.max(0, Math.min(viewport.height - 1, Math.round(candidate.y)));
+    if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
+      const key = x + ":" + y;
+      if (!seen.has(key)) {
+        seen.add(key);
+        points.push({ x, y });
+      }
+    }
+  }
+  if (points.length === 0) {
+    points.push({
+      x: Math.max(0, Math.min(viewport.width - 1, Math.round(rect.x + rect.width / 2))),
+      y: Math.max(0, Math.min(viewport.height - 1, Math.round(rect.y + rect.height / 2))),
+    });
+  }
+  return points;
+}
+
+/**
+ * Any-hit rule for the multi-point loading check (F3): the target counts as
+ * blocked as soon as a single sampled point resolves to a loading overlay.
+ */
+export function computeTargetBlocked(blockedPoints: number, sampledPoints: number): boolean {
+  return sampledPoints > 0 && blockedPoints >= 1;
+}
+
+/**
+ * Crop fallback geometry (F2): inflate the target rect by marginPx and clamp
+ * it to the viewport so a page with a loading overlay anywhere else can still
+ * produce a clean cropped screenshot of the translated target.
+ */
+export function cropClipForTarget(
+  rect: { x: number; y: number; width: number; height: number },
+  viewport: { width: number; height: number },
+  marginPx = 48,
+): { x: number; y: number; width: number; height: number } {
+  const margin = Math.max(0, Math.floor(marginPx));
+  const x = Math.max(0, Math.round(rect.x - margin));
+  const y = Math.max(0, Math.round(rect.y - margin));
+  const width = Math.max(1, Math.min(viewport.width - x, Math.round(rect.width + margin * 2)));
+  const height = Math.max(1, Math.min(viewport.height - y, Math.round(rect.height + margin * 2)));
+  return { x, y, width, height };
+}
+
+/** Machine-readable failure categories (F5) for the collector. */
+export type CollectorErrorCode =
+  | "navigation_out_of_origin"
+  | "collector_not_ready"
+  | "key_not_found"
+  | "target_out_of_viewport"
+  | "loading_overlay_timeout"
+  | "loading_overlay_persists"
+  | "loading_overlay_race"
+  | "capture_timeout"
+  | "plan_deadline"
+  | "deterministic_b_rejected";
+
+/**
+ * Structured collector error. The message stays human-readable (unchanged
+ * from previous releases), while code lets callers branch programmatically:
+ * a task blocked by a persistent loading overlay can be retried or handed to
+ * manual without string-matching the message.
+ */
+export class CollectorError extends Error {
+  readonly code: CollectorErrorCode;
+  readonly details: Record<string, unknown>;
+
+  constructor(code: CollectorErrorCode, message: string, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = "CollectorError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+export function collectorErrorCode(error: unknown): CollectorErrorCode | undefined {
+  return error instanceof CollectorError ? error.code : undefined;
+}
+
+/**
+ * One snapshot of the loading-overlay state around a capture (F2/F3/F4):
+ * - frameBlocked: any visible loading overlay is painted anywhere in the
+ *   viewport (full-frame gate). When true, the capture falls back to a crop.
+ * - targetBlocked: any of the sampled points inside the target rectangle
+ *   (center plus the four corners, any-hit rule) resolves to a loading overlay.
+ * - overlayRects: visible overlay rectangles clipped to the viewport, used to
+ *   detect overlays that appear mid-capture.
+ */
+export interface FrameLoadingSample {
+  frameBlocked: boolean;
+  targetBlocked: boolean;
+  targetBlockedPoints: number;
+  targetSampledPoints: number;
+  overlayRects: Array<{ x: number; y: number; width: number; height: number }>;
+}
+
+function sameRectIn(
+  candidate: { x: number; y: number; width: number; height: number },
+  list: Array<{ x: number; y: number; width: number; height: number }>,
+): boolean {
+  return list.some((other) =>
+    Math.abs(candidate.x - other.x) <= 1 &&
+    Math.abs(candidate.y - other.y) <= 1 &&
+    Math.abs(candidate.width - other.width) <= 1 &&
+    Math.abs(candidate.height - other.height) <= 1,
+  );
+}
+
+function rectsIntersect(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
 
 /**
  * True when an element (or the topmost element at a point) is a loading
@@ -330,8 +507,18 @@ export class BrowserCollector {
   private readonly rules = new Map<string, ReturnType<typeof mockRuleSchema.parse>>();
   private detectedGone = false;
   private restarting = false;
+  /** Resolved loading-overlay selectors (F1): built-ins plus project extras. */
+  private readonly loadingSelectorList: string[];
+  private readonly loadingSelectors: string;
+  private readonly loadingCropMarginPx: number;
+  private readonly loadingClearWaitMs: number;
 
-  constructor(private readonly options: BrowserCollectorOptions) {}
+  constructor(private readonly options: BrowserCollectorOptions) {
+    this.loadingSelectorList = mergedLoadingSelectors(options.extraLoadingSelectors);
+    this.loadingSelectors = this.loadingSelectorList.join(",");
+    this.loadingCropMarginPx = options.loadingCropMarginPx ?? 48;
+    this.loadingClearWaitMs = options.loadingClearWaitMs ?? 5_000;
+  }
 
   private async createFreshPage(restoredPages: Page[] = []): Promise<Page> {
     if (!this.context) throw new Error("Browser collector context is not running");
@@ -575,7 +762,11 @@ export class BrowserCollector {
     const actual = new URL(current);
     const expected = new URL(this.options.baseUrl);
     if (actual.origin !== expected.origin) {
-      throw new Error(`TriggerPlan left the project origin: ${actual.origin}`);
+      throw new CollectorError(
+        "navigation_out_of_origin",
+        `TriggerPlan left the project origin: ${actual.origin}`,
+        { actual: actual.origin, expected: expected.origin },
+      );
     }
   }
 
@@ -682,7 +873,11 @@ export class BrowserCollector {
         new Promise<CollectedEvidence>((_resolve, reject) => {
           timer = setTimeout(() => {
             void executingPage.close().catch(() => undefined);
-            reject(new Error(`TriggerPlan exceeded its ${deadlineMs}ms execution deadline`));
+            reject(new CollectorError(
+              "plan_deadline",
+              `TriggerPlan exceeded its ${deadlineMs}ms execution deadline`,
+              { key: plan.targetKey, deadlineMs },
+            ));
           }, deadlineMs);
         }),
       ]);
@@ -728,7 +923,11 @@ export class BrowserCollector {
       }
       await new Promise((done) => setTimeout(done, 125));
     }
-    throw new Error(`Collector runtime did not become ready after navigation: ${this.activePage.url()}`);
+    throw new CollectorError(
+      "collector_not_ready",
+      `Collector runtime did not become ready after navigation: ${this.activePage.url()}`,
+      { url: this.activePage.url() },
+    );
   }
 
   /**
@@ -774,7 +973,7 @@ export class BrowserCollector {
             loadingCount,
             resourceCount: performance.getEntriesByType("resource").length,
           };
-        }, LOADING_INDICATOR_SELECTORS),
+        }, this.loadingSelectors),
         1_500,
         "Page became unresponsive during inspection settle",
       ).catch(() => undefined);
@@ -809,10 +1008,13 @@ export class BrowserCollector {
   }
 
   /**
-   * Best-effort wait until no visible loading/skeleton overlay remains.
-   * Returns when the page is clean or the deadline passes.
+   * Best-effort wait until no visible loading/skeleton overlay remains (F3).
+   * Returns true when the page is clean; returns false when the bounded
+   * deadline passes while overlays are still painted or the page is
+   * unresponsive, and reports that deadline with console.warn instead of
+   * silently treating it as clean.
    */
-  private async waitForLoadingCleared(timeoutMs = 8_000): Promise<void> {
+  private async waitForLoadingCleared(timeoutMs = this.loadingClearWaitMs * 2): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const loadingCount = await bounded(
@@ -822,53 +1024,163 @@ export class BrowserCollector {
             if (element.getClientRects().length > 0) count += 1;
           }
           return count;
-        }, LOADING_INDICATOR_SELECTORS),
+        }, this.loadingSelectors),
         1_500,
         "Page became unresponsive while waiting for loading to clear",
-      ).catch(() => 0);
-      if (loadingCount === 0) return;
+      ).catch(() => -1);
+      if (loadingCount === 0) return true;
+      // An evaluate failure must never be read as "no loading": keep polling
+      // and report an unresponsive deadline below instead of passing silently.
+      if (loadingCount < 0) {
+        console.warn("[collect-i18n] page did not respond while waiting for loading overlays to clear");
+      }
       await new Promise((done) => setTimeout(done, 150));
     }
+    console.warn("[collect-i18n] loading overlay did not clear within the bounded wait");
+    return false;
   }
 
   /**
-   * True when the center of a target rectangle is currently covered by a
-   * loading/skeleton overlay. Used to avoid screenshots that show a spinner
-   * instead of the translated UI.
+   * True when the target rectangle is currently covered by a loading overlay:
+   * the F3 any-hit rule marks it blocked when any of the sampled points
+   * (center plus the four corners) resolves to a loading overlay. Used to
+   * avoid screenshots that show a spinner instead of the translated UI.
    */
   private async targetBlockedByLoading(rect: { x: number; y: number; width: number; height: number }): Promise<boolean> {
-    return bounded(
-      this.activePage.evaluate(({ rect, loadingSelectors }) => {
-        // Mirror of the exported isLoadingElement() helper. Module functions
-        // are not in scope inside page.evaluate and functions nested in
-        // argument objects cannot be serialized, so the check is inlined here
-        // and kept in sync with isLoadingElement().
-        const isLoadingElement = (element: {
-          classList?: { contains(name: string): boolean };
-          dataset?: Record<string, string | undefined>;
-        } | null | undefined): boolean => {
+    const sample = await this.sampleTargetAndFrame(rect);
+    return sample.targetBlocked;
+  }
+
+  /**
+   * Full-frame gate + multi-point target sampling in one page evaluation
+   * (F2/F3): reports whether any visible loading overlay exists anywhere in the
+   * viewport (frame gate) and how many sampled points inside the target
+   * rectangle resolve to a loading overlay.
+   */
+  private async sampleTargetAndFrame(rect: { x: number; y: number; width: number; height: number }): Promise<FrameLoadingSample> {
+    const viewport = this.activePage.viewportSize();
+    const points = viewport
+      ? loadingSamplePoints(rect, viewport)
+      : [{ x: Math.max(0, Math.round(rect.x + rect.width / 2)), y: Math.max(0, Math.round(rect.y + rect.height / 2)) }];
+    const { loadingSelectorList, loadingSelectors } = this;
+    const sample = await bounded(
+      this.activePage.evaluate(({ selectorsList, selectorsJoined, points }) => {
+        const isLoadingAt = (element: Element | null): boolean => {
           if (!element) return false;
-          const classes = element.classList;
-          if (classes) {
-            if (classes.contains("el-loading-mask") || classes.contains("el-loading-spinner")) return true;
-            if (classes.contains("el-skeleton") || classes.contains("el-skeleton__item")) return true;
-            if (classes.contains("ant-spin-spinning")) return true;
-            if (classes.contains("el-icon") && classes.contains("is-loading")) return true;
-          }
-          return element.dataset?.collectI18nLoading !== undefined;
+          const hit = element.matches(selectorsJoined)
+            ? element
+            : element.closest?.(selectorsJoined) ?? null;
+          return Boolean(hit && hit.getClientRects().length > 0);
         };
-        const top = document.elementFromPoint(
-          rect.x + rect.width / 2,
-          rect.y + rect.height / 2,
-        ) as (HTMLElement & { closest?: (selector: string) => HTMLElement | null }) | null;
-        if (!top) return false;
-        if (isLoadingElement(top)) return true;
-        const overlay = top.closest?.(loadingSelectors);
-        return Boolean(overlay && overlay.getClientRects().length > 0);
-      }, { rect, loadingSelectors: LOADING_INDICATOR_SELECTORS }),
+        let targetBlockedPoints = 0;
+        for (const point of points) {
+          if (point.x < 0 || point.y < 0 || point.x >= innerWidth || point.y >= innerHeight) continue;
+          const top = document.elementFromPoint(point.x, point.y);
+          if (isLoadingAt(top)) targetBlockedPoints += 1;
+        }
+        const overlayRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+        for (const selector of selectorsList) {
+          for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+            const box = element.getBoundingClientRect();
+            const clippedX = Math.max(0, box.x);
+            const clippedY = Math.max(0, box.y);
+            const clippedWidth = Math.min(innerWidth, box.x + box.width) - clippedX;
+            const clippedHeight = Math.min(innerHeight, box.y + box.height) - clippedY;
+            if (clippedWidth > 0 && clippedHeight > 0) {
+              overlayRects.push({ x: clippedX, y: clippedY, width: clippedWidth, height: clippedHeight });
+            }
+          }
+        }
+        return {
+          targetBlockedPoints,
+          targetSampledPoints: points.length,
+          frameBlocked: overlayRects.length > 0,
+          overlayRects: overlayRects.slice(0, 64),
+        };
+      }, { selectorsList: loadingSelectorList, selectorsJoined: loadingSelectors, points }),
       2_000,
       "Page became unresponsive while checking for a loading overlay",
     );
+    return {
+      ...sample,
+      targetBlocked: computeTargetBlocked(sample.targetBlockedPoints, sample.targetSampledPoints),
+    };
+  }
+
+  /**
+   * Atomic gate + marker painting (F4): draws the capture marker and samples
+   * the frame in the same page evaluation, so the state the screenshot will
+   * capture is the state that was gated -- no await can let a loading overlay
+   * slip in between the check and the painted frame. The sample runs after a
+   * double requestAnimationFrame so it observes the exact frame the screenshot
+   * will capture.
+   */
+  private async drawMarkerAndSample(
+    rect: { x: number; y: number; width: number; height: number },
+    marker: CaptureMarkerSpec,
+  ): Promise<FrameLoadingSample> {
+    const viewport = this.activePage.viewportSize();
+    const points = viewport
+      ? loadingSamplePoints(rect, viewport)
+      : [{ x: Math.max(0, Math.round(rect.x + rect.width / 2)), y: Math.max(0, Math.round(rect.y + rect.height / 2)) }];
+    const { loadingSelectorList, loadingSelectors } = this;
+    const sample = await bounded(
+      this.activePage.evaluate(async ({ selectorsList, selectorsJoined, points, marker }) => {
+        const runtimeWindow = window as RuntimeWindow;
+        const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+        collector?.setTarget?.(null);
+        const markerElement = document.createElement("div");
+        markerElement.id = marker.id;
+        markerElement.dataset.collectI18nCaptureMarker = "true";
+        markerElement.setAttribute("aria-hidden", "true");
+        markerElement.style.cssText = marker.style;
+        document.documentElement.append(markerElement);
+        // F4: double requestAnimationFrame -- after the marker is painted and
+        // any in-flight layout work settles, the gate below observes the same
+        // frame the screenshot will capture.
+        await new Promise<void>((resolveFrame) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()));
+        });
+        const isLoadingAt = (element: Element | null): boolean => {
+          if (!element) return false;
+          const hit = element.matches(selectorsJoined)
+            ? element
+            : element.closest?.(selectorsJoined) ?? null;
+          return Boolean(hit && hit.getClientRects().length > 0);
+        };
+        let targetBlockedPoints = 0;
+        for (const point of points) {
+          if (point.x < 0 || point.y < 0 || point.x >= innerWidth || point.y >= innerHeight) continue;
+          const top = document.elementFromPoint(point.x, point.y);
+          if (isLoadingAt(top)) targetBlockedPoints += 1;
+        }
+        const overlayRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+        for (const selector of selectorsList) {
+          for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+            const box = element.getBoundingClientRect();
+            const clippedX = Math.max(0, box.x);
+            const clippedY = Math.max(0, box.y);
+            const clippedWidth = Math.min(innerWidth, box.x + box.width) - clippedX;
+            const clippedHeight = Math.min(innerHeight, box.y + box.height) - clippedY;
+            if (clippedWidth > 0 && clippedHeight > 0) {
+              overlayRects.push({ x: clippedX, y: clippedY, width: clippedWidth, height: clippedHeight });
+            }
+          }
+        }
+        return {
+          targetBlockedPoints,
+          targetSampledPoints: points.length,
+          frameBlocked: overlayRects.length > 0,
+          overlayRects: overlayRects.slice(0, 64),
+        };
+      }, { selectorsList: loadingSelectorList, selectorsJoined: loadingSelectors, points, marker }),
+      3_000,
+      "Page became unresponsive while highlighting the capture marker",
+    );
+    return {
+      ...sample,
+      targetBlocked: computeTargetBlocked(sample.targetBlockedPoints, sample.targetSampledPoints),
+    };
   }
 
   async inspectRuntime(limit = 200): Promise<RuntimeInspection> {
@@ -1039,7 +1351,7 @@ export class BrowserCollector {
       lastUrl = currentUrl;
       await new Promise((done) => setTimeout(done, 125));
     }
-    throw new Error(`Timed out waiting for i18n key: ${key}`);
+    throw new CollectorError("key_not_found", `Timed out waiting for i18n key: ${key}`, { key });
   }
 
   async capture(
@@ -1083,8 +1395,10 @@ export class BrowserCollector {
       resolvedTarget.evidenceGrade === "B" &&
       !causalVerified
     ) {
-      throw new Error(
+      throw new CollectorError(
+        "deterministic_b_rejected",
         `Deterministic B evidence for ${resolvedTarget.key} did not pass the isolated causal canary`,
+        { key: resolvedTarget.key },
       );
     }
     if (causalVerified) {
@@ -1224,90 +1538,154 @@ export class BrowserCollector {
       viewport && rect.width > 0 && rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height &&
       rect.x + rect.width > 0 && rect.y + rect.height > 0,
     );
-    if (!viewport || !inViewport) throw new Error("Target key does not intersect the capture viewport");
-    // Never persist a spinner screenshot as evidence: wait a short bounded
-    // window for a covering overlay to clear, then skip the key entirely if
-    // it is still loading so the task can be retried or handed to manual.
-    const loadingDeadline = Date.now() + 5_000;
+    if (!viewport || !inViewport) {
+      throw new CollectorError(
+        "target_out_of_viewport",
+        "Target key does not intersect the capture viewport",
+        { key: resolvedTarget.key, rect },
+      );
+    }
+    // Never persist a spinner screenshot as evidence: wait a bounded window for
+    // a covering overlay to clear, then skip the key entirely if it is still
+    // loading so the task can be retried or handed to manual.
+    const loadingDeadline = Date.now() + this.loadingClearWaitMs;
     while (Date.now() < loadingDeadline) {
-      if (!(await this.targetBlockedByLoading(resolvedTarget.rect))) break;
+      if (!(await this.targetBlockedByLoading(rect))) break;
       await page.waitForTimeout(150);
     }
-    if (await this.targetBlockedByLoading(resolvedTarget.rect)) {
-      throw new Error(
+    if (await this.targetBlockedByLoading(rect)) {
+      throw new CollectorError(
+        "loading_overlay_timeout",
         `Loading overlay still covers target ${resolvedTarget.key}; skipping to avoid a spinner screenshot`,
+        { key: resolvedTarget.key },
       );
     }
-    const marker = captureMarkerSpec(resolvedTarget.rect);
-    await bounded(page.evaluate(({ id, style }) => {
-      const runtimeWindow = window as RuntimeWindow;
-      const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
-      collector?.setTarget?.(null);
-      const markerElement = document.createElement("div");
-      markerElement.id = id;
-      markerElement.dataset.collectI18nCaptureMarker = "true";
-      markerElement.setAttribute("aria-hidden", "true");
-      markerElement.style.cssText = style;
-      document.documentElement.append(markerElement);
-    }, marker), 3_000, `Timed out highlighting i18n key: ${resolvedTarget.key}`);
 
-    await page.waitForTimeout(50);
-
-    const timestamp = new Date().toISOString().replaceAll(":", "-");
-    const temporaryScreenshotPath = resolve(
-      this.options.artifactDir,
-      `${safeFilePart(resolvedTarget.key)}-${timestamp}-${randomUUID()}.tmp.png`,
-    );
-    try {
+    const removeMarker = async (id: string): Promise<void> => {
       await bounded(
-        page.screenshot({ path: temporaryScreenshotPath, fullPage: false }),
-        30_000,
-        `Timed out capturing screenshot for i18n key: ${resolvedTarget.key}`,
-      );
-    } finally {
-      await bounded(
-        page.evaluate((id) => document.getElementById(id)?.remove(), marker.id),
+        page.evaluate((markerId) => document.getElementById(markerId)?.remove(), id),
         2_000,
         "Timed out removing the screenshot marker",
       ).catch(() => undefined);
-    }
-    const screenshotSha256 = createHash("sha256")
-      .update(await readFile(temporaryScreenshotPath))
-      .digest("hex");
-    const screenshotPath = resolve(
-      this.options.artifactDir,
-      `${safeFilePart(resolvedTarget.key)}-${screenshotSha256}.png`,
-    );
-    try {
-      await rename(temporaryScreenshotPath, screenshotPath);
-    } catch (error) {
-      // On Windows rename does not replace an existing destination. Identical
-      // content already has the canonical path, so discard only the temporary
-      // file after verifying the destination exists.
-      try {
-        await access(screenshotPath);
-        await rm(temporaryScreenshotPath, { force: true });
-      } catch {
-        throw error;
-      }
-    }
-    return {
-      ...resolvedTarget,
-      evidenceGrade: causalVerified ? "A" : resolvedTarget.evidenceGrade,
-      evidenceProof: causalVerified ? "causal-canary" : resolvedTarget.evidenceProof,
-      screenshotPath,
-      screenshotSha256,
-      capturedAt: new Date().toISOString(),
-      source,
-      plan,
-      causalProbe: causalVerified
-        ? {
-            verified: true,
-            originalGrade: "B",
-            originalProof: resolvedTarget.evidenceProof,
-          }
-        : undefined,
     };
+
+    // Up to two attempts: the first captures, the post-capture frame check
+    // (F4) validates that no loading overlay appeared mid-capture; a detected
+    // race discards the evidence and retries once before giving up.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const marker = captureMarkerSpec(rect);
+      let gate: FrameLoadingSample;
+      try {
+        // F4: marker painting and the frame gate happen in one evaluation, so
+        // the screenshot cannot slip past a check that predates the marker.
+        gate = await this.drawMarkerAndSample(rect, marker);
+      } catch (error) {
+        await removeMarker(marker.id);
+        if (error instanceof CollectorError) throw error;
+        throw new CollectorError(
+          "capture_timeout",
+          error instanceof Error ? error.message : String(error),
+          { key: resolvedTarget.key },
+        );
+      }
+      if (gate.targetBlocked) {
+        await removeMarker(marker.id);
+        throw new CollectorError(
+          "loading_overlay_persists",
+          `Loading overlay still covers target ${resolvedTarget.key} at paint time; skipping to avoid a spinner screenshot`,
+          { key: resolvedTarget.key },
+        );
+      }
+      // F2: full-frame gate passes -> full viewport screenshot; the frame is
+      // dirty but the target itself is clean -> crop fallback around the
+      // target so the rest of the page cannot pollute the evidence.
+      const clip = gate.frameBlocked
+        ? cropClipForTarget(rect, viewport, this.loadingCropMarginPx)
+        : undefined;
+      await page.waitForTimeout(50);
+
+      const timestamp = new Date().toISOString().replaceAll(":", "-");
+      const temporaryScreenshotPath = resolve(
+        this.options.artifactDir,
+        `${safeFilePart(resolvedTarget.key)}-${timestamp}-${randomUUID()}.tmp.png`,
+      );
+      try {
+        await bounded(
+          page.screenshot(clip
+            ? { path: temporaryScreenshotPath, fullPage: false, clip }
+            : { path: temporaryScreenshotPath, fullPage: false }),
+          30_000,
+          `Timed out capturing screenshot for i18n key: ${resolvedTarget.key}`,
+        );
+      } catch (error) {
+        await removeMarker(marker.id);
+        await rm(temporaryScreenshotPath, { force: true }).catch(() => undefined);
+        if (error instanceof CollectorError) throw error;
+        throw new CollectorError(
+          "capture_timeout",
+          error instanceof Error ? error.message : String(error),
+          { key: resolvedTarget.key },
+        );
+      }
+      await removeMarker(marker.id);
+
+      // F4 race closure: re-sample the frame immediately after the capture.
+      // A loading overlay that was absent at gate time and now intersects the
+      // captured region means the evidence may show a spinner: discard it and
+      // retry once; two consecutive races abort with loading_overlay_race.
+      const after = await this.sampleTargetAndFrame(rect);
+      const newOverlayInClip = after.frameBlocked && after.overlayRects.some((overlay) =>
+        !sameRectIn(overlay, gate.overlayRects) && (clip ? rectsIntersect(overlay, clip) : true));
+      const raced =
+        newOverlayInClip ||
+        (after.targetBlocked && !gate.targetBlocked) ||
+        (!clip && after.frameBlocked && !gate.frameBlocked);
+      if (!raced) {
+        const screenshotSha256 = createHash("sha256")
+          .update(await readFile(temporaryScreenshotPath))
+          .digest("hex");
+        const screenshotPath = resolve(
+          this.options.artifactDir,
+          `${safeFilePart(resolvedTarget.key)}-${screenshotSha256}.png`,
+        );
+        try {
+          await rename(temporaryScreenshotPath, screenshotPath);
+        } catch (error) {
+          // On Windows rename does not replace an existing destination. Identical
+          // content already has the canonical path, so discard only the temporary
+          // file after verifying the destination exists.
+          try {
+            await access(screenshotPath);
+            await rm(temporaryScreenshotPath, { force: true });
+          } catch {
+            throw error;
+          }
+        }
+        return {
+          ...resolvedTarget,
+          evidenceGrade: causalVerified ? "A" : resolvedTarget.evidenceGrade,
+          evidenceProof: causalVerified ? "causal-canary" : resolvedTarget.evidenceProof,
+          screenshotPath,
+          screenshotSha256,
+          capturedAt: new Date().toISOString(),
+          source,
+          plan,
+          causalProbe: causalVerified
+            ? {
+                verified: true,
+                originalGrade: "B",
+                originalProof: resolvedTarget.evidenceProof,
+              }
+            : undefined,
+        };
+      }
+      await rm(temporaryScreenshotPath, { force: true }).catch(() => undefined);
+    }
+    throw new CollectorError(
+      "loading_overlay_race",
+      `Frame changed while capturing ${resolvedTarget.key}; evidence was discarded to avoid a spinner screenshot`,
+      { key: resolvedTarget.key },
+    );
   }
 
   async listenAndCapture(key: string, timeoutMs = 30 * 60_000): Promise<CollectedEvidence> {
