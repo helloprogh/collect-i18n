@@ -684,6 +684,18 @@ describe("StateStore transactions", () => {
       manualPercent: 25,
       exportReady: true,
     });
+    expect(store.taskByKey(sessionId, "fixture.unused")).toMatchObject({
+      status: "skipped",
+      skipReason: "no_source_occurrence",
+    });
+    expect(store.taskByKey(sessionId, "fixture.accessible")).toMatchObject({
+      status: "skipped",
+      skipReason: "non_visual_source_only",
+    });
+    expect(store.taskByKey(sessionId, "fixture.visible")).toMatchObject({
+      status: "needs_manual",
+      skipReason: null,
+    });
     expect(store.events(sessionId).filter((event) =>
       event.data && typeof event.data === "object" && "reason" in event.data
     )).toEqual(expect.arrayContaining([

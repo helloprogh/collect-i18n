@@ -131,9 +131,16 @@ export async function exportTranslationWorkbook(
   };
   header.alignment = { vertical: "middle", horizontal: "left" };
 
-  const orderedRows = [...rows].sort((a, b) =>
-    a.keyPath.localeCompare(b.keyPath, "en"),
-  );
+  // Deprecated rows (classified at finalize as no-source-occurrence) are
+  // grouped at the very end of the sheet; every other row keeps the
+  // alphabetical order.
+  const normalRows = rows
+    .filter((row) => !row.deprecated)
+    .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const deprecatedRows = rows
+    .filter((row) => row.deprecated)
+    .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const orderedRows = [...normalRows, ...deprecatedRows];
   let imageCount = 0;
 
   for (const source of orderedRows) {
@@ -181,6 +188,13 @@ export async function exportTranslationWorkbook(
       } as unknown as Parameters<typeof worksheet.addImage>[1];
       worksheet.addImage(imageId, imageRange);
       imageCount += 1;
+    } else if (source.deprecated) {
+      // No screenshot can exist for a deprecated key; annotate the cell
+      // instead of leaving it empty so the reviewer knows why.
+      const cell = row.getCell(3);
+      cell.value = "词条废弃";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }
   }
 

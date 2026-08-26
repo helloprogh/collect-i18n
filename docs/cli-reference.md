@@ -207,6 +207,8 @@ collect-i18n export --session <session-id> --output <absolute-xlsx-path>
 
 导出一个可见工作表和严格四列：`中文`、`英文`、`截图`、`Key Path`。英文列逐行复制中文原文，不读取当前 `en-us` 作为初值。命令返回输出路径、行数和嵌入图片数。
 
+finalize 判定为废弃的词条（无源码引用且无未决动态渲染，`no_source_occurrence`）在导出中集中排在列表末尾，其截图列填写「词条废弃」；其余无截图词条（未采集、非可视 aria/title）保持原有排序与空截图列。
+
 ### `import`
 
 ```text

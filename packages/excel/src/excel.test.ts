@@ -66,6 +66,25 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getCell(rows.get("users.create.save")!, 2).text).toBe("保存");
   });
 
+  it("groups deprecated rows at the end and annotates the screenshot column", async () => {
+    const item = await fixture();
+    await exportTranslationWorkbook([
+      { ...item.catalog[0]!, english: "" },
+      { ...item.catalog[1]!, english: "" },
+      { keyPath: "users.old.banner", chinese: "旧横幅", targetFile: item.targetFile, jsonPath: ["users", "old", "banner"], deprecated: true },
+      { keyPath: "users.old.notice", chinese: "旧通知", targetFile: item.targetFile, jsonPath: ["users", "old", "notice"], deprecated: true },
+    ], item.workbookPath);
+
+    const { sheet } = await workbookRows(item.workbookPath);
+    expect(sheet.getRow(2).getCell(4).text).toBe("users.create.save");
+    expect(sheet.getRow(3).getCell(4).text).toBe("users.create.title");
+    expect(sheet.getRow(4).getCell(4).text).toBe("users.old.banner");
+    expect(sheet.getRow(5).getCell(4).text).toBe("users.old.notice");
+    expect(sheet.getRow(4).getCell(3).text).toBe("词条废弃");
+    expect(sheet.getRow(5).getCell(3).text).toBe("词条废弃");
+    expect(sheet.getRow(3).getCell(3).text).toBe("");
+  });
+
   it("draws thin borders on the header and every data cell", async () => {
     const item = await fixture();
     await exportTranslationWorkbook(

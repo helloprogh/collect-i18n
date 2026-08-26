@@ -15,6 +15,13 @@ export interface LocaleCatalogEntry {
 
 export interface WorkbookExportRow extends LocaleCatalogEntry {
   english?: string;
+  /**
+   * True when the key was classified as deprecated at finalize
+   * (no source occurrence and no unresolved dynamic rendering). Deprecated
+   * rows are moved to the end of the sheet and the 截图 column shows
+   * 「词条废弃」 instead of an empty cell.
+   */
+  deprecated?: boolean;
 }
 
 export type ImportIssueCode =

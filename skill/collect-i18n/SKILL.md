@@ -91,7 +91,7 @@ Repeat `manual open` only after the previous target is captured or the user asks
 
 ### 4. Export or import
 
-For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm the returned row and image counts. The workbook must contain only `中文`, `英文`, `截图`, `Key Path`, in that order.
+For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm the returned row and image counts. The workbook must contain only `中文`, `英文`, `截图`, `Key Path`, in that order. Keys the finalize step classified as deprecated (no source occurrence) are grouped at the end of the sheet with 词条废弃 in the 截图 column.
 
 For a translated return, run `import --file <absolute-xlsx-path> --session <id> --dry-run` first. Report duplicate, unknown, missing, or modified-Chinese issues from the JSON response. Run the same command with `--apply` only when validation has no fatal issues and the user's request authorizes importing the return.
 

@@ -34,6 +34,8 @@ export interface StoredTask {
   actionHints: unknown[];
   attempts: number;
   lastError?: string;
+  /** Set when finalize classified the task as skipped (no_source_occurrence / non_visual_source_only). */
+  skipReason?: string | null;
   plan?: unknown;
 }
 
@@ -320,6 +322,7 @@ export class StateStore {
         attempts INTEGER NOT NULL DEFAULT 0,
         plan_json TEXT,
         last_error TEXT,
+        skip_reason TEXT,
         updated_at TEXT NOT NULL,
         UNIQUE(session_id, key_path),
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -385,6 +388,10 @@ export class StateStore {
     }
     if (!evidenceColumns.some((column) => column.name === "evidence_grade")) {
       this.db.exec("ALTER TABLE evidence ADD COLUMN evidence_grade TEXT");
+    }
+    const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+    if (!taskColumns.some((column) => column.name === "skip_reason")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN skip_reason TEXT");
     }
     const legacyEvidence = this.db.prepare(
       "SELECT id,data_json FROM evidence WHERE screenshot_sha256 IS NULL OR evidence_grade IS NULL",
@@ -837,6 +844,7 @@ export class StateStore {
       actionHints,
       attempts: Number(row.attempts),
       lastError: typeof row.last_error === "string" ? row.last_error : undefined,
+      skipReason: typeof row.skip_reason === "string" ? row.skip_reason : null,
       plan: parseJson(row.plan_json, undefined),
     };
   }
@@ -921,7 +929,7 @@ export class StateStore {
 
     this.transaction(() => {
       const update = this.db.prepare(
-        "UPDATE tasks SET status=?,stage=?,last_error=NULL,updated_at=? WHERE id=? AND status='needs_agent'",
+        "UPDATE tasks SET status=?,stage=?,last_error=NULL,skip_reason=?,updated_at=? WHERE id=? AND status='needs_agent'",
       );
       for (const task of unresolved) {
         const noSource = task.occurrences.length === 0;
@@ -939,6 +947,7 @@ export class StateStore {
         const changed = update.run(
           nextStatus,
           nextStage,
+          nextStatus === "skipped" ? reason : null,
           new Date().toISOString(),
           task.id,
         );
@@ -1031,9 +1040,9 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
-  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string }> {
+  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean }> {
     const rows = this.db.prepare(`
-      SELECT k.*, (
+      SELECT k.*, t.status AS task_status, t.skip_reason, (
         SELECT e.screenshot_path
         FROM evidence e
         WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
@@ -1057,6 +1066,7 @@ export class StateStore {
         keyPath: row.key_path as string,
         chinese: row.chinese as string,
         english: row.english as string | undefined,
+        deprecated: row.task_status === "skipped" && row.skip_reason === "no_source_occurrence",
         relativeFile: row.relative_file as string,
         targetFile: join(resolve(englishRoot), row.relative_file as string),
         jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),
