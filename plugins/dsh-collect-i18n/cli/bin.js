@@ -152652,9 +152652,10 @@ async function exportTranslationWorkbook(rows, outputPath) {
     fgColor: { argb: "FF2563EB" }
   };
   header.alignment = { vertical: "middle", horizontal: "left" };
-  const normalRows = rows.filter((row) => !row.deprecated).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const normalRows = rows.filter((row) => !row.deprecated && !row.deadKey).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const deadKeyRows = rows.filter((row) => row.deadKey && !row.deprecated).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
   const deprecatedRows = rows.filter((row) => row.deprecated).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
-  const orderedRows = [...normalRows, ...deprecatedRows];
+  const orderedRows = [...normalRows, ...deadKeyRows, ...deprecatedRows];
   let imageCount = 0;
   for (const source of orderedRows) {
     const row = worksheet.addRow([
@@ -152702,6 +152703,11 @@ async function exportTranslationWorkbook(rows, outputPath) {
     } else if (source.nonVisual) {
       const cell = row.getCell(3);
       cell.value = "\u975E\u53EF\u89C6";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.deadKey) {
+      const cell = row.getCell(3);
+      cell.value = "\u6B7B\u952E";
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }
@@ -153069,6 +153075,13 @@ function isExactTextMatch(row, needle) {
 }
 function pickExactTextRows(rows, needle) {
   return rows.filter((row) => isExactTextMatch(row, needle));
+}
+function pickExactTextMatch(rows, hits) {
+  for (const hit of hits) {
+    const row = pickExactTextRows(rows, hit.needle)[0];
+    if (row) return { row, hit };
+  }
+  return void 0;
 }
 function resolveProjectUrl(path6, options) {
   const base = new URL(options.baseUrl);
@@ -154058,30 +154071,6 @@ var BrowserCollector = class {
           const normalized = normalizeRuntimeTarget(registryTarget);
           if (normalized) return normalized;
         }
-        const registeredTexts = (collector?.getSnapshot?.() ?? []).filter((entry) => entry.key === targetKey2 && typeof entry.text === "string" && entry.text.trim().length > 0).map((entry) => ({ text: entry.text, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
-        if (registeredTexts.length > 0) {
-          const leaves = Array.from(document.querySelectorAll("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
-          for (const element2 of leaves) {
-            if (element2.childElementCount > 0) continue;
-            const ownText = element2.innerText || element2.getAttribute("placeholder") || element2.getAttribute("aria-label") || "";
-            const needle = ownText.trim();
-            if (!needle) continue;
-            if (!registeredTexts.some((entry) => isExactTextMatch(entry, needle))) continue;
-            const matched = pickExactTextRows(registeredTexts, needle)[0];
-            if (!matched) continue;
-            const rect2 = element2.getBoundingClientRect();
-            if (!intersectsViewport(rect2)) continue;
-            return normalizeRuntimeTarget({
-              key: targetKey2,
-              occurrenceId: void 0,
-              kind: matched.binding ?? "imperative-service",
-              evidenceGrade: matched.grade ?? "B",
-              evidenceProof: matched.proof ?? "imperative-text-scan",
-              text: ownText.trim(),
-              rect: { x: rect2.x, y: rect2.y, width: rect2.width, height: rect2.height }
-            });
-          }
-        }
         const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(targetKey2) : targetKey2.replace(/["\\]/g, "\\$&");
         const element = document.querySelector(`[data-i18n-key~="${escaped}"]`);
         if (!element) return void 0;
@@ -154111,12 +154100,83 @@ var BrowserCollector = class {
         }
         throw error51;
       }
+      if (!snapshot) {
+        snapshot = await this.resolveExactTextFallback(key, minimumGrade);
+      }
       if (snapshot) return snapshot;
       first = false;
       lastUrl = currentUrl;
       await new Promise((done) => setTimeout(done, 125));
     }
     throw new CollectorError("key_not_found", `Timed out waiting for i18n key: ${key}`, { key });
+  }
+  /**
+   * Exact-text fallback for transient imperative anchors (R-toast): read the
+   * runtime registry texts and harvest candidate leaf geometry in the page,
+   * then decide the match on the Node side with the same isExactTextMatch /
+   * pickExactTextRows helpers the unit tests exercise. Harvesting prefers
+   * leaves inside imperative hosts (toasts teleport there) so a same-text
+   * static element cannot shadow the real anchor, and reads textContent
+   * before attribute fallbacks (textContent does not force a reflow).
+   */
+  async resolveExactTextFallback(key, minimumGrade) {
+    const page = this.activePage;
+    const registeredTexts = await bounded(
+      page.evaluate((targetKey2) => {
+        const runtimeWindow = window;
+        const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+        return (collector?.getSnapshot?.() ?? []).filter((entry) => entry.key === targetKey2 && typeof entry.text === "string" && entry.text.trim().length > 0).map((entry) => ({ text: entry.text, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
+      }, key),
+      2e3,
+      "Page became unresponsive while reading the i18n registry"
+    );
+    if (registeredTexts.length === 0) return void 0;
+    const leafHits = await bounded(
+      page.evaluate(() => {
+        const intersectsViewport = (rect) => rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight && rect.x + rect.width > 0 && rect.y + rect.height > 0;
+        const hosts = /* @__PURE__ */ new Set();
+        for (const host of document.querySelectorAll(
+          '.el-message,.el-message-box,.el-notification,[role="alert"],[role="dialog"],.el-popconfirm'
+        )) {
+          let current = host;
+          while (current) {
+            hosts.add(current);
+            current = current.parentElement;
+          }
+        }
+        const leaves = Array.from(document.querySelectorAll("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
+        leaves.sort((left, right) => Number(hosts.has(right)) - Number(hosts.has(left)));
+        const hits = [];
+        for (const element of leaves) {
+          if (hits.length >= 300) break;
+          if (element.childElementCount > 0) continue;
+          const raw = element.textContent && element.textContent.trim().length > 0 ? element.textContent : element.getAttribute("placeholder") || element.getAttribute("aria-label") || "";
+          const needle = (raw ?? "").trim();
+          if (!needle) continue;
+          const rect = element.getBoundingClientRect();
+          if (!intersectsViewport(rect)) continue;
+          hits.push({ needle, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        }
+        return hits;
+      }),
+      2e3,
+      "Page became unresponsive while scanning exact-text leaves"
+    );
+    const gradeRank = (grade) => grade === "A" ? 3 : grade === "B" ? 2 : 1;
+    const decision = pickExactTextMatch(registeredTexts, leafHits);
+    if (!decision) return void 0;
+    const { row: matched, hit } = decision;
+    if (gradeRank(matched.grade) < gradeRank(minimumGrade)) return void 0;
+    return {
+      key,
+      occurrenceId: void 0,
+      binding: matched.binding ?? "imperative-service",
+      evidenceGrade: matched.grade ?? "B",
+      evidenceProof: matched.proof ?? "imperative-text-scan",
+      text: hit.needle,
+      route: page.url(),
+      rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height }
+    };
   }
   async capture(target, source, plan) {
     const page = this.activePage;
@@ -154321,10 +154381,26 @@ var BrowserCollector = class {
     this.assertSameOrigin();
     await bounded(
       this.activePage.evaluate(({ toBottom }) => {
-        if (toBottom) {
-          window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
-        } else {
-          window.scrollBy(0, Math.max(1, Math.round(innerHeight * 0.8)));
+        const winSurplus = (document.documentElement.scrollHeight || 0) - window.innerHeight;
+        if (winSurplus > 10) {
+          if (toBottom) {
+            window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
+          } else {
+            window.scrollBy(0, Math.max(1, Math.round(window.innerHeight * 0.8)));
+          }
+        }
+        const containers = Array.from(document.querySelectorAll("*")).filter((el) => {
+          if (el === document.body || el === document.documentElement) return false;
+          const overflowY = el instanceof HTMLElement ? getComputedStyle(el).overflowY : "";
+          if (!/(auto|scroll)/.test(overflowY)) return false;
+          return (el.scrollHeight || 0) - (el.clientHeight || 0) > 10;
+        }).sort((left, right) => right.scrollHeight - right.clientHeight - (left.scrollHeight - left.clientHeight)).slice(0, 3);
+        for (const el of containers) {
+          if (toBottom) {
+            el.scrollTop = el.scrollHeight;
+          } else {
+            el.scrollTop += Math.max(1, Math.round(el.clientHeight * 0.8));
+          }
         }
       }, { toBottom: step >= totalSteps }),
       2e3,
@@ -157334,7 +157410,12 @@ var StateStore = class _StateStore {
         WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
         ORDER BY e.captured_at DESC,e.rowid DESC
         LIMIT 1
-      ) evidence_json
+      ) evidence_json, (
+        SELECT COUNT(1)
+        FROM occurrences o
+        WHERE o.project_id=(SELECT s.project_id FROM sessions s WHERE s.id=k.session_id)
+          AND o.key_path=k.key_path
+      ) occurrence_count
       FROM session_locale_keys k
       JOIN tasks t ON t.session_id=k.session_id AND t.key_path=k.key_path
       WHERE k.session_id=?
@@ -157348,6 +157429,10 @@ var StateStore = class _StateStore {
         english: row.english,
         deprecated: row.task_status === "skipped" && row.skip_reason === "no_source_occurrence",
         nonVisual: row.task_status === "skipped" && row.skip_reason === "non_visual_source_only",
+        // needs_manual with zero source occurrences: the dynamic-reference
+        // guard routed this unreachable key to manual instead of skip.
+        // Flag it so the reviewer can prune it without investigating.
+        deadKey: row.task_status === "needs_manual" && Number(row.occurrence_count) === 0,
         relativeFile: row.relative_file,
         targetFile: join3(resolve6(englishRoot), row.relative_file),
         jsonPath: parseJson(row.json_path, row.key_path.split(".")),
@@ -157967,14 +158052,17 @@ var LocalService = class {
   async captureScrolledVisible(sessionId, collector, group, handledKeys) {
     const store = this.store;
     const groupIds = new Set(group.map((task) => task.id));
-    const maxSteps = 3;
+    const maxSteps = 12;
     let newlyCaptured = 0;
     for (let step = 1; step <= maxSteps; step += 1) {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
       const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) continue;
+      if (notYetHandled.length === 0) {
+        if (step > 2) break;
+        continue;
+      }
       const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
       const byKey = new Map(results.map((result) => [result.key, result]));
       for (const task of notYetHandled) {
@@ -158597,7 +158685,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.16").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.17").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);

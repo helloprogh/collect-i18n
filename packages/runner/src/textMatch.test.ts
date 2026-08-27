@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isExactTextMatch, pickExactTextRows } from './textMatch.js'
+import { isExactTextMatch, pickExactTextMatch, pickExactTextRows } from './textMatch.js'
 interface RegistryRow { text?: string; grade?: string; proof?: string; binding?: string }
 describe('exact text matching (waitForKey toast fallback)', () => {
   it('matches leaf text by exact trimmed equality', () => {
@@ -34,5 +34,25 @@ describe('exact text matching (waitForKey toast fallback)', () => {
     expect(isExactTextMatch(matched as RegistryRow, leafNeedle)).toBe(true)
     // the needle must not collide with interpolated or partial texts
     expect(pickExactTextRows(registeredTexts, '设置已保存，请重试')[0]?.proof).toBeUndefined()
+  })
+  it('production decision: first imperative-priority hit wins, unmatched hits are skipped', () => {
+    const registeredTexts: RegistryRow[] = [
+      { text: '操作成功', grade: 'B', proof: 'imperative-text-scan', binding: 'imperative-service' },
+      { text: '保存成功', grade: 'B', proof: 'imperative-text-scan', binding: 'imperative-service' },
+    ]
+    // Leaf hits as the browser harvest emits them: imperative-host leaves first.
+    const hits = [
+      { needle: '操作成功', x: 720, y: 24, width: 96, height: 32 },
+      { needle: '保存成功', x: 720, y: 64, width: 96, height: 32 },
+    ]
+    const decision = pickExactTextMatch(registeredTexts, hits)
+    expect(decision?.hit.needle).toBe('操作成功')
+    expect(decision?.row.text).toBe('操作成功')
+    // A static same-text element before any registered match does not win,
+    // and hits without a registered text are skipped, not fatal.
+    const reordered = pickExactTextMatch(registeredTexts, [hits[1], { needle: '页面静态文案' }, hits[0]])
+    expect(reordered?.hit.needle).toBe('保存成功')
+    expect(pickExactTextMatch(registeredTexts, [{ needle: '未注册文本' }])).toBeUndefined()
+    expect(pickExactTextMatch([], hits)).toBeUndefined()
   })
 })

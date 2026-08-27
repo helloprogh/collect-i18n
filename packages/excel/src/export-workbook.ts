@@ -131,16 +131,20 @@ export async function exportTranslationWorkbook(
   };
   header.alignment = { vertical: "middle", horizontal: "left" };
 
-  // Deprecated rows (classified at finalize as no-source-occurrence) are
-  // grouped at the very end of the sheet; every other row — including
-  // non-visual rows — keeps the alphabetical order.
+  // Deprecated rows (classified at finalize as no-source-occurrence) and
+  // dead keys (needs_manual with zero occurrences) are grouped at the very
+  // end of the sheet — dead keys first, then deprecated; every other row —
+  // including non-visual rows — keeps the alphabetical order.
   const normalRows = rows
-    .filter((row) => !row.deprecated)
+    .filter((row) => !row.deprecated && !row.deadKey)
+    .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const deadKeyRows = rows
+    .filter((row) => row.deadKey && !row.deprecated)
     .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
   const deprecatedRows = rows
     .filter((row) => row.deprecated)
     .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
-  const orderedRows = [...normalRows, ...deprecatedRows];
+  const orderedRows = [...normalRows, ...deadKeyRows, ...deprecatedRows];
   let imageCount = 0;
 
   for (const source of orderedRows) {
@@ -200,6 +204,13 @@ export async function exportTranslationWorkbook(
       // annotate in place with the same visual style as deprecated rows.
       const cell = row.getCell(3);
       cell.value = "非可视";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.deadKey) {
+      // Dead keys carry no source occurrence, so no screenshot can exist;
+      // annotate with the same visual style as deprecated rows.
+      const cell = row.getCell(3);
+      cell.value = "死键";
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }

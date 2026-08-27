@@ -3,7 +3,7 @@ import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
-import { isExactTextMatch, pickExactTextRows } from "./textMatch.js";
+import { pickExactTextMatch } from "./textMatch.js";
 
 export type RuntimeEvidenceGrade = "A" | "B" | "C";
 
@@ -1410,36 +1410,6 @@ export class BrowserCollector {
           const normalized = normalizeRuntimeTarget(registryTarget);
           if (normalized) return normalized;
         }
-        // Transient imperative toasts (ElMessage/ElNotification/ElMessageBox) carry
-        // key+text in the runtime registry but no attributed DOM rect, so the
-        // attribution paths above cannot see them while they are visible.
-        // Fall back to an exact-text scan over leaf elements for the recorded text(s).
-        const registeredTexts = (collector?.getSnapshot?.() ?? [])
-          .filter((entry) => entry.key === targetKey && typeof entry.text === "string" && entry.text.trim().length > 0)
-          .map((entry) => ({ text: entry.text as string, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
-        if (registeredTexts.length > 0) {
-          const leaves = Array.from(document.querySelectorAll<HTMLElement>("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
-          for (const element of leaves) {
-            if (element.childElementCount > 0) continue;
-            const ownText = element.innerText || element.getAttribute("placeholder") || element.getAttribute("aria-label") || "";
-            const needle = ownText.trim();
-            if (!needle) continue;
-            if (!registeredTexts.some((entry) => isExactTextMatch(entry, needle))) continue;
-            const matched = pickExactTextRows(registeredTexts, needle)[0];
-            if (!matched) continue;
-            const rect = element.getBoundingClientRect();
-            if (!intersectsViewport(rect)) continue;
-            return normalizeRuntimeTarget({
-              key: targetKey,
-              occurrenceId: undefined,
-              kind: matched.binding ?? "imperative-service",
-              evidenceGrade: matched.grade ?? "B",
-              evidenceProof: matched.proof ?? "imperative-text-scan",
-              text: ownText.trim(),
-              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-            });
-          }
-        }
         const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(targetKey) : targetKey.replace(/["\\]/g, "\\$&");
         const element = document.querySelector<HTMLElement>(`[data-i18n-key~="${escaped}"]`);
         if (!element) return undefined;
@@ -1469,12 +1439,99 @@ export class BrowserCollector {
         }
         throw error;
       }
+      if (!snapshot) {
+        // Transient imperative toasts (ElMessage/ElNotification/ElMessageBox)
+        // carry key+text in the runtime registry but no attributed DOM rect.
+        // The exact-text decision runs on the Node side via textMatch — the
+        // playwright evaluate boundary serializes callbacks, so bundled
+        // module identifiers are unavailable in the page.
+        snapshot = await this.resolveExactTextFallback(key, minimumGrade);
+      }
       if (snapshot) return snapshot;
       first = false;
       lastUrl = currentUrl;
       await new Promise((done) => setTimeout(done, 125));
     }
     throw new CollectorError("key_not_found", `Timed out waiting for i18n key: ${key}`, { key });
+  }
+
+  /**
+   * Exact-text fallback for transient imperative anchors (R-toast): read the
+   * runtime registry texts and harvest candidate leaf geometry in the page,
+   * then decide the match on the Node side with the same isExactTextMatch /
+   * pickExactTextRows helpers the unit tests exercise. Harvesting prefers
+   * leaves inside imperative hosts (toasts teleport there) so a same-text
+   * static element cannot shadow the real anchor, and reads textContent
+   * before attribute fallbacks (textContent does not force a reflow).
+   */
+  private async resolveExactTextFallback(
+    key: string,
+    minimumGrade: RuntimeEvidenceGrade,
+  ): Promise<RuntimeTargetSnapshot | undefined> {
+    const page = this.activePage;
+    const registeredTexts = await bounded(
+      page.evaluate((targetKey) => {
+        const runtimeWindow = window as RuntimeWindow;
+        const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+        return (collector?.getSnapshot?.() ?? [])
+          .filter((entry) => entry.key === targetKey && typeof entry.text === "string" && entry.text.trim().length > 0)
+          .map((entry) => ({ text: entry.text as string, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
+      }, key),
+      2_000,
+      "Page became unresponsive while reading the i18n registry",
+    );
+    if (registeredTexts.length === 0) return undefined;
+    const leafHits = await bounded(
+      page.evaluate(() => {
+        const intersectsViewport = (rect: { x: number; y: number; width: number; height: number }): boolean =>
+          rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight &&
+          rect.x + rect.width > 0 && rect.y + rect.height > 0;
+        const hosts = new Set<HTMLElement>();
+        for (const host of document.querySelectorAll<HTMLElement>(
+          ".el-message,.el-message-box,.el-notification,[role=\"alert\"],[role=\"dialog\"],.el-popconfirm",
+        )) {
+          let current: HTMLElement | null = host;
+          while (current) {
+            hosts.add(current);
+            current = current.parentElement;
+          }
+        }
+        const leaves = Array.from(document.querySelectorAll<HTMLElement>("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
+        leaves.sort((left, right) => Number(hosts.has(right)) - Number(hosts.has(left)));
+        const hits: Array<{ needle: string; x: number; y: number; width: number; height: number }> = [];
+        for (const element of leaves) {
+          if (hits.length >= 300) break;
+          if (element.childElementCount > 0) continue;
+          const raw = element.textContent && element.textContent.trim().length > 0
+            ? element.textContent
+            : element.getAttribute("placeholder") || element.getAttribute("aria-label") || "";
+          const needle = (raw ?? "").trim();
+          if (!needle) continue;
+          const rect = element.getBoundingClientRect();
+          if (!intersectsViewport(rect)) continue;
+          hits.push({ needle, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        }
+        return hits;
+      }),
+      2_000,
+      "Page became unresponsive while scanning exact-text leaves",
+    );
+    const gradeRank = (grade: RuntimeEvidenceGrade | undefined): number =>
+      grade === "A" ? 3 : grade === "B" ? 2 : 1;
+    const decision = pickExactTextMatch(registeredTexts, leafHits);
+    if (!decision) return undefined;
+    const { row: matched, hit } = decision;
+    if (gradeRank(matched.grade) < gradeRank(minimumGrade)) return undefined;
+    return {
+      key,
+      occurrenceId: undefined,
+      binding: matched.binding ?? "imperative-service",
+      evidenceGrade: matched.grade ?? "B",
+      evidenceProof: matched.proof ?? "imperative-text-scan",
+      text: hit.needle,
+      route: page.url(),
+      rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+    };
   }
 
   async capture(
@@ -1727,10 +1784,33 @@ export class BrowserCollector {
     this.assertSameOrigin();
     await bounded(
       this.activePage.evaluate(({ toBottom }) => {
-        if (toBottom) {
-          window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
-        } else {
-          window.scrollBy(0, Math.max(1, Math.round(innerHeight * 0.8)));
+        const winSurplus = (document.documentElement.scrollHeight || 0) - window.innerHeight;
+        if (winSurplus > 10) {
+          if (toBottom) {
+            window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
+          } else {
+            window.scrollBy(0, Math.max(1, Math.round(window.innerHeight * 0.8)));
+          }
+        }
+        // Virtualized tables/lists and custom scroll panels scroll their own
+        // overflow container, not the window: scroll the largest few so rows
+        // beyond the initial viewport mount during the deterministic pass.
+        const containers = Array.from(document.querySelectorAll<HTMLElement>("*"))
+          .filter((el) => {
+            if (el === document.body || el === document.documentElement) return false;
+            const overflowY = el instanceof HTMLElement ? getComputedStyle(el).overflowY : "";
+            if (!/(auto|scroll)/.test(overflowY)) return false;
+            return (el.scrollHeight || 0) - (el.clientHeight || 0) > 10;
+          })
+          .sort((left, right) =>
+            (right.scrollHeight - right.clientHeight) - (left.scrollHeight - left.clientHeight))
+          .slice(0, 3);
+        for (const el of containers) {
+          if (toBottom) {
+            el.scrollTop = el.scrollHeight;
+          } else {
+            el.scrollTop += Math.max(1, Math.round(el.clientHeight * 0.8));
+          }
         }
       }, { toBottom: step >= totalSteps }),
       2_000,

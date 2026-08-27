@@ -658,7 +658,10 @@ export class LocalService {
   ): Promise<number> {
     const store = this.store!;
     const groupIds = new Set(group.map((task) => task.id));
-    const maxSteps = 3;
+    // 12 bounded steps with an early exit once a full step surfaces neither
+    // newly visible keys nor new evidence: enough to walk long virtualized
+    // tables row-page by row-page without burning the whole window.
+    const maxSteps = 12;
     let newlyCaptured = 0;
     for (let step = 1; step <= maxSteps; step += 1) {
       if (this.manualActive) return newlyCaptured;
@@ -666,7 +669,12 @@ export class LocalService {
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
       const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) continue;
+      if (notYetHandled.length === 0) {
+        // Stability check: nothing new visible and nothing captured on this
+        // step means further scrolling is unlikely to surface more keys.
+        if (step > 2) break;
+        continue;
+      }
       const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
       const byKey = new Map(results.map((result) => [result.key, result]));
       for (const task of notYetHandled) {

@@ -108,6 +108,28 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getRow(3).getCell(3).text).toBe("");
     expect(sheet.getRow(5).getCell(3).text).toBe("词条废弃");
   });
+  it("groups dead-key rows after normal rows with 死键 in the screenshot column", async () => {
+    const item = await fixture();
+    await exportTranslationWorkbook([
+      { ...item.catalog[0]!, english: "" },
+      { ...item.catalog[1]!, english: "" },
+      { keyPath: "users.ghost.cancel", chinese: "幽灵取消", targetFile: item.targetFile, jsonPath: ["users", "ghost", "cancel"], deadKey: true },
+      { keyPath: "users.ghost.retry", chinese: "幽灵重试", targetFile: item.targetFile, jsonPath: ["users", "ghost", "retry"], deadKey: true },
+      { keyPath: "users.old.banner", chinese: "旧横幅", targetFile: item.targetFile, jsonPath: ["users", "old", "banner"], deprecated: true },
+    ], item.workbookPath);
+
+    const { sheet } = await workbookRows(item.workbookPath);
+    // Normal rows keep the alphabetical order first.
+    expect(sheet.getRow(2).getCell(4).text).toBe("users.create.save");
+    expect(sheet.getRow(3).getCell(4).text).toBe("users.create.title");
+    // Dead keys come next, before deprecated rows.
+    expect(sheet.getRow(4).getCell(4).text).toBe("users.ghost.cancel");
+    expect(sheet.getRow(5).getCell(4).text).toBe("users.ghost.retry");
+    expect(sheet.getRow(6).getCell(4).text).toBe("users.old.banner");
+    expect(sheet.getRow(4).getCell(3).text).toBe("死键");
+    expect(sheet.getRow(5).getCell(3).text).toBe("死键");
+    expect(sheet.getRow(6).getCell(3).text).toBe("词条废弃");
+  });
   it("draws thin borders on the header and every data cell", async () => {
     const item = await fixture();
     await exportTranslationWorkbook(

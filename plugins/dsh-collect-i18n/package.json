@@ -1,6 +1,6 @@
 {
   "name": "@collect-i18n/dsh-plugin",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "description": "collect-i18n for DeepSeek Harness: server-side tools that drive the bundled collect-i18n CLI/skill (i18n screenshot collection, Excel export/import, browser-based evidence) with F1-F5 loading-overlay hardening",
   "type": "module",
   "main": "lib/index.js",

@@ -209,7 +209,7 @@ collect-i18n export --session <session-id> --output <absolute-xlsx-path>
 
 导出一个可见工作表和严格四列：`中文`、`英文`、`截图`、`Key Path`。英文列逐行复制中文原文，不读取当前 `en-us` 作为初值。命令返回输出路径、行数和嵌入图片数。
 
-finalize 判定为废弃的词条（无源码引用且无未决动态渲染，`no_source_occurrence`）在导出中集中排在列表末尾，其截图列填写「词条废弃」；非可视词条（全部 occurrence 为 `aria-*` 或原生元素 `title`，`non_visual_source_only`）保持原有排序，截图列填写「非可视」；其余无截图词条保持原有排序与空截图列。
+finalize 判定为废弃的词条（无源码引用且无未决动态渲染，`no_source_occurrence`）在导出中集中排在列表末尾，其截图列填写「词条废弃」；非可视词条（全部 occurrence 为 `aria-*` 或原生元素 `title`，`non_visual_source_only`）保持原有排序，截图列填写「非可视」；死键（`needs_manual` 且无任何源码 occurrence，被未解析动态调用保护挡在 skipped 之外的键）排在正常词条之后、废弃词条之前，截图列填写「死键」；其余无截图词条保持原有排序与空截图列。
 
 ### `import`
 

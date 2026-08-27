@@ -1102,7 +1102,7 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
-  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean; nonVisual?: boolean }> {
+  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean; nonVisual?: boolean; deadKey?: boolean }> {
     const rows = this.db.prepare(`
       SELECT k.*, t.status AS task_status, t.skip_reason, (
         SELECT e.screenshot_path
@@ -1116,7 +1116,12 @@ export class StateStore {
         WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
         ORDER BY e.captured_at DESC,e.rowid DESC
         LIMIT 1
-      ) evidence_json
+      ) evidence_json, (
+        SELECT COUNT(1)
+        FROM occurrences o
+        WHERE o.project_id=(SELECT s.project_id FROM sessions s WHERE s.id=k.session_id)
+          AND o.key_path=k.key_path
+      ) occurrence_count
       FROM session_locale_keys k
       JOIN tasks t ON t.session_id=k.session_id AND t.key_path=k.key_path
       WHERE k.session_id=?
@@ -1130,6 +1135,10 @@ export class StateStore {
         english: row.english as string | undefined,
         deprecated: row.task_status === "skipped" && row.skip_reason === "no_source_occurrence",
         nonVisual: row.task_status === "skipped" && row.skip_reason === "non_visual_source_only",
+        // needs_manual with zero source occurrences: the dynamic-reference
+        // guard routed this unreachable key to manual instead of skip.
+        // Flag it so the reviewer can prune it without investigating.
+        deadKey: row.task_status === "needs_manual" && Number(row.occurrence_count) === 0,
         relativeFile: row.relative_file as string,
         targetFile: join(resolve(englishRoot), row.relative_file as string),
         jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),

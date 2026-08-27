@@ -29,6 +29,14 @@ export interface WorkbookExportRow extends LocaleCatalogEntry {
    * the 截图 column shows 「非可视」 instead of an empty cell.
    */
   nonVisual?: boolean;
+  /**
+   * True when the key landed in the manual queue with zero source
+   * occurrences (needs_manual + no occurrences): unreachable dead weight
+   * the dynamic-reference guard kept out of the deprecated skip. Dead-key
+   * rows are grouped after the normal rows and the 截图 column shows
+   * 「死键」 instead of an empty cell.
+   */
+  deadKey?: boolean;
 }
 
 export type ImportIssueCode =
