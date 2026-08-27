@@ -10,6 +10,7 @@ import { collectI18nVuePlugin } from "@collect-i18n/vite-vue";
 import { BrowserCollector, collectorErrorCode, isBrowserGoneError, parseTriggerPlan, type MockRule } from "@collect-i18n/runner";
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
+import { resolveStateRoot } from "./state-root.js";
 import { preferredAgentRoute, StateStore, type TaskStatus } from "./store.js";
 
 function resolveProjectVite(projectRoot: string): string {
@@ -241,12 +242,19 @@ export class LocalService {
   private readonly capabilityCookie: string;
   private vite?: ViteDevServer;
   private viteBase = "/";
+  private get stateRoot(): string {
+    return resolveStateRoot(this.options.config.projectRoot);
+  }
   private store?: StateStore;
   private http?: ReturnType<typeof createHttpServer>;
   private serviceUrl?: string;
   private executionTail: Promise<void> = Promise.resolve();
   private manualGeneration = 0;
   private manualActive = false;
+  // Locale guard: one recovery attempt per session (never per route).
+  private localeRecoveryAttempted = false;
+  // One-shot deterministic login per session for gated apps (R-login).
+  private loginCompleted = false;
   private deterministicRunning = false;
   private stopping = false;
   private stopPromise?: Promise<void>;
@@ -267,11 +275,19 @@ export class LocalService {
     this.vite = await createViteServer({
       root: config.projectRoot,
       logLevel: "info",
+      // Apps whose vite.config branches on --mode (mock servers, base paths)
+      // need the same mode their dev script uses; set
+      // COLLECT_I18N_VITE_MODE to match it instead of Vite's default.
+      mode: process.env.COLLECT_I18N_VITE_MODE || undefined,
       plugins: [collectI18nVuePlugin({ projectRoot: config.projectRoot, runtimeImport, manifest: true })],
       server: {
         host: appUrl.hostname,
         port: Number(appUrl.port || 5173),
         strictPort: true,
+        // The in-project .collect-i18n folder only ever holds the config file
+        // and one-shot export/import deliverables; ignoring it keeps the
+        // project's own HMR from reacting to collection deliverables.
+        watch: { ignored: ["**/.collect-i18n/**"] },
       },
     });
     // The project's own vite.config `base` (for example `/admin/`) decides where
@@ -355,10 +371,17 @@ export class LocalService {
       baseUrl: config.app.baseUrl,
       viteBase: this.viteBase,
       hashRouter: routerMode === "hash",
-      artifactDir: join(config.projectRoot, config.stateDirectory, "evidence", sessionId),
+      // Evidence screenshots are high-frequency writes: keep them in the
+      // external state root so the project's own watcher never sees them.
+      artifactDir: join(this.stateRoot, "evidence", sessionId),
       // Keep a versioned persistent profile so cookies survive sessions while
       // avoiding legacy/corrupted layouts created by pre-release collectors.
-      userDataDir: join(config.projectRoot, config.stateDirectory, "browser-profile", "v1"),
+      // Login-gated apps instead get a fresh profile per session: a leftover
+      // auth token would redirect the login route and hide the login form's
+      // own i18n keys from the deterministic pass.
+      userDataDir: config.browser.login
+        ? join(this.stateRoot, "browser-profile", "v1-login", sessionId)
+        : join(this.stateRoot, "browser-profile", "v1"),
       headless: config.browser.headless,
       defaultTimeoutMs: config.browser.timeoutMs,
       viewport: config.browser.viewport,
@@ -448,8 +471,9 @@ export class LocalService {
     this.deterministicRunning = true;
     const store = this.store!;
     try {
+      let collector: BrowserCollector | undefined;
       try {
-        await this.exclusive(async () => this.collector(sessionId));
+        collector = await this.exclusive(async () => this.collector(sessionId));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         for (const task of store.listTasks(sessionId, ["pending"])) {
@@ -457,6 +481,30 @@ export class LocalService {
         }
         console.error("[collect-i18n] collector startup failed", error);
         return;
+      }
+      // R-login: gated apps authenticate here, AFTER the login route has had
+      // its deterministic pass — the login form itself carries many i18n keys
+      // (placeholders, buttons, agreement text) that are only renderable
+      // while unauthenticated. One attempt per session; a failure fails the
+      // run loudly instead of silently collecting only the login page.
+      const login = this.options.config.browser.login;
+      if (login && !this.loginCompleted) {
+        this.loginCompleted = true;
+        try {
+          await this.captureDeterministicRoute(sessionId, collector, login.path ?? "/login", []);
+        } catch (error) {
+          console.error("[collect-i18n] login-route capture failed", error);
+        }
+        try {
+          await collector.performLogin(login);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          for (const task of store.listTasks(sessionId, ["pending"])) {
+            store.markTask(task.id, "failed", `登录引导失败：${message}`);
+          }
+          console.error("[collect-i18n] login bootstrap failed", error);
+          return;
+        }
       }
       // Routes visited in this queue run that produced zero new evidence are
       // skipped on later rounds (rare: mostly budget-deferred keys); a full
@@ -546,12 +594,24 @@ export class LocalService {
     let newlyCaptured = 0;
     collector.setMockRules([]);
     await collector.open(route);
-    const mountedKeys = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(2_000)));
+    let inspection = await collector.inspectRuntimeSettled(2_000);
+    let mountedKeys = new Set(this.inspectionMountedKeys(inspection));
     const groupIds = new Set(group.map((task) => task.id));
     const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
       (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
     );
     const candidates = [...group, ...opportunistic];
+    // Locale guard: if the first route of the session renders sampled keys
+    // with anything but their zh-cn source text (an app that ignores both the
+    // navigator language and localStorage), retry that route once with
+    // explicit locale query parameters before any evidence is captured.
+    if (!this.localeRecoveryAttempted && this.renderedTextIsNotSourceLocale(inspection, candidates)) {
+      this.localeRecoveryAttempted = true;
+      const separator = route.includes("?") ? "&" : "?";
+      await collector.open(`${route}${separator}locale=zh-CN&lang=zh-CN`);
+      inspection = await collector.inspectRuntimeSettled(2_000);
+      mountedKeys = new Set(this.inspectionMountedKeys(inspection));
+    }
     const handledKeys = new Set<string>();
     // R2: one batched resolution + screenshot pass replaces per-key
     // waitForKey + capture for every mounted key.
@@ -630,6 +690,35 @@ export class LocalService {
       }
     }
     return newlyCaptured;
+  }
+
+  /**
+   * Compares rendered snapshot texts with the zh-cn source text of the same
+   * keys. Returns true only when the sample is large enough to be decisive
+   * and nothing matches its source text — i.e. the UI almost certainly
+   * rendered a different locale (typically English placeholders), which
+   * would make every screenshot unusable as translation evidence.
+   */
+  private renderedTextIsNotSourceLocale(
+    inspection: { snapshots: Array<{ key?: string; text?: string }> },
+    candidates: Array<import("./store.js").StoredTask>,
+  ): boolean {
+    const chineseByKey = new Map(candidates.map((task) => [task.keyPath, task.chinese] as const));
+    let match = 0;
+    let mismatch = 0;
+    for (const snapshot of inspection.snapshots) {
+      if (!snapshot.key || typeof snapshot.text !== "string") continue;
+      const needle = snapshot.text.trim();
+      if (needle.length < 2) continue;
+      const chinese = chineseByKey.get(snapshot.key);
+      if (!chinese) continue;
+      // Interpolated keys never render their raw source text; skip them.
+      if (chinese.includes("{") || chinese.includes("$t")) continue;
+      if (needle === chinese.trim()) match += 1;
+      else mismatch += 1;
+      if (match > 0) break;
+    }
+    return match === 0 && mismatch >= 3;
   }
 
   private inspectionMountedKeys(inspection: {
@@ -1018,7 +1107,7 @@ export class LocalService {
     if (url.pathname === "/api/artifact") {
       const evidence = store.evidence(url.searchParams.get("id") ?? "");
       if (!evidence) { sendJson(response, 404, { ok: false, error: { message: "证据不存在" } }); return; }
-      const root = resolve(this.options.config.projectRoot, this.options.config.stateDirectory, "evidence");
+      const root = resolve(resolveStateRoot(this.options.config.projectRoot), "evidence");
       const file = resolve(String(evidence.screenshot_path));
       if (!isPathInside(root, file)) { sendJson(response, 403, { ok: false }); return; }
       response.writeHead(200, { "content-type": "image/png", "cache-control": "private, max-age=300" }); response.end(await readFile(file)); return;

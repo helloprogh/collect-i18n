@@ -8003,41 +8003,41 @@ var require_queue = __commonJS({
       queue2.drained = drained;
       return queue2;
       function push(value) {
-        var p = new Promise(function(resolve9, reject2) {
+        var p = new Promise(function(resolve10, reject2) {
           pushCb(value, function(err, result) {
             if (err) {
               reject2(err);
               return;
             }
-            resolve9(result);
+            resolve10(result);
           });
         });
         p.catch(noop);
         return p;
       }
       function unshift(value) {
-        var p = new Promise(function(resolve9, reject2) {
+        var p = new Promise(function(resolve10, reject2) {
           unshiftCb(value, function(err, result) {
             if (err) {
               reject2(err);
               return;
             }
-            resolve9(result);
+            resolve10(result);
           });
         });
         p.catch(noop);
         return p;
       }
       function drained() {
-        var p = new Promise(function(resolve9) {
+        var p = new Promise(function(resolve10) {
           process.nextTick(function() {
             if (queue2.idle()) {
-              resolve9();
+              resolve10();
             } else {
               var previousDrain = queue2.drain;
               queue2.drain = function() {
                 if (typeof previousDrain === "function") previousDrain();
-                resolve9();
+                resolve10();
                 queue2.drain = previousDrain;
               };
             }
@@ -8523,9 +8523,9 @@ var require_stream3 = __commonJS({
         });
       }
       _getStat(filepath) {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           this._stat(filepath, this._fsStatSettings, (error51, stats) => {
-            return error51 === null ? resolve9(stats) : reject2(error51);
+            return error51 === null ? resolve10(stats) : reject2(error51);
           });
         });
       }
@@ -8549,10 +8549,10 @@ var require_async5 = __commonJS({
         this._readerStream = new stream_1.default(this._settings);
       }
       dynamic(root, options) {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           this._walkAsync(root, options, (error51, entries) => {
             if (error51 === null) {
-              resolve9(entries);
+              resolve10(entries);
             } else {
               reject2(error51);
             }
@@ -8562,10 +8562,10 @@ var require_async5 = __commonJS({
       async static(patterns, options) {
         const entries = [];
         const stream = this._readerStream.static(patterns, options);
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           stream.once("error", reject2);
           stream.on("data", (entry) => entries.push(entry));
-          stream.once("end", () => resolve9(entries));
+          stream.once("end", () => resolve10(entries));
         });
       }
     };
@@ -26038,7 +26038,7 @@ var require_util = __commonJS({
       return path6;
     });
     exports2.normalize = normalize2;
-    function join6(aRoot, aPath) {
+    function join7(aRoot, aPath) {
       if (aRoot === "") {
         aRoot = ".";
       }
@@ -26070,7 +26070,7 @@ var require_util = __commonJS({
       }
       return joined;
     }
-    exports2.join = join6;
+    exports2.join = join7;
     exports2.isAbsolute = function(aPath) {
       return aPath.charAt(0) === "/" || urlRegexp.test(aPath);
     };
@@ -26284,7 +26284,7 @@ var require_util = __commonJS({
             parsed.path = parsed.path.substring(0, index2 + 1);
           }
         }
-        sourceURL = join6(urlGenerate(parsed), sourceURL);
+        sourceURL = join7(urlGenerate(parsed), sourceURL);
       }
       return normalize2(sourceURL);
     }
@@ -46235,8 +46235,8 @@ var require_non_secure = __commonJS({
 var require_previous_map = __commonJS({
   "../../node_modules/.pnpm/postcss@8.5.19/node_modules/postcss/lib/previous-map.js"(exports2, module2) {
     "use strict";
-    var { existsSync, readFileSync } = __require("fs");
-    var { dirname: dirname6, isAbsolute: isAbsolute3, join: join6, relative: relative3, sep: sep2 } = __require("path");
+    var { existsSync: existsSync2, readFileSync } = __require("fs");
+    var { dirname: dirname6, isAbsolute: isAbsolute3, join: join7, relative: relative3, sep: sep2 } = __require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
     function fromBase64(str) {
       if (Buffer) {
@@ -46311,7 +46311,7 @@ var require_previous_map = __commonJS({
           }
         }
         this.root = dirname6(path6);
-        if (existsSync(path6)) {
+        if (existsSync2(path6)) {
           this.mapFile = path6;
           return readFileSync(path6, "utf-8").toString().trim();
         }
@@ -46347,7 +46347,7 @@ var require_previous_map = __commonJS({
           return this.decodeInline(this.annotation);
         } else if (this.annotation) {
           let map3 = this.annotation;
-          if (file2) map3 = join6(dirname6(file2), map3);
+          if (file2) map3 = join7(dirname6(file2), map3);
           let unknown2 = this.loadFile(map3, file2, false);
           if (unknown2) {
             try {
@@ -46377,7 +46377,7 @@ var require_input = __commonJS({
   "../../node_modules/.pnpm/postcss@8.5.19/node_modules/postcss/lib/input.js"(exports2, module2) {
     "use strict";
     var { nanoid: nanoid3 } = require_non_secure();
-    var { isAbsolute: isAbsolute3, resolve: resolve9 } = __require("path");
+    var { isAbsolute: isAbsolute3, resolve: resolve10 } = __require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
     var { fileURLToPath: fileURLToPath4, pathToFileURL: pathToFileURL2 } = __require("url");
     var CssSyntaxError = require_css_syntax_error();
@@ -46385,7 +46385,7 @@ var require_input = __commonJS({
     var terminalHighlight = require_terminal_highlight();
     var lineToIndexCache = /* @__PURE__ */ Symbol("lineToIndexCache");
     var sourceMapAvailable = Boolean(SourceMapConsumer && SourceMapGenerator);
-    var pathAvailable = Boolean(resolve9 && isAbsolute3);
+    var pathAvailable = Boolean(resolve10 && isAbsolute3);
     function getLineToIndex(input) {
       if (input[lineToIndexCache]) return input[lineToIndexCache];
       let lines = input.css.split("\n");
@@ -46419,7 +46419,7 @@ var require_input = __commonJS({
           if (!pathAvailable || /^\w+:\/\//.test(opts.from) || isAbsolute3(opts.from)) {
             this.file = opts.from;
           } else {
-            this.file = resolve9(opts.from);
+            this.file = resolve10(opts.from);
           }
         }
         if (pathAvailable && sourceMapAvailable) {
@@ -46540,7 +46540,7 @@ var require_input = __commonJS({
         if (/^\w+:\/\//.test(file2)) {
           return file2;
         }
-        return resolve9(this.map.consumer().sourceRoot || this.map.root || ".", file2);
+        return resolve10(this.map.consumer().sourceRoot || this.map.root || ".", file2);
       }
       origin(line, column, endLine, endColumn) {
         if (!this.map) return false;
@@ -46849,12 +46849,12 @@ var require_fromJSON = __commonJS({
 var require_map_generator = __commonJS({
   "../../node_modules/.pnpm/postcss@8.5.19/node_modules/postcss/lib/map-generator.js"(exports2, module2) {
     "use strict";
-    var { dirname: dirname6, relative: relative3, resolve: resolve9, sep: sep2 } = __require("path");
+    var { dirname: dirname6, relative: relative3, resolve: resolve10, sep: sep2 } = __require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
     var { pathToFileURL: pathToFileURL2 } = __require("url");
     var Input = require_input();
     var sourceMapAvailable = Boolean(SourceMapConsumer && SourceMapGenerator);
-    var pathAvailable = Boolean(dirname6 && resolve9 && relative3 && sep2);
+    var pathAvailable = Boolean(dirname6 && resolve10 && relative3 && sep2);
     var MapGenerator = class {
       constructor(stringify2, root, opts, cssString) {
         this.stringify = stringify2;
@@ -47083,7 +47083,7 @@ var require_map_generator = __commonJS({
         if (cached2) return cached2;
         let from = this.opts.to ? dirname6(this.opts.to) : ".";
         if (typeof this.mapOpts.annotation === "string") {
-          from = dirname6(resolve9(from, this.mapOpts.annotation));
+          from = dirname6(resolve10(from, this.mapOpts.annotation));
         }
         let path6 = relative3(from, file2);
         this.memoizedPaths.set(file2, path6);
@@ -53622,7 +53622,7 @@ var require_lodash = __commonJS({
           }
           return mapped.length && mapped[0] === arrays[0] ? baseIntersection(mapped, undefined2, comparator) : [];
         });
-        function join6(array2, separator) {
+        function join7(array2, separator) {
           return array2 == null ? "" : nativeJoin.call(array2, separator);
         }
         function last(array2) {
@@ -55546,7 +55546,7 @@ var require_lodash = __commonJS({
         lodash.isUndefined = isUndefined;
         lodash.isWeakMap = isWeakMap;
         lodash.isWeakSet = isWeakSet;
-        lodash.join = join6;
+        lodash.join = join7;
         lodash.kebabCase = kebabCase;
         lodash.last = last;
         lodash.lastIndexOf = lastIndexOf;
@@ -57993,8 +57993,8 @@ ${defaultVar}.setup = __setup__
         var fs3 = require$$0;
         var path7 = path$1;
         var util2 = require$$2;
-        var join6 = path7.join;
-        var resolve9 = path7.resolve;
+        var join7 = path7.join;
+        var resolve10 = path7.resolve;
         var extname3 = path7.extname;
         var dirname6 = path7.dirname;
         var isAbsolute3 = path7.isAbsolute;
@@ -58043,10 +58043,10 @@ ${defaultVar}.setup = __setup__
               if (extname3(partialPath) !== "") {
                 file2 = partialPath;
               } else {
-                file2 = join6(partialPath + extname3(path8));
+                file2 = join7(partialPath + extname3(path8));
               }
             } else {
-              file2 = join6(dirname6(path8), partialPath + extname3(path8));
+              file2 = join7(dirname6(path8), partialPath + extname3(path8));
             }
             read(file2, options, function(err, str) {
               if (err) return cb(err);
@@ -58057,12 +58057,12 @@ ${defaultVar}.setup = __setup__
           next(0);
         }
         function promisify(cb, fn) {
-          return new Promise(function(resolve10, reject2) {
+          return new Promise(function(resolve11, reject2) {
             cb = cb || function(err, html) {
               if (err) {
                 return reject2(err);
               }
-              resolve10(html);
+              resolve11(html);
             };
             fn(cb);
           });
@@ -58875,7 +58875,7 @@ ${defaultVar}.setup = __setup__
                 var parsed;
                 if (!cache(options)) {
                   if (type === "path") {
-                    var path8 = resolve9(str);
+                    var path8 = resolve10(str);
                     delete __require.cache[path8];
                     Code = commonjsRequire(path8);
                   } else {
@@ -58888,7 +58888,7 @@ ${defaultVar}.setup = __setup__
                 parsed = new Factory(options);
                 content = isNonStatic ? ReactDOM.renderToString(parsed) : ReactDOM.renderToStaticMarkup(parsed);
                 if (base) {
-                  baseStr = readCache[str] || fs3.readFileSync(resolve9(base), "utf8");
+                  baseStr = readCache[str] || fs3.readFileSync(resolve10(base), "utf8");
                   if (enableCache) {
                     readCache[str] = baseStr;
                   }
@@ -58995,7 +58995,7 @@ ${defaultVar}.setup = __setup__
             var engine = requires.teacup || (requires.teacup = __require("teacup/lib/express"));
             commonjsRequire.extensions[".teacup"] = commonjsRequire.extensions[".coffee"];
             if (path8[0] !== "/") {
-              path8 = join6(process.cwd(), path8);
+              path8 = join7(process.cwd(), path8);
             }
             if (!options.cache) {
               var callback = cb2;
@@ -62671,7 +62671,7 @@ ${shared.generateCodeFrame(
             if (options === void 0) {
               options = {};
             }
-            return new Promise(function(resolve9, reject2) {
+            return new Promise(function(resolve10, reject2) {
               try {
                 var root_1 = _this._root(rule, options);
                 Promise.resolve(_this.func(root_1)).then(function(transform3) {
@@ -62681,7 +62681,7 @@ ${shared.generateCodeFrame(
                     rule.selector = string5;
                   }
                   return { transform: transform3, root: root_1, string: string5 };
-                }).then(resolve9, reject2);
+                }).then(resolve10, reject2);
               } catch (e) {
                 reject2(e);
                 return;
@@ -63425,7 +63425,7 @@ ${shared.generateCodeFrame(
           return path7;
         }
         exports3.normalize = normalize3;
-        function join6(aRoot, aPath) {
+        function join7(aRoot, aPath) {
           if (aRoot === "") {
             aRoot = ".";
           }
@@ -63457,7 +63457,7 @@ ${shared.generateCodeFrame(
           }
           return joined;
         }
-        exports3.join = join6;
+        exports3.join = join7;
         exports3.isAbsolute = function(aPath) {
           return aPath.charAt(0) === "/" || urlRegexp.test(aPath);
         };
@@ -63630,7 +63630,7 @@ ${shared.generateCodeFrame(
                 parsed.path = parsed.path.substring(0, index2 + 1);
               }
             }
-            sourceURL = join6(urlGenerate(parsed), sourceURL);
+            sourceURL = join7(urlGenerate(parsed), sourceURL);
           }
           return normalize3(sourceURL);
         }
@@ -65486,11 +65486,11 @@ ${shared.generateCodeFrame(
       saveJSON.default = saveJSON$1;
       var _fs = /* @__PURE__ */ requireFs();
       function saveJSON$1(cssFile, json2) {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           const {
             writeFile: writeFile5
           } = (0, _fs.getFileSystem)();
-          writeFile5(`${cssFile}.json`, JSON.stringify(json2), (e) => e ? reject2(e) : resolve9(json2));
+          writeFile5(`${cssFile}.json`, JSON.stringify(json2), (e) => e ? reject2(e) : resolve10(json2));
         });
       }
       return saveJSON;
@@ -65955,7 +65955,7 @@ ${shared.generateCodeFrame(
           }
           const tokens = this.tokensByFile[fileRelativePath];
           if (tokens) return tokens;
-          return new Promise((resolve9, reject2) => {
+          return new Promise((resolve10, reject2) => {
             this.fs.readFile(fileRelativePath, "utf-8", async (err, source) => {
               if (err) reject2(err);
               const {
@@ -65965,7 +65965,7 @@ ${shared.generateCodeFrame(
               this.sources[fileRelativePath] = injectableSource;
               this.traces[trace] = fileRelativePath;
               this.tokensByFile[fileRelativePath] = exportTokens;
-              resolve9(exportTokens);
+              resolve10(exportTokens);
             });
           });
         }
@@ -69951,7 +69951,7 @@ ${shared.generateCodeFrame(
             if (options === void 0) {
               options = {};
             }
-            return new Promise(function(resolve9, reject2) {
+            return new Promise(function(resolve10, reject2) {
               try {
                 var root2 = _this._root(rule, options);
                 Promise.resolve(_this.func(root2)).then(function(transform3) {
@@ -69965,7 +69965,7 @@ ${shared.generateCodeFrame(
                     root: root2,
                     string: string5
                   };
-                }).then(resolve9, reject2);
+                }).then(resolve10, reject2);
               } catch (e) {
                 reject2(e);
                 return;
@@ -80905,7 +80905,7 @@ var require_worksheet = __commonJS({
       // =========================================================================
       // Worksheet Protection
       protect(password, options) {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           this.sheetProtection = {
             sheet: true
           };
@@ -80929,7 +80929,7 @@ var require_worksheet = __commonJS({
               delete this.sheetProtection.spinCount;
             }
           }
-          resolve9();
+          resolve10();
         });
       }
       unprotect() {
@@ -81649,7 +81649,7 @@ var require_BufferList = __commonJS({
         this.head = this.tail = null;
         this.length = 0;
       };
-      BufferList.prototype.join = function join6(s) {
+      BufferList.prototype.join = function join7(s) {
         if (this.length === 0) return "";
         var p = this.head;
         var ret2 = "" + p.data;
@@ -83626,8 +83626,8 @@ var require_lib3 = __commonJS({
         return this;
       }
       var p = this.constructor;
-      return this.then(resolve10, reject3);
-      function resolve10(value) {
+      return this.then(resolve11, reject3);
+      function resolve11(value) {
         function yes() {
           return value;
         }
@@ -83780,8 +83780,8 @@ var require_lib3 = __commonJS({
       }
       return out;
     }
-    Promise2.resolve = resolve9;
-    function resolve9(value) {
+    Promise2.resolve = resolve10;
+    function resolve10(value) {
       if (value instanceof this) {
         return value;
       }
@@ -84313,10 +84313,10 @@ var require_utils5 = __commonJS({
       var promise2 = external.Promise.resolve(inputData).then(function(data) {
         var isBlob = support.blob && (data instanceof Blob || ["[object File]", "[object Blob]"].indexOf(Object.prototype.toString.call(data)) !== -1);
         if (isBlob && typeof FileReader !== "undefined") {
-          return new external.Promise(function(resolve9, reject2) {
+          return new external.Promise(function(resolve10, reject2) {
             var reader = new FileReader();
             reader.onload = function(e) {
-              resolve9(e.target.result);
+              resolve10(e.target.result);
             };
             reader.onerror = function(e) {
               reject2(e.target.error);
@@ -84871,7 +84871,7 @@ var require_StreamHelper = __commonJS({
       }
     }
     function accumulate(helper, updateCallback) {
-      return new external.Promise(function(resolve9, reject2) {
+      return new external.Promise(function(resolve10, reject2) {
         var dataArray = [];
         var chunkType = helper._internalType, resultType = helper._outputType, mimeType = helper._mimeType;
         helper.on("data", function(data, meta3) {
@@ -84885,7 +84885,7 @@ var require_StreamHelper = __commonJS({
         }).on("end", function() {
           try {
             var result = transformZipOutput(resultType, concat2(chunkType, dataArray), mimeType);
-            resolve9(result);
+            resolve10(result);
           } catch (e) {
             reject2(e);
           }
@@ -90992,7 +90992,7 @@ var require_load = __commonJS({
     var Crc32Probe = require_Crc32Probe();
     var nodejsUtils = require_nodejsUtils();
     function checkEntryCRC32(zipEntry) {
-      return new external.Promise(function(resolve9, reject2) {
+      return new external.Promise(function(resolve10, reject2) {
         var worker = zipEntry.decompressed.getContentWorker().pipe(new Crc32Probe());
         worker.on("error", function(e) {
           reject2(e);
@@ -91000,7 +91000,7 @@ var require_load = __commonJS({
           if (worker.streamInfo.crc32 !== zipEntry.decompressed.crc32) {
             reject2(new Error("Corrupted zip : CRC32 mismatch"));
           } else {
-            resolve9();
+            resolve10();
           }
         }).resume();
       });
@@ -91229,7 +91229,7 @@ var require_buffer_list = __commonJS({
         }
       }, {
         key: "join",
-        value: function join6(s) {
+        value: function join7(s) {
           if (this.length === 0) return "";
           var p = this.head;
           var ret2 = "" + p.data;
@@ -92554,14 +92554,14 @@ var require_async_iterator = __commonJS({
       };
     }
     function readAndResolve(iter) {
-      var resolve9 = iter[kLastResolve];
-      if (resolve9 !== null) {
+      var resolve10 = iter[kLastResolve];
+      if (resolve10 !== null) {
         var data = iter[kStream].read();
         if (data !== null) {
           iter[kLastPromise] = null;
           iter[kLastResolve] = null;
           iter[kLastReject] = null;
-          resolve9(createIterResult(data, false));
+          resolve10(createIterResult(data, false));
         }
       }
     }
@@ -92569,13 +92569,13 @@ var require_async_iterator = __commonJS({
       process.nextTick(readAndResolve, iter);
     }
     function wrapForNext(lastPromise, iter) {
-      return function(resolve9, reject2) {
+      return function(resolve10, reject2) {
         lastPromise.then(function() {
           if (iter[kEnded]) {
-            resolve9(createIterResult(void 0, true));
+            resolve10(createIterResult(void 0, true));
             return;
           }
-          iter[kHandlePromise](resolve9, reject2);
+          iter[kHandlePromise](resolve10, reject2);
         }, reject2);
       };
     }
@@ -92595,12 +92595,12 @@ var require_async_iterator = __commonJS({
           return Promise.resolve(createIterResult(void 0, true));
         }
         if (this[kStream].destroyed) {
-          return new Promise(function(resolve9, reject2) {
+          return new Promise(function(resolve10, reject2) {
             process.nextTick(function() {
               if (_this[kError]) {
                 reject2(_this[kError]);
               } else {
-                resolve9(createIterResult(void 0, true));
+                resolve10(createIterResult(void 0, true));
               }
             });
           });
@@ -92623,13 +92623,13 @@ var require_async_iterator = __commonJS({
       return this;
     }), _defineProperty(_Object$setPrototypeO, "return", function _return() {
       var _this2 = this;
-      return new Promise(function(resolve9, reject2) {
+      return new Promise(function(resolve10, reject2) {
         _this2[kStream].destroy(null, function(err) {
           if (err) {
             reject2(err);
             return;
           }
-          resolve9(createIterResult(void 0, true));
+          resolve10(createIterResult(void 0, true));
         });
       });
     }), _Object$setPrototypeO), AsyncIteratorPrototype);
@@ -92651,15 +92651,15 @@ var require_async_iterator = __commonJS({
         value: stream._readableState.endEmitted,
         writable: true
       }), _defineProperty(_Object$create, kHandlePromise, {
-        value: function value(resolve9, reject2) {
+        value: function value(resolve10, reject2) {
           var data = iterator[kStream].read();
           if (data) {
             iterator[kLastPromise] = null;
             iterator[kLastResolve] = null;
             iterator[kLastReject] = null;
-            resolve9(createIterResult(data, false));
+            resolve10(createIterResult(data, false));
           } else {
-            iterator[kLastResolve] = resolve9;
+            iterator[kLastResolve] = resolve10;
             iterator[kLastReject] = reject2;
           }
         },
@@ -92678,12 +92678,12 @@ var require_async_iterator = __commonJS({
           iterator[kError] = err;
           return;
         }
-        var resolve9 = iterator[kLastResolve];
-        if (resolve9 !== null) {
+        var resolve10 = iterator[kLastResolve];
+        if (resolve10 !== null) {
           iterator[kLastPromise] = null;
           iterator[kLastResolve] = null;
           iterator[kLastReject] = null;
-          resolve9(createIterResult(void 0, true));
+          resolve10(createIterResult(void 0, true));
         }
         iterator[kEnded] = true;
       });
@@ -92698,7 +92698,7 @@ var require_async_iterator = __commonJS({
 var require_from = __commonJS({
   "../../node_modules/.pnpm/readable-stream@3.6.2/node_modules/readable-stream/lib/internal/streams/from.js"(exports2, module2) {
     "use strict";
-    function asyncGeneratorStep(gen, resolve9, reject2, _next, _throw, key, arg) {
+    function asyncGeneratorStep(gen, resolve10, reject2, _next, _throw, key, arg) {
       try {
         var info = gen[key](arg);
         var value = info.value;
@@ -92707,7 +92707,7 @@ var require_from = __commonJS({
         return;
       }
       if (info.done) {
-        resolve9(value);
+        resolve10(value);
       } else {
         Promise.resolve(value).then(_next, _throw);
       }
@@ -92715,13 +92715,13 @@ var require_from = __commonJS({
     function _asyncToGenerator(fn) {
       return function() {
         var self2 = this, args = arguments;
-        return new Promise(function(resolve9, reject2) {
+        return new Promise(function(resolve10, reject2) {
           var gen = fn.apply(self2, args);
           function _next(value) {
-            asyncGeneratorStep(gen, resolve9, reject2, _next, _throw, "next", value);
+            asyncGeneratorStep(gen, resolve10, reject2, _next, _throw, "next", value);
           }
           function _throw(err) {
-            asyncGeneratorStep(gen, resolve9, reject2, _next, _throw, "throw", err);
+            asyncGeneratorStep(gen, resolve10, reject2, _next, _throw, "throw", err);
           }
           _next(void 0);
         });
@@ -93810,14 +93810,14 @@ var require_utils6 = __commonJS({
       nop() {
       },
       promiseImmediate(value) {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           if (global.setImmediate) {
             setImmediate(() => {
-              resolve9(value);
+              resolve10(value);
             });
           } else {
             setTimeout(() => {
-              resolve9(value);
+              resolve10(value);
             }, 1);
           }
         });
@@ -93917,9 +93917,9 @@ var require_utils6 = __commonJS({
       },
       fs: {
         exists(path6) {
-          return new Promise((resolve9) => {
+          return new Promise((resolve10) => {
             fs2.access(path6, fs2.constants.F_OK, (err) => {
-              resolve9(!err);
+              resolve10(!err);
             });
           });
         }
@@ -94144,9 +94144,9 @@ var require_stream_buf = __commonJS({
       },
       async _pipe(chunk) {
         const write = function(pipe2) {
-          return new Promise((resolve9) => {
+          return new Promise((resolve10) => {
             pipe2.write(chunk.toBuffer(), () => {
-              resolve9();
+              resolve10();
             });
           });
         };
@@ -106151,12 +106151,12 @@ var require_xlsx = __commonJS({
     var VmlNotesXform = require_vml_notes_xform();
     var theme1Xml = require_theme1();
     function fsReadFileAsync(filename, options) {
-      return new Promise((resolve9, reject2) => {
+      return new Promise((resolve10, reject2) => {
         fs2.readFile(filename, options, (error51, data) => {
           if (error51) {
             reject2(error51);
           } else {
-            resolve9(data);
+            resolve10(data);
           }
         });
       });
@@ -106283,7 +106283,7 @@ var require_xlsx = __commonJS({
         if (lastDot >= 1) {
           const extension = filename.substr(lastDot + 1);
           const name = filename.substr(0, lastDot);
-          await new Promise((resolve9, reject2) => {
+          await new Promise((resolve10, reject2) => {
             const streamBuf = new StreamBuf();
             streamBuf.on("finish", () => {
               model.mediaIndex[filename] = model.media.length;
@@ -106295,7 +106295,7 @@ var require_xlsx = __commonJS({
                 buffer: streamBuf.toBuffer()
               };
               model.media.push(medium);
-              resolve9();
+              resolve10();
             });
             entry.on("error", (error51) => {
               reject2(error51);
@@ -106320,13 +106320,13 @@ var require_xlsx = __commonJS({
         model.vmlDrawings[`../drawings/${name}.vml`] = vmlDrawing;
       }
       async _processThemeEntry(entry, model, name) {
-        await new Promise((resolve9, reject2) => {
+        await new Promise((resolve10, reject2) => {
           const stream = new StreamBuf();
           entry.on("error", reject2);
           stream.on("error", reject2);
           stream.on("finish", () => {
             model.themes[name] = stream.read().toString();
-            resolve9();
+            resolve10();
           });
           entry.pipe(stream);
         });
@@ -106634,9 +106634,9 @@ var require_xlsx = __commonJS({
         });
       }
       _finalize(zip) {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           zip.on("finish", () => {
-            resolve9(this);
+            resolve10(this);
           });
           zip.on("error", reject2);
           zip.finalize();
@@ -106696,9 +106696,9 @@ var require_xlsx = __commonJS({
       }
       writeFile(filename, options) {
         const stream = fs2.createWriteStream(filename);
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           stream.on("finish", () => {
-            resolve9();
+            resolve10();
           });
           stream.on("error", (error51) => {
             reject2(error51);
@@ -110806,7 +110806,7 @@ var require_csv = __commonJS({
       }
       read(stream, options) {
         options = options || {};
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           const worksheet = this.workbook.addWorksheet(options.sheetName);
           const dateFormats = options.dateFormats || [
             "YYYY-MM-DD[T]HH:mm:ssZ",
@@ -110846,7 +110846,7 @@ var require_csv = __commonJS({
           }).on("end", () => {
             csvStream.emit("worksheet", worksheet);
           });
-          csvStream.on("worksheet", resolve9).on("error", reject2);
+          csvStream.on("worksheet", resolve10).on("error", reject2);
           stream.pipe(csvStream);
         });
       }
@@ -110859,12 +110859,12 @@ var require_csv = __commonJS({
         );
       }
       write(stream, options) {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           options = options || {};
           const worksheet = this.workbook.getWorksheet(options.sheetName || options.sheetId);
           const csvStream = fastCsv.format(options.formatterOptions);
           stream.on("finish", () => {
-            resolve9();
+            resolve10();
           });
           csvStream.on("error", reject2);
           csvStream.pipe(stream);
@@ -112040,9 +112040,9 @@ var require_readdir_glob = __commonJS({
     var fs2 = __require("fs");
     var { EventEmitter } = __require("events");
     var { Minimatch } = require_minimatch();
-    var { resolve: resolve9 } = __require("path");
+    var { resolve: resolve10 } = __require("path");
     function readdir2(dir2, strict) {
-      return new Promise((resolve10, reject2) => {
+      return new Promise((resolve11, reject2) => {
         fs2.readdir(dir2, { withFileTypes: true }, (err, files) => {
           if (err) {
             switch (err.code) {
@@ -112050,7 +112050,7 @@ var require_readdir_glob = __commonJS({
                 if (strict) {
                   reject2(err);
                 } else {
-                  resolve10([]);
+                  resolve11([]);
                 }
                 break;
               case "ENOTSUP":
@@ -112060,7 +112060,7 @@ var require_readdir_glob = __commonJS({
               case "ENAMETOOLONG":
               // Filename too long
               case "UNKNOWN":
-                resolve10([]);
+                resolve11([]);
                 break;
               case "ELOOP":
               // Too many levels of symbolic links
@@ -112069,30 +112069,30 @@ var require_readdir_glob = __commonJS({
                 break;
             }
           } else {
-            resolve10(files);
+            resolve11(files);
           }
         });
       });
     }
     function stat3(file2, followSyslinks) {
-      return new Promise((resolve10, reject2) => {
+      return new Promise((resolve11, reject2) => {
         const statFunc = followSyslinks ? fs2.stat : fs2.lstat;
         statFunc(file2, (err, stats) => {
           if (err) {
             switch (err.code) {
               case "ENOENT":
                 if (followSyslinks) {
-                  resolve10(stat3(file2, false));
+                  resolve11(stat3(file2, false));
                 } else {
-                  resolve10(null);
+                  resolve11(null);
                 }
                 break;
               default:
-                resolve10(null);
+                resolve11(null);
                 break;
             }
           } else {
-            resolve10(stats);
+            resolve11(stats);
           }
         });
       });
@@ -112159,7 +112159,7 @@ var require_readdir_glob = __commonJS({
             (ignore) => new Minimatch(ignore, { dot: true })
           );
         }
-        this.iterator = explore(resolve9(cwd || "."), this.options.follow, this.options.stat);
+        this.iterator = explore(resolve10(cwd || "."), this.options.follow, this.options.stat);
         this.paused = false;
         this.inactive = false;
         this.aborted = false;
@@ -112410,10 +112410,10 @@ function awaitify(asyncFn, arity) {
     if (typeof args[arity - 1] === "function") {
       return asyncFn.apply(this, args);
     }
-    return new Promise((resolve9, reject2) => {
+    return new Promise((resolve10, reject2) => {
       args[arity - 1] = (err, ...cbArgs) => {
         if (err) return reject2(err);
-        resolve9(cbArgs.length > 1 ? cbArgs : cbArgs[0]);
+        resolve10(cbArgs.length > 1 ? cbArgs : cbArgs[0]);
       };
       asyncFn.apply(this, args);
     });
@@ -112595,13 +112595,13 @@ function mapSeries(coll, iteratee, callback) {
   return _asyncMap(eachOfSeries$1, coll, iteratee, callback);
 }
 function promiseCallback() {
-  let resolve9, reject2;
+  let resolve10, reject2;
   function callback(err, ...args) {
     if (err) return reject2(err);
-    resolve9(args.length > 1 ? args : args[0]);
+    resolve10(args.length > 1 ? args : args[0]);
   }
   callback[PROMISE_SYMBOL] = new Promise((res, rej) => {
-    resolve9 = res, reject2 = rej;
+    resolve10 = res, reject2 = rej;
   });
   return callback;
 }
@@ -112874,8 +112874,8 @@ function queue$1(worker, concurrency, payload) {
       });
     }
     if (rejectOnError || !callback) {
-      return new Promise((resolve9, reject2) => {
-        res = resolve9;
+      return new Promise((resolve10, reject2) => {
+        res = resolve10;
         rej = reject2;
       });
     }
@@ -112914,10 +112914,10 @@ function queue$1(worker, concurrency, payload) {
   }
   const eventMethod = (name) => (handler) => {
     if (!handler) {
-      return new Promise((resolve9, reject2) => {
+      return new Promise((resolve10, reject2) => {
         once2(name, (err, data) => {
           if (err) return reject2(err);
-          resolve9(data);
+          resolve10(data);
         });
       });
     }
@@ -118329,11 +118329,11 @@ var require_core = __commonJS({
         this._finalize();
       }
       var self2 = this;
-      return new Promise(function(resolve9, reject2) {
+      return new Promise(function(resolve10, reject2) {
         var errored;
         self2._module.on("end", function() {
           if (!errored) {
-            resolve9();
+            resolve10();
           }
         });
         self2._module.on("error", function(err) {
@@ -124357,7 +124357,7 @@ var require_worksheet_writer = __commonJS({
       // =========================================================================
       // Worksheet Protection
       protect(password, options) {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           this.sheetProtection = {
             sheet: true
           };
@@ -124381,7 +124381,7 @@ var require_worksheet_writer = __commonJS({
               delete this.sheetProtection.spinCount;
             }
           }
-          resolve9();
+          resolve10();
         });
       }
       unprotect() {
@@ -124600,9 +124600,9 @@ var require_workbook_writer = __commonJS({
       _commitWorksheets() {
         const commitWorksheet = function(worksheet) {
           if (!worksheet.committed) {
-            return new Promise((resolve9) => {
+            return new Promise((resolve10) => {
               worksheet.stream.on("zipped", () => {
-                resolve9();
+                resolve10();
               });
               worksheet.commit();
             });
@@ -124690,19 +124690,19 @@ var require_workbook_writer = __commonJS({
         return void 0;
       }
       addStyles() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           this.zip.append(this.styles.xml, { name: "xl/styles.xml" });
-          resolve9();
+          resolve10();
         });
       }
       addThemes() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           this.zip.append(theme1Xml, { name: "xl/theme/theme1.xml" });
-          resolve9();
+          resolve10();
         });
       }
       addOfficeRels() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const xform = new RelationshipsXform();
           const xml = xform.toXml([
             { Id: "rId1", Type: RelType.OfficeDocument, Target: "xl/workbook.xml" },
@@ -124710,11 +124710,11 @@ var require_workbook_writer = __commonJS({
             { Id: "rId3", Type: RelType.ExtenderProperties, Target: "docProps/app.xml" }
           ]);
           this.zip.append(xml, { name: "/_rels/.rels" });
-          resolve9();
+          resolve10();
         });
       }
       addContentTypes() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const model = {
             worksheets: this._worksheets.filter(Boolean),
             sharedStrings: this.sharedStrings,
@@ -124724,7 +124724,7 @@ var require_workbook_writer = __commonJS({
           const xform = new ContentTypesXform();
           const xml = xform.toXml(model);
           this.zip.append(xml, { name: "[Content_Types].xml" });
-          resolve9();
+          resolve10();
         });
       }
       addMedia() {
@@ -124749,31 +124749,31 @@ var require_workbook_writer = __commonJS({
         );
       }
       addApp() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const model = {
             worksheets: this._worksheets.filter(Boolean)
           };
           const xform = new AppXform();
           const xml = xform.toXml(model);
           this.zip.append(xml, { name: "docProps/app.xml" });
-          resolve9();
+          resolve10();
         });
       }
       addCore() {
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const coreXform = new CoreXform();
           const xml = coreXform.toXml(this);
           this.zip.append(xml, { name: "docProps/core.xml" });
-          resolve9();
+          resolve10();
         });
       }
       addSharedStrings() {
         if (this.sharedStrings.count) {
-          return new Promise((resolve9) => {
+          return new Promise((resolve10) => {
             const sharedStringsXform = new SharedStringsXform();
             const xml = sharedStringsXform.toXml(this.sharedStrings);
             this.zip.append(xml, { name: "/xl/sharedStrings.xml" });
-            resolve9();
+            resolve10();
           });
         }
         return Promise.resolve();
@@ -124801,11 +124801,11 @@ var require_workbook_writer = __commonJS({
             });
           }
         });
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const xform = new RelationshipsXform();
           const xml = xform.toXml(relationships);
           this.zip.append(xml, { name: "/xl/_rels/workbook.xml.rels" });
-          resolve9();
+          resolve10();
         });
       }
       addWorkbook() {
@@ -124817,18 +124817,18 @@ var require_workbook_writer = __commonJS({
           properties: {},
           calcProperties: {}
         };
-        return new Promise((resolve9) => {
+        return new Promise((resolve10) => {
           const xform = new WorkbookXform();
           xform.prepare(model);
           zip.append(xform.toXml(model), { name: "/xl/workbook.xml" });
-          resolve9();
+          resolve10();
         });
       }
       _finalize() {
-        return new Promise((resolve9, reject2) => {
+        return new Promise((resolve10, reject2) => {
           this.stream.on("error", reject2);
           this.stream.on("finish", () => {
-            resolve9(this);
+            resolve10(this);
           });
           this.zip.on("error", reject2);
           this.zip.finalize();
@@ -126762,13 +126762,13 @@ var require_thenables = __commonJS({
         promise2._captureStackTrace();
         if (context) context._popContext();
         var synchronous = true;
-        var result = util.tryCatch(then).call(x, resolve9, reject2);
+        var result = util.tryCatch(then).call(x, resolve10, reject2);
         synchronous = false;
         if (promise2 && result === errorObj2) {
           promise2._rejectCallback(result.e, true, true);
           promise2 = null;
         }
-        function resolve9(value) {
+        function resolve10(value) {
           if (!promise2) return;
           promise2._resolveCallback(value);
           promise2 = null;
@@ -127303,9 +127303,9 @@ var require_debuggability = __commonJS({
         return false;
       }
       Promise2.prototype._fireEvent = defaultFireEvent;
-      Promise2.prototype._execute = function(executor, resolve9, reject2) {
+      Promise2.prototype._execute = function(executor, resolve10, reject2) {
         try {
-          executor(resolve9, reject2);
+          executor(resolve10, reject2);
         } catch (e) {
           return e;
         }
@@ -127328,10 +127328,10 @@ var require_debuggability = __commonJS({
         ;
         ;
       };
-      function cancellationExecute(executor, resolve9, reject2) {
+      function cancellationExecute(executor, resolve10, reject2) {
         var promise2 = this;
         try {
-          executor(resolve9, reject2, function(onCancel) {
+          executor(resolve10, reject2, function(onCancel) {
             if (typeof onCancel !== "function") {
               throw new TypeError("onCancel must be a function, got: " + util.toString(onCancel));
             }
@@ -131083,7 +131083,7 @@ var require_PullStream = __commonJS({
       };
       var rejectHandler;
       var pullStreamRejectHandler;
-      return new Promise2(function(resolve9, reject2) {
+      return new Promise2(function(resolve10, reject2) {
         rejectHandler = reject2;
         pullStreamRejectHandler = function(e) {
           self2.__emittedError = e;
@@ -131093,7 +131093,7 @@ var require_PullStream = __commonJS({
           return reject2(new Error("FILE_ENDED"));
         self2.once("error", pullStreamRejectHandler);
         self2.stream(eof, includeEof).on("error", reject2).pipe(concatStream).on("finish", function() {
-          resolve9(buffer);
+          resolve10(buffer);
         }).on("error", reject2);
       }).finally(function() {
         self2.removeListener("error", rejectHandler);
@@ -131138,10 +131138,10 @@ var require_BufferStream = __commonJS({
     if (!Stream.Writable || !Stream.Writable.prototype.destroy)
       Stream = require_readable();
     module2.exports = function(entry) {
-      return new Promise2(function(resolve9, reject2) {
+      return new Promise2(function(resolve10, reject2) {
         var chunks = [];
         var bufferStream = Stream.Transform().on("finish", function() {
-          resolve9(Buffer14.concat(chunks));
+          resolve10(Buffer14.concat(chunks));
         }).on("error", reject2);
         bufferStream._transform = function(d, e, cb) {
           chunks.push(d);
@@ -131281,8 +131281,8 @@ var require_parse4 = __commonJS({
             __autodraining = true;
             var draining = entry.pipe(NoopStream());
             draining.promise = function() {
-              return new Promise2(function(resolve9, reject2) {
-                draining.on("finish", resolve9);
+              return new Promise2(function(resolve10, reject2) {
+                draining.on("finish", resolve10);
                 draining.on("error", reject2);
               });
             };
@@ -131337,11 +131337,11 @@ var require_parse4 = __commonJS({
               eof = Buffer14.alloc(4);
               eof.writeUInt32LE(134695760, 0);
             }
-            return new Promise2(function(resolve9, reject2) {
+            return new Promise2(function(resolve10, reject2) {
               self2.stream(eof).pipe(inflater).on("error", function(err) {
                 self2.emit("error", err);
               }).pipe(entry).on("finish", function() {
-                return fileSizeKnown ? self2._readRecord().then(resolve9).catch(reject2) : self2._processDataDescriptor(entry).then(resolve9).catch(reject2);
+                return fileSizeKnown ? self2._readRecord().then(resolve10).catch(reject2) : self2._processDataDescriptor(entry).then(resolve10).catch(reject2);
               });
             });
           });
@@ -131383,8 +131383,8 @@ var require_parse4 = __commonJS({
     };
     Parse.prototype.promise = function() {
       var self2 = this;
-      return new Promise2(function(resolve9, reject2) {
-        self2.on("finish", resolve9);
+      return new Promise2(function(resolve10, reject2) {
+        self2.on("finish", resolve10);
         self2.on("error", reject2);
       });
     };
@@ -132772,7 +132772,7 @@ var require_dir_writer = __commonJS({
     module2.exports = DirWriter;
     var Writer = require_writer();
     var inherits2 = require_inherits();
-    var mkdir7 = require_mkdirp();
+    var mkdir8 = require_mkdirp();
     var path6 = __require("path");
     var collect = require_collect();
     inherits2(DirWriter, Writer);
@@ -132788,7 +132788,7 @@ var require_dir_writer = __commonJS({
     }
     DirWriter.prototype._create = function() {
       var self2 = this;
-      mkdir7(self2._path, Writer.dirmode, function(er) {
+      mkdir8(self2._path, Writer.dirmode, function(er) {
         if (er) return self2.error(er);
         self2.ready = true;
         self2.emit("ready");
@@ -133137,7 +133137,7 @@ var require_writer = __commonJS({
     var fs2 = require_graceful_fs();
     var inherits2 = require_inherits();
     var rimraf = require_rimraf();
-    var mkdir7 = require_mkdirp();
+    var mkdir8 = require_mkdirp();
     var path6 = __require("path");
     var umask = process.platform === "win32" ? 0 : process.umask();
     var getType = require_get_type();
@@ -133243,7 +133243,7 @@ var require_writer = __commonJS({
       }
     };
     function create(self2) {
-      mkdir7(path6.dirname(self2._path), Writer.dirmode, function(er, made) {
+      mkdir8(path6.dirname(self2._path), Writer.dirmode, function(er, made) {
         if (er) return self2.error(er);
         self2._madeDir = made;
         return self2._create();
@@ -133464,8 +133464,8 @@ var require_extract2 = __commonJS({
         extract.emit("close");
       });
       extract.promise = function() {
-        return new Promise2(function(resolve9, reject2) {
-          extract.on("close", resolve9);
+        return new Promise2(function(resolve10, reject2) {
+          extract.on("close", resolve10);
           extract.on("error", reject2);
         });
       };
@@ -134969,8 +134969,8 @@ var require_directory = __commonJS({
                 return;
               }
               var writer = opts.getWriter ? opts.getWriter({ path: extractPath }) : Writer({ path: extractPath });
-              return new Promise2(function(resolve9, reject2) {
-                entry.stream(opts.password).on("error", reject2).pipe(writer).on("close", resolve9).on("error", reject2);
+              return new Promise2(function(resolve10, reject2) {
+                entry.stream(opts.password).on("error", reject2).pipe(writer).on("close", resolve10).on("error", reject2);
               });
             }, opts.concurrency > 1 ? { concurrency: opts.concurrency || void 0 } : void 0);
           });
@@ -135037,12 +135037,12 @@ var require_Open = __commonJS({
             return fs2.createReadStream(filename, { start: offset, end: length && offset + length });
           },
           size: function() {
-            return new Promise2(function(resolve9, reject2) {
+            return new Promise2(function(resolve10, reject2) {
               fs2.stat(filename, function(err, d) {
                 if (err)
                   reject2(err);
                 else
-                  resolve9(d.size);
+                  resolve10(d.size);
               });
             });
           }
@@ -135063,14 +135063,14 @@ var require_Open = __commonJS({
             return request(options2);
           },
           size: function() {
-            return new Promise2(function(resolve9, reject2) {
+            return new Promise2(function(resolve10, reject2) {
               var req = request(params);
               req.on("response", function(d) {
                 req.abort();
                 if (!d.headers["content-length"])
                   reject2(new Error("Missing content length header"));
                 else
-                  resolve9(d.headers["content-length"]);
+                  resolve10(d.headers["content-length"]);
               }).on("error", reject2);
             });
           }
@@ -135080,12 +135080,12 @@ var require_Open = __commonJS({
       s3: function(client, params, options) {
         var source = {
           size: function() {
-            return new Promise2(function(resolve9, reject2) {
+            return new Promise2(function(resolve10, reject2) {
               client.headObject(params, function(err, d) {
                 if (err)
                   reject2(err);
                 else
-                  resolve9(d.ContentLength);
+                  resolve10(d.ContentLength);
               });
             });
           },
@@ -135500,7 +135500,7 @@ var require_iterate_stream = __commonJS({
       const contents = [];
       stream.on("data", (data) => contents.push(data));
       let resolveStreamEndedPromise;
-      const streamEndedPromise = new Promise((resolve9) => resolveStreamEndedPromise = resolve9);
+      const streamEndedPromise = new Promise((resolve10) => resolveStreamEndedPromise = resolve10);
       let ended = false;
       stream.on("end", () => {
         ended = true;
@@ -135525,13 +135525,13 @@ var require_iterate_stream = __commonJS({
       resolveStreamEndedPromise();
     };
     function once2(eventEmitter, type) {
-      return new Promise((resolve9) => {
+      return new Promise((resolve10) => {
         let fired = false;
         const handler = () => {
           if (!fired) {
             fired = true;
             eventEmitter.removeListener(type, handler);
-            resolve9();
+            resolve10();
           }
         };
         eventEmitter.addListener(type, handler);
@@ -136058,7 +136058,7 @@ var require_workbook_reader = __commonJS({
                 if (this.sharedStrings && this.workbookRels) {
                   yield* this._parseWorksheet(iterateStream(entry), sheetNo);
                 } else {
-                  await new Promise((resolve9, reject2) => {
+                  await new Promise((resolve10, reject2) => {
                     tmp.file((err, path6, fd, tempFileCleanupCallback) => {
                       if (err) {
                         return reject2(err);
@@ -136068,7 +136068,7 @@ var require_workbook_reader = __commonJS({
                       tempStream.on("error", reject2);
                       entry.pipe(tempStream);
                       return tempStream.on("finish", () => {
-                        return resolve9();
+                        return resolve10();
                       });
                     });
                   });
@@ -136300,8 +136300,8 @@ var require_excel = __commonJS({
 // src/bin.ts
 import { spawn } from "child_process";
 import { closeSync, openSync } from "fs";
-import { access as access3, readFile as readFile8, rm as rm4, writeFile as writeFile4 } from "fs/promises";
-import { dirname as dirname5, join as join5, resolve as resolve8 } from "path";
+import { access as access3, mkdir as mkdir7, readFile as readFile8, rm as rm4, writeFile as writeFile4 } from "fs/promises";
+import { dirname as dirname5, join as join6, resolve as resolve9 } from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 
 // ../../node_modules/.pnpm/commander@14.0.3/node_modules/commander/esm.mjs
@@ -150889,7 +150889,21 @@ var ProjectConfigSchema = external_exports.object({
     timeoutMs: external_exports.number().int().positive().default(15e3),
     loadingSelectors: external_exports.array(external_exports.string().min(1).max(200)).max(50).optional(),
     loadingCropMarginPx: external_exports.number().int().min(0).max(500).optional(),
-    loadingClearWaitMs: external_exports.number().int().positive().optional()
+    loadingClearWaitMs: external_exports.number().int().positive().optional(),
+    /**
+     * One-shot deterministic login performed before the first route
+     * visit, for login-gated apps. Credentials resolve from
+     * COLLECT_I18N_LOGIN_USERNAME / COLLECT_I18N_LOGIN_PASSWORD when
+     * absent here, so secrets never have to live in the config file.
+     */
+    login: external_exports.object({
+      path: external_exports.string().min(1).default("/login"),
+      usernameSelector: external_exports.string().min(1).max(300).default('input[type="text"], input[name*="user" i], input[placeholder*="\u7528\u6237\u540D"], input[placeholder*="\u8D26\u53F7"]'),
+      passwordSelector: external_exports.string().min(1).max(300).default('input[type="password"]'),
+      submitSelector: external_exports.string().min(1).max(300).default('button[type="submit"], .el-button--primary'),
+      username: external_exports.string().max(200).optional(),
+      password: external_exports.string().max(200).optional()
+    }).strict().optional()
   }).default({
     headless: true,
     viewport: { width: 1440, height: 900 },
@@ -153357,6 +153371,39 @@ var BrowserCollector = class {
         locale: this.options.locale
       });
       context.setDefaultTimeout(this.options.defaultTimeoutMs ?? 15e3);
+      context.addInitScript((sourceLocale) => {
+        try {
+          const variants = Array.from(/* @__PURE__ */ new Set([
+            sourceLocale,
+            sourceLocale.replace("-", "_"),
+            sourceLocale.split("-")[0] ?? sourceLocale
+          ]));
+          const primary = variants[0] ?? sourceLocale;
+          const keys = [
+            "locale",
+            "lang",
+            "language",
+            "LOCALE",
+            "LANG",
+            "LANGUAGE",
+            "appLang",
+            "appLocale",
+            "i18nLocale",
+            "i18n_locale",
+            "vue-i18n-locale",
+            "VUE_I18N_LOCALE",
+            "useLocale",
+            "LOCALES_KEY"
+          ];
+          for (const key of keys) {
+            try {
+              window.localStorage.setItem(key, primary);
+            } catch {
+            }
+          }
+        } catch {
+        }
+      }, this.options.locale ?? "zh-CN");
       this.context = context;
       if (this.options.cookies?.length) {
         await context.addCookies(this.options.cookies.map((cookie) => ({
@@ -153717,6 +153764,76 @@ var BrowserCollector = class {
         }
       }
     }
+  }
+  /**
+   * One-shot deterministic login for gated apps (R-login). Runs only when
+   * the caller passes credentials; resolves selectors with sane defaults,
+   * skips entirely when the app did not redirect to the login path (already
+   * authenticated), and waits for the redirect back out of the login route.
+   * Credentials come from the service config or the
+   * COLLECT_I18N_LOGIN_USERNAME / COLLECT_I18N_LOGIN_PASSWORD environment
+   * variables.
+   */
+  async performLogin(login) {
+    const username = process.env.COLLECT_I18N_LOGIN_USERNAME || login.username;
+    const password = process.env.COLLECT_I18N_LOGIN_PASSWORD || login.password;
+    if (!username || !password) return false;
+    this.assertSameOrigin();
+    const loginPath = login.path ?? "/login";
+    await this.open(loginPath);
+    if (!this.activePage.url().toLowerCase().includes(loginPath.toLowerCase())) {
+      return false;
+    }
+    const timeout2 = 1e4;
+    await this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first().fill(username, { timeout: timeout2 });
+    await this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first().fill(password, { timeout: timeout2 });
+    await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout: timeout2 });
+    const passwordLocator = this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const userLocator = this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first();
+      try {
+        await userLocator.fill(username, { timeout: timeout2 });
+        await passwordLocator.fill(password, { timeout: timeout2 });
+      } catch (error51) {
+        const state = await this.activePage.evaluate(() => ({
+          url: location.href,
+          loginFormPresent: !!document.querySelector('.login-form, form[action*="login"], input[type="password"]'),
+          inputs: [...document.querySelectorAll("input")].slice(0, 8).map((el) => ({
+            id: el.id,
+            disabled: el.disabled,
+            type: el.type,
+            placeholder: el.placeholder,
+            form: el.closest("form")?.className ?? null
+          })),
+          messages: document.querySelectorAll(".el-message").length
+        })).catch(() => ({ url: this.activePage.url(), loginFormPresent: true, inputs: [], messages: -1 }));
+        console.error("[collect-i18n] login fill failed", JSON.stringify(state));
+        const rawUrl = typeof state.url === "string" ? state.url : this.activePage.url();
+        const hashIndex = rawUrl.indexOf("#");
+        const routePart = hashIndex >= 0 ? rawUrl.slice(hashIndex + 1) : new URL(rawUrl).pathname;
+        const onLoginRoute = routePart.toLowerCase().includes(loginPath.toLowerCase());
+        if (state.loginFormPresent === false && !onLoginRoute) {
+          await this.waitForLoadingCleared();
+          return true;
+        }
+        throw error51;
+      }
+      await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout: timeout2 });
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 15e3) {
+        const formStillVisible = await passwordLocator.isVisible().catch(() => false);
+        const rawUrl = this.activePage.url();
+        const hashIndex = rawUrl.indexOf("#");
+        const routePart = hashIndex >= 0 ? rawUrl.slice(hashIndex + 1) : new URL(rawUrl).pathname;
+        const onLoginRoute = routePart.toLowerCase().includes(loginPath.toLowerCase());
+        if (!formStillVisible || !onLoginRoute) {
+          await this.waitForLoadingCleared();
+          return true;
+        }
+        await new Promise((done) => setTimeout(done, 200));
+      }
+    }
+    throw new CollectorError("login_timeout", `Login form still visible after the retry budget`, { url: this.activePage.url() });
   }
   async open(path6 = "/") {
     await this.applyLocaleCookie();
@@ -154383,6 +154500,15 @@ var BrowserCollector = class {
     const outcome = await bounded(
       this.activePage.evaluate((budget) => {
         const visible = (el) => el instanceof HTMLElement && el.offsetParent !== null;
+        for (const panel of document.querySelectorAll(
+          ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper"
+        )) {
+          if (visible(panel)) {
+            document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            break;
+          }
+        }
         let clicks = 0;
         for (const icon of document.querySelectorAll(".el-tree-node__expand-icon:not(.is-leaf)")) {
           if (clicks >= budget) return "advanced";
@@ -154396,6 +154522,16 @@ var BrowserCollector = class {
           if (clicks >= budget) return "advanced";
           if (!visible(next) || next.hasAttribute("disabled") || next.getAttribute("aria-disabled") === "true") continue;
           next.click();
+          clicks += 1;
+          break;
+        }
+        for (const trigger of document.querySelectorAll(
+          ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor"
+        )) {
+          if (!visible(trigger)) continue;
+          if (trigger.dataset.collectI18nSwept) continue;
+          trigger.dataset.collectI18nSwept = "1";
+          trigger.click();
           clicks += 1;
           break;
         }
@@ -154733,20 +154869,35 @@ async function doctorProject(projectRootInput) {
 
 // src/service-client.ts
 import { readFile as readFile6 } from "fs/promises";
+import { join as join3, resolve as resolve6 } from "path";
+
+// src/state-root.ts
+import { createHash as createHash3 } from "crypto";
+import { homedir } from "os";
 import { join as join2, resolve as resolve5 } from "path";
-var serviceDescriptorPath = (projectRoot) => join2(resolve5(projectRoot), ".collect-i18n", "service.json");
+function resolveStateRoot(projectRoot) {
+  const base = process.env.COLLECT_I18N_STATE_DIR ? resolve5(process.env.COLLECT_I18N_STATE_DIR) : join2(homedir(), ".collect-i18n");
+  const hash2 = createHash3("sha256").update(resolve5(projectRoot)).digest("hex").slice(0, 16);
+  return join2(base, "projects", hash2);
+}
+function legacyStateRoot(projectRoot) {
+  return join2(resolve5(projectRoot), ".collect-i18n");
+}
+
+// src/service-client.ts
+var serviceDescriptorPath = (projectRoot) => join3(resolveStateRoot(resolve6(projectRoot)), "service.json");
 async function readServiceDescriptor(projectRoot) {
   try {
-    const expectedRoot = resolve5(projectRoot);
+    const expectedRoot = resolve6(projectRoot);
     const value = JSON.parse(await readFile6(serviceDescriptorPath(expectedRoot), "utf8"));
     const serviceUrl = new URL(String(value.serviceUrl ?? ""));
     const studioUrl = new URL(String(value.studioUrl ?? ""));
-    if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0 || typeof value.sessionId !== "string" || value.sessionId.length === 0 || typeof value.capability !== "string" || value.capability.length < 32 || typeof value.startedAt !== "string" || resolve5(String(value.projectRoot ?? "")).toLowerCase() !== expectedRoot.toLowerCase() || serviceUrl.protocol !== "http:" || serviceUrl.hostname !== "127.0.0.1" || studioUrl.origin !== serviceUrl.origin) {
+    if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0 || typeof value.sessionId !== "string" || value.sessionId.length === 0 || typeof value.capability !== "string" || value.capability.length < 32 || typeof value.startedAt !== "string" || resolve6(String(value.projectRoot ?? "")).toLowerCase() !== expectedRoot.toLowerCase() || serviceUrl.protocol !== "http:" || serviceUrl.hostname !== "127.0.0.1" || studioUrl.origin !== serviceUrl.origin) {
       throw new Error("\u540E\u53F0\u670D\u52A1\u63CF\u8FF0\u6587\u4EF6\u65E0\u6548");
     }
     return value;
   } catch {
-    throw new Error(`Collect I18n \u540E\u53F0\u670D\u52A1\u5C1A\u672A\u542F\u52A8\uFF1A${resolve5(projectRoot)}`);
+    throw new Error(`Collect I18n \u540E\u53F0\u670D\u52A1\u5C1A\u672A\u542F\u52A8\uFF1A${resolve6(projectRoot)}`);
   }
 }
 async function callService(projectRoot, path6, init) {
@@ -154764,10 +154915,10 @@ async function callService(projectRoot, path6, init) {
 }
 
 // src/service.ts
-import { createHash as createHash4, randomBytes, timingSafeEqual } from "crypto";
+import { createHash as createHash5, randomBytes, timingSafeEqual } from "crypto";
 import { mkdir as mkdir6, readFile as readFile7, realpath as realpath2, stat as stat2, writeFile as writeFile3 } from "fs/promises";
 import { createServer as createHttpServer } from "http";
-import { dirname as dirname4, isAbsolute as isAbsolute2, join as join4, normalize, relative as relative2, resolve as resolve7 } from "path";
+import { dirname as dirname4, isAbsolute as isAbsolute2, join as join5, normalize, relative as relative2, resolve as resolve8 } from "path";
 import { createRequire } from "module";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 
@@ -156564,12 +156715,36 @@ installCollectorRuntime({ overlay: ${options.overlay !== false} });
 }
 
 // src/store.ts
-import { createHash as createHash3, randomUUID as randomUUID4 } from "crypto";
+import { createHash as createHash4, randomUUID as randomUUID4 } from "crypto";
+import { cpSync, existsSync } from "fs";
 import { mkdir as mkdir5 } from "fs/promises";
-import { join as join3, resolve as resolve6 } from "path";
+import { join as join4, resolve as resolve7 } from "path";
 import { DatabaseSync } from "node:sqlite";
 var MAX_AGENT_ATTEMPTS = 2;
 var MAX_AGENT_ANCHORS_PER_ROUTE = 5;
+function migrateLegacyState(projectRoot, stateDirectory, databasePath) {
+  if (existsSync(databasePath)) return;
+  const legacy = legacyStateRoot(projectRoot);
+  const legacyDatabase = join4(legacy, "state.sqlite");
+  if (!existsSync(legacyDatabase)) return;
+  for (const entry of ["state.sqlite", "state.sqlite-wal", "state.sqlite-shm", "evidence", "browser-profile"]) {
+    const source = join4(legacy, entry);
+    if (!existsSync(source)) continue;
+    try {
+      cpSync(source, join4(stateDirectory, entry), { recursive: true, force: true });
+    } catch {
+    }
+  }
+  if (!existsSync(databasePath)) return;
+  const from = legacy.endsWith("\\") ? legacy : legacy + "\\";
+  const to = stateDirectory.endsWith("\\") ? stateDirectory : stateDirectory + "\\";
+  try {
+    const db = new DatabaseSync(databasePath);
+    db.prepare("UPDATE evidence SET screenshot_path = ? || substr(screenshot_path, ?) WHERE substr(screenshot_path, 1, ?) = ?").run(to, from.length + 1, from.length, from);
+    db.close();
+  } catch {
+  }
+}
 function evidenceGradeRank(grade) {
   return grade === "A" ? 3 : grade === "B" ? 2 : grade === "C" ? 1 : 0;
 }
@@ -156637,7 +156812,7 @@ function agentTaskPriority(task) {
   return (task.attempts > 0 ? 1e5 : 0) + agentActionScore(task) + Math.min(reliableRoutes, 2) * 300 + (task.occurrences.length > 0 ? 200 : -500);
 }
 function stableId(prefix, value) {
-  return `${prefix}_${createHash3("sha256").update(value).digest("hex").slice(0, 20)}`;
+  return `${prefix}_${createHash4("sha256").update(value).digest("hex").slice(0, 20)}`;
 }
 function parseJson(value, fallback2) {
   if (typeof value !== "string" || !value) return fallback2;
@@ -156675,10 +156850,21 @@ var StateStore = class _StateStore {
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
   }
-  static async open(projectRoot) {
-    const stateDirectory = join3(resolve6(projectRoot), ".collect-i18n");
+  /**
+   * Opens the external state root for a project (see resolveStateRoot): the
+   * database, evidence screenshots and browser profile all live outside the
+   * project so its own watcher never observes high-frequency writes. When
+   * the external database does not exist yet but a pre-v0.4.0 in-project
+   * `.collect-i18n` directory does, the volatile state is migrated over and
+   * recorded evidence paths are rewritten to the new location.
+   */
+  static async open(projectRoot, options) {
+    const resolvedRoot = resolve7(projectRoot);
+    const stateDirectory = options?.stateRoot ?? resolveStateRoot(resolvedRoot);
     await mkdir5(stateDirectory, { recursive: true });
-    return new _StateStore(join3(stateDirectory, "state.sqlite"));
+    const databasePath = join4(stateDirectory, "state.sqlite");
+    await migrateLegacyState(resolvedRoot, stateDirectory, databasePath);
+    return new _StateStore(databasePath);
   }
   close() {
     this.db.close();
@@ -156870,7 +157056,7 @@ var StateStore = class _StateStore {
     `);
   }
   syncProject(projectRoot, config2, analysis) {
-    const root = resolve6(projectRoot);
+    const root = resolve7(projectRoot);
     const projectId = stableId("project", root.toLowerCase());
     const now = (/* @__PURE__ */ new Date()).toISOString();
     this.transaction(() => {
@@ -157010,7 +157196,7 @@ var StateStore = class _StateStore {
     });
   }
   interruptProjectSessions(projectRoot) {
-    const projectId = stableId("project", resolve6(projectRoot).toLowerCase());
+    const projectId = stableId("project", resolve7(projectRoot).toLowerCase());
     return this.transaction(() => {
       const sessions = this.db.prepare("SELECT id FROM sessions WHERE project_id=? AND status='running' ORDER BY created_at").all(projectId);
       const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -157472,7 +157658,7 @@ var StateStore = class _StateStore {
         // Flag it so the reviewer can prune it without investigating.
         deadKey: row.task_status === "needs_manual" && Number(row.occurrence_count) === 0,
         relativeFile: row.relative_file,
-        targetFile: join3(resolve6(englishRoot), row.relative_file),
+        targetFile: join4(resolve7(englishRoot), row.relative_file),
         jsonPath: parseJson(row.json_path, row.key_path.split(".")),
         screenshotPath: row.screenshot_path,
         screenshotSha256: evidence.screenshotSha256
@@ -157548,7 +157734,7 @@ var StateStore = class _StateStore {
 
 // src/service.ts
 function resolveProjectVite(projectRoot) {
-  return createRequire(resolve7(projectRoot, "package.json")).resolve("vite");
+  return createRequire(resolve8(projectRoot, "package.json")).resolve("vite");
 }
 function resolveRuntimeAssetPath() {
   try {
@@ -157559,7 +157745,7 @@ function resolveRuntimeAssetPath() {
     return createRequire(import.meta.url).resolve("@collect-i18n/runtime");
   } catch {
   }
-  return join4(dirname4(fileURLToPath2(import.meta.url)), "runtime", "index.js");
+  return join5(dirname4(fileURLToPath2(import.meta.url)), "runtime", "index.js");
 }
 var CAPABILITY_COOKIE_PREFIX = "collect_i18n_cap_";
 var MAX_PAGE_SIZE = 500;
@@ -157633,7 +157819,7 @@ function requestAuthorized(request, cookieName, capability, serviceUrl) {
   return fetchSite === void 0 || fetchSite === "same-origin" || fetchSite === "none";
 }
 function isPathInside(root, candidate) {
-  const value = relative2(resolve7(root), resolve7(candidate));
+  const value = relative2(resolve8(root), resolve8(candidate));
   return value === "" || !isAbsolute2(value) && value !== ".." && !value.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`);
 }
 async function nearestExistingDirectory(path6) {
@@ -157650,11 +157836,11 @@ async function nearestExistingDirectory(path6) {
   }
 }
 async function resolveStateFile(projectRoot, input, mustExist) {
-  const stateRoot = resolve7(projectRoot, ".collect-i18n");
+  const stateRoot = resolve8(projectRoot, ".collect-i18n");
   await mkdir6(stateRoot, { recursive: true });
-  const candidate = resolve7(projectRoot, input);
+  const candidate = resolve8(projectRoot, input);
   if (!isPathInside(stateRoot, candidate)) throw new Error("\u5BFC\u5165/\u5BFC\u51FA\u6587\u4EF6\u5FC5\u987B\u4F4D\u4E8E\u9879\u76EE .collect-i18n \u76EE\u5F55\u4E2D");
-  const realProjectRoot = await realpath2(resolve7(projectRoot));
+  const realProjectRoot = await realpath2(resolve8(projectRoot));
   const realRoot = await realpath2(stateRoot);
   if (!isPathInside(realProjectRoot, realRoot)) throw new Error("\u9879\u76EE .collect-i18n \u76EE\u5F55\u4E0D\u80FD\u6307\u5411\u9879\u76EE\u5916\u90E8");
   if (mustExist) {
@@ -157738,7 +157924,7 @@ var LocalService = class {
   constructor(options) {
     this.options = options;
     this.capability = options.capability ?? randomBytes(32).toString("base64url");
-    this.capabilityCookie = `${CAPABILITY_COOKIE_PREFIX}${createHash4("sha256").update(this.capability).digest("hex").slice(0, 16)}`;
+    this.capabilityCookie = `${CAPABILITY_COOKIE_PREFIX}${createHash5("sha256").update(this.capability).digest("hex").slice(0, 16)}`;
   }
   options;
   collectors = /* @__PURE__ */ new Map();
@@ -157746,12 +157932,19 @@ var LocalService = class {
   capabilityCookie;
   vite;
   viteBase = "/";
+  get stateRoot() {
+    return resolveStateRoot(this.options.config.projectRoot);
+  }
   store;
   http;
   serviceUrl;
   executionTail = Promise.resolve();
   manualGeneration = 0;
   manualActive = false;
+  // Locale guard: one recovery attempt per session (never per route).
+  localeRecoveryAttempted = false;
+  // One-shot deterministic login per session for gated apps (R-login).
+  loginCompleted = false;
   deterministicRunning = false;
   stopping = false;
   stopPromise;
@@ -157766,11 +157959,19 @@ var LocalService = class {
     this.vite = await createViteServer({
       root: config2.projectRoot,
       logLevel: "info",
+      // Apps whose vite.config branches on --mode (mock servers, base paths)
+      // need the same mode their dev script uses; set
+      // COLLECT_I18N_VITE_MODE to match it instead of Vite's default.
+      mode: process.env.COLLECT_I18N_VITE_MODE || void 0,
       plugins: [collectI18nVuePlugin({ projectRoot: config2.projectRoot, runtimeImport, manifest: true })],
       server: {
         host: appUrl.hostname,
         port: Number(appUrl.port || 5173),
-        strictPort: true
+        strictPort: true,
+        // The in-project .collect-i18n folder only ever holds the config file
+        // and one-shot export/import deliverables; ignoring it keeps the
+        // project's own HMR from reacting to collection deliverables.
+        watch: { ignored: ["**/.collect-i18n/**"] }
       }
     });
     this.viteBase = this.vite.config.base ?? "/";
@@ -157845,10 +158046,15 @@ var LocalService = class {
       baseUrl: config2.app.baseUrl,
       viteBase: this.viteBase,
       hashRouter: routerMode === "hash",
-      artifactDir: join4(config2.projectRoot, config2.stateDirectory, "evidence", sessionId),
+      // Evidence screenshots are high-frequency writes: keep them in the
+      // external state root so the project's own watcher never sees them.
+      artifactDir: join5(this.stateRoot, "evidence", sessionId),
       // Keep a versioned persistent profile so cookies survive sessions while
       // avoiding legacy/corrupted layouts created by pre-release collectors.
-      userDataDir: join4(config2.projectRoot, config2.stateDirectory, "browser-profile", "v1"),
+      // Login-gated apps instead get a fresh profile per session: a leftover
+      // auth token would redirect the login route and hide the login form's
+      // own i18n keys from the deterministic pass.
+      userDataDir: config2.browser.login ? join5(this.stateRoot, "browser-profile", "v1-login", sessionId) : join5(this.stateRoot, "browser-profile", "v1"),
       headless: config2.browser.headless,
       defaultTimeoutMs: config2.browser.timeoutMs,
       viewport: config2.browser.viewport,
@@ -157925,8 +158131,9 @@ var LocalService = class {
     this.deterministicRunning = true;
     const store = this.store;
     try {
+      let collector;
       try {
-        await this.exclusive(async () => this.collector(sessionId));
+        collector = await this.exclusive(async () => this.collector(sessionId));
       } catch (error51) {
         const message = error51 instanceof Error ? error51.message : String(error51);
         for (const task of store.listTasks(sessionId, ["pending"])) {
@@ -157934,6 +158141,25 @@ var LocalService = class {
         }
         console.error("[collect-i18n] collector startup failed", error51);
         return;
+      }
+      const login = this.options.config.browser.login;
+      if (login && !this.loginCompleted) {
+        this.loginCompleted = true;
+        try {
+          await this.captureDeterministicRoute(sessionId, collector, login.path ?? "/login", []);
+        } catch (error51) {
+          console.error("[collect-i18n] login-route capture failed", error51);
+        }
+        try {
+          await collector.performLogin(login);
+        } catch (error51) {
+          const message = error51 instanceof Error ? error51.message : String(error51);
+          for (const task of store.listTasks(sessionId, ["pending"])) {
+            store.markTask(task.id, "failed", `\u767B\u5F55\u5F15\u5BFC\u5931\u8D25\uFF1A${message}`);
+          }
+          console.error("[collect-i18n] login bootstrap failed", error51);
+          return;
+        }
       }
       const zeroYieldRoutes = /* @__PURE__ */ new Set();
       let sweepCaptured = 0;
@@ -157970,8 +158196,8 @@ var LocalService = class {
           [route, group] = entries[0];
         }
         try {
-          await this.exclusive(() => this.withBrowser(sessionId, async (collector) => {
-            const newlyCaptured = await this.captureDeterministicRoute(sessionId, collector, route, group);
+          await this.exclusive(() => this.withBrowser(sessionId, async (collector2) => {
+            const newlyCaptured = await this.captureDeterministicRoute(sessionId, collector2, route, group);
             sweepCaptured += newlyCaptured;
             if (newlyCaptured === 0) zeroYieldRoutes.add(route);
           }));
@@ -158007,12 +158233,20 @@ var LocalService = class {
     let newlyCaptured = 0;
     collector.setMockRules([]);
     await collector.open(route);
-    const mountedKeys = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(2e3)));
+    let inspection = await collector.inspectRuntimeSettled(2e3);
+    let mountedKeys = new Set(this.inspectionMountedKeys(inspection));
     const groupIds = new Set(group.map((task) => task.id));
     const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
       (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath)
     );
     const candidates = [...group, ...opportunistic];
+    if (!this.localeRecoveryAttempted && this.renderedTextIsNotSourceLocale(inspection, candidates)) {
+      this.localeRecoveryAttempted = true;
+      const separator = route.includes("?") ? "&" : "?";
+      await collector.open(`${route}${separator}locale=zh-CN&lang=zh-CN`);
+      inspection = await collector.inspectRuntimeSettled(2e3);
+      mountedKeys = new Set(this.inspectionMountedKeys(inspection));
+    }
     const handledKeys = /* @__PURE__ */ new Set();
     const mountedCandidates = candidates.filter((task) => mountedKeys.has(task.keyPath));
     const batchResults = mountedCandidates.length > 0 ? await collector.captureDeterministicBatch(mountedCandidates.map((task) => task.keyPath)) : [];
@@ -158074,6 +158308,30 @@ var LocalService = class {
       }
     }
     return newlyCaptured;
+  }
+  /**
+   * Compares rendered snapshot texts with the zh-cn source text of the same
+   * keys. Returns true only when the sample is large enough to be decisive
+   * and nothing matches its source text — i.e. the UI almost certainly
+   * rendered a different locale (typically English placeholders), which
+   * would make every screenshot unusable as translation evidence.
+   */
+  renderedTextIsNotSourceLocale(inspection, candidates) {
+    const chineseByKey = new Map(candidates.map((task) => [task.keyPath, task.chinese]));
+    let match = 0;
+    let mismatch = 0;
+    for (const snapshot of inspection.snapshots) {
+      if (!snapshot.key || typeof snapshot.text !== "string") continue;
+      const needle = snapshot.text.trim();
+      if (needle.length < 2) continue;
+      const chinese = chineseByKey.get(snapshot.key);
+      if (!chinese) continue;
+      if (chinese.includes("{") || chinese.includes("$t")) continue;
+      if (needle === chinese.trim()) match += 1;
+      else mismatch += 1;
+      if (match > 0) break;
+    }
+    return match === 0 && mismatch >= 3;
   }
   inspectionMountedKeys(inspection) {
     const gradeRank = (grade) => grade === "A" ? 3 : grade === "B" ? 2 : 1;
@@ -158333,7 +158591,7 @@ var LocalService = class {
     if (targetDirectories.length === 1) return { projectRoot, englishRoot: targetDirectories[0] };
     const chineseDirectory = files.find((file2) => file2.locale === "zh-cn")?.localeDirectory;
     if (!chineseDirectory) throw new Error("\u672A\u627E\u5230 zh-cn \u8BED\u8A00\u5305\u76EE\u5F55");
-    return { projectRoot, englishRoot: join4(dirname4(chineseDirectory), "en-us") };
+    return { projectRoot, englishRoot: join5(dirname4(chineseDirectory), "en-us") };
   }
   async route(request, response) {
     const url2 = new URL(request.url ?? "/", this.serviceUrl ?? "http://127.0.0.1");
@@ -158423,8 +158681,8 @@ var LocalService = class {
         sendJson(response, 404, { ok: false, error: { message: "\u8BC1\u636E\u4E0D\u5B58\u5728" } });
         return;
       }
-      const root = resolve7(this.options.config.projectRoot, this.options.config.stateDirectory, "evidence");
-      const file2 = resolve7(String(evidence.screenshot_path));
+      const root = resolve8(resolveStateRoot(this.options.config.projectRoot), "evidence");
+      const file2 = resolve8(String(evidence.screenshot_path));
       if (!isPathInside(root, file2)) {
         sendJson(response, 403, { ok: false });
         return;
@@ -158453,7 +158711,7 @@ var LocalService = class {
       const sessionId = String(body.sessionId ?? this.options.sessionId);
       const roots = await this.localeRoots(sessionId);
       const rows = store.localeCatalog(sessionId, roots.englishRoot);
-      const output2 = await resolveStateFile(roots.projectRoot, String(body.output ?? join4(roots.projectRoot, ".collect-i18n", "translations.xlsx")), false);
+      const output2 = await resolveStateFile(roots.projectRoot, String(body.output ?? join5(roots.projectRoot, ".collect-i18n", "translations.xlsx")), false);
       sendJson(response, 200, { ok: true, data: await exportTranslationWorkbook(rows, output2) });
       return;
     }
@@ -158461,9 +158719,9 @@ var LocalService = class {
       const sessionId = url2.searchParams.get("session") ?? this.options.sessionId;
       const roots = await this.localeRoots(sessionId);
       const rows = store.localeCatalog(sessionId, roots.englishRoot);
-      const exportDirectory = join4(roots.projectRoot, ".collect-i18n", "exports");
+      const exportDirectory = join5(roots.projectRoot, ".collect-i18n", "exports");
       await mkdir6(exportDirectory, { recursive: true });
-      const output2 = join4(exportDirectory, `${sessionId}.xlsx`);
+      const output2 = join5(exportDirectory, `${sessionId}.xlsx`);
       await exportTranslationWorkbook(rows, output2);
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="collect-i18n-${sessionId}.xlsx"` });
       response.end(await readFile7(output2));
@@ -158482,9 +158740,9 @@ var LocalService = class {
     if (url2.pathname === "/api/import-upload" && request.method === "POST") {
       const sessionId = url2.searchParams.get("session") ?? this.options.sessionId;
       const roots = await this.localeRoots(sessionId);
-      const uploadDirectory = join4(roots.projectRoot, ".collect-i18n", "imports");
+      const uploadDirectory = join5(roots.projectRoot, ".collect-i18n", "imports");
       await mkdir6(uploadDirectory, { recursive: true });
-      const file2 = join4(uploadDirectory, `${Date.now()}-translation-return.xlsx`);
+      const file2 = join5(uploadDirectory, `${Date.now()}-translation-return.xlsx`);
       await writeFile3(file2, await bodyBuffer(request));
       const catalog = store.localeCatalog(sessionId, roots.englishRoot);
       const result = await importTranslationWorkbook({ workbookPath: file2, catalog, englishRoot: roots.englishRoot, apply: url2.searchParams.get("apply") === "true", backup: true });
@@ -158503,23 +158761,23 @@ var LocalService = class {
     await this.serveStudio(url2.pathname, response);
   }
   async serveStudio(pathname, response) {
-    const root = this.options.studioDirectory ? resolve7(this.options.studioDirectory) : void 0;
+    const root = this.options.studioDirectory ? resolve8(this.options.studioDirectory) : void 0;
     if (!root) {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(fallbackStudio(this.options.sessionId));
       return;
     }
     const relativePath = pathname === "/" ? "index.html" : normalize(pathname).replace(/^([/\\])+/, "");
-    const candidate = resolve7(root, relativePath);
+    const candidate = resolve8(root, relativePath);
     if (!isPathInside(root, candidate)) {
       sendJson(response, 403, { ok: false });
       return;
     }
     let file2 = candidate;
     try {
-      if (!(await stat2(file2)).isFile()) file2 = join4(root, "index.html");
+      if (!(await stat2(file2)).isFile()) file2 = join5(root, "index.html");
     } catch {
-      file2 = join4(root, "index.html");
+      file2 = join5(root, "index.html");
     }
     response.writeHead(200, {
       "content-type": contentType(file2),
@@ -158539,7 +158797,7 @@ function output(command, name, data, warnings = []) {
 `);
 }
 function projectOf(command) {
-  return resolve8(command.optsWithGlobals().project ?? process.cwd());
+  return resolve9(command.optsWithGlobals().project ?? process.cwd());
 }
 async function analyze(config2) {
   return analyzeProject({
@@ -158556,7 +158814,7 @@ async function findEnglishRoot(config2) {
   if (directories.length === 1) return directories[0];
   if (directories.length > 1) throw new Error(`\u68C0\u6D4B\u5230\u591A\u4E2A en-us \u8BED\u8A00\u5305\u76EE\u5F55\uFF0C\u8BF7\u5728\u9879\u76EE\u914D\u7F6E\u4E2D\u7F29\u5C0F locales.roots\uFF1A${directories.join(", ")}`);
   const chinese = files.find((file2) => file2.locale === "zh-cn")?.localeDirectory;
-  if (chinese) return join5(dirname5(chinese), "en-us");
+  if (chinese) return join6(dirname5(chinese), "en-us");
   throw new Error("\u672A\u627E\u5230 zh-cn \u6216 en-us \u8BED\u8A00\u5305\u76EE\u5F55");
 }
 async function descriptorAlive(projectRoot) {
@@ -158586,7 +158844,7 @@ async function closeDescriptorSession(projectRoot, descriptor, status = "interru
   const store = await StateStore.open(projectRoot);
   try {
     const session = store.session(descriptor.sessionId);
-    if (session && resolve8(String(session.project_root)).toLowerCase() === resolve8(projectRoot).toLowerCase()) {
+    if (session && resolve9(String(session.project_root)).toLowerCase() === resolve9(projectRoot).toLowerCase()) {
       store.closeSession(descriptor.sessionId, status);
     }
   } finally {
@@ -158616,6 +158874,7 @@ async function retireStaleDescriptor(projectRoot) {
   }
 }
 async function writeDescriptor(projectRoot, descriptor) {
+  await mkdir7(dirname5(serviceDescriptorPath(projectRoot)), { recursive: true });
   await writeFile4(serviceDescriptorPath(projectRoot), `${JSON.stringify(descriptor, null, 2)}
 `, { encoding: "utf8", mode: 384 });
 }
@@ -158638,7 +158897,8 @@ async function waitForDescriptor(projectRoot, sessionId) {
 async function startBackground(projectRoot, sessionId) {
   const executable = fileURLToPath3(import.meta.url);
   if (executable.endsWith(".ts")) throw new Error("\u540E\u53F0\u6A21\u5F0F\u9700\u8981\u5148\u6784\u5EFA CLI\uFF1B\u5F00\u53D1\u65F6\u8BF7\u4F7F\u7528 start --foreground");
-  const logPath = join5(projectRoot, ".collect-i18n", "service.log");
+  const logPath = join6(resolveStateRoot(projectRoot), "service.log");
+  await mkdir7(dirname5(logPath), { recursive: true });
   const log2 = openSync(logPath, "a");
   const child = spawn(process.execPath, [executable, "--project", projectRoot, "serve", "--session", sessionId], {
     cwd: projectRoot,
@@ -158659,7 +158919,7 @@ async function resumeStoredSession(projectRoot, sessionId) {
   try {
     const session = store.session(sessionId);
     if (!session) throw new Error(`\u4F1A\u8BDD\u4E0D\u5B58\u5728\uFF1A${sessionId}`);
-    if (resolve8(String(session.project_root)).toLowerCase() !== resolve8(projectRoot).toLowerCase()) {
+    if (resolve9(String(session.project_root)).toLowerCase() !== resolve9(projectRoot).toLowerCase()) {
       throw new Error(`\u4F1A\u8BDD\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A${sessionId}`);
     }
     store.resumeSession(sessionId);
@@ -158769,7 +159029,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.18").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.4.0").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);
@@ -158831,7 +159091,7 @@ program2.command("start").description("\u542F\u52A8\u540E\u53F0\u91C7\u96C6\u670
     if (options.session) {
       const session = store.session(options.session);
       if (!session) throw new Error(`\u4F1A\u8BDD\u4E0D\u5B58\u5728\uFF1A${options.session}`);
-      if (resolve8(String(session.project_root)).toLowerCase() !== resolve8(projectRoot).toLowerCase()) {
+      if (resolve9(String(session.project_root)).toLowerCase() !== resolve9(projectRoot).toLowerCase()) {
         throw new Error(`\u4F1A\u8BDD\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A${options.session}`);
       }
       store.resumeSession(options.session);
@@ -158857,7 +159117,7 @@ program2.command("start").description("\u542F\u52A8\u540E\u53F0\u91C7\u96C6\u670
     const service = new LocalService({
       config: config2,
       sessionId,
-      studioDirectory: resolve8(fileURLToPath3(new URL("../../../apps/studio/dist", import.meta.url))),
+      studioDirectory: resolve9(fileURLToPath3(new URL("../../../apps/studio/dist", import.meta.url))),
       onShutdownRequest: finalize2
     });
     try {
@@ -158930,7 +159190,7 @@ program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F
   const store = await StateStore.open(projectRoot);
   const rows = store.localeCatalog(workflow.descriptor.sessionId, englishRoot);
   store.close();
-  const outputPath = resolve8(options.output ?? join5(projectRoot, ".collect-i18n", "collect-i18n-translations.xlsx"));
+  const outputPath = resolve9(options.output ?? join6(projectRoot, ".collect-i18n", "collect-i18n-translations.xlsx"));
   const exported = await exportTranslationWorkbook(rows, outputPath);
   const counts = status.counts;
   const unresolved = counts.pending + counts.running + counts.needs_agent + counts.needs_manual + counts.failed;
@@ -158957,7 +159217,7 @@ program2.command("serve", { hidden: true }).requiredOption("--session <id>").act
   const service = new LocalService({
     config: config2,
     sessionId: options.session,
-    studioDirectory: resolve8(fileURLToPath3(new URL("../../../apps/studio/dist", import.meta.url))),
+    studioDirectory: resolve9(fileURLToPath3(new URL("../../../apps/studio/dist", import.meta.url))),
     onShutdownRequest: finalize2
   });
   try {
@@ -159039,7 +159299,7 @@ agent.command("next").requiredOption("--session <id>").action(async (options, co
   });
 });
 agent.command("submit").requiredOption("--session <id>").requiredOption("--task <id>").requiredOption("--plan-file <file>").action(async (options, command) => {
-  const plan = parseTriggerPlan(JSON.parse(await readFile8(resolve8(options.planFile), "utf8")));
+  const plan = parseTriggerPlan(JSON.parse(await readFile8(resolve9(options.planFile), "utf8")));
   const store = await StateStore.open(projectOf(command));
   const task = store.task(options.task);
   if (!task || task.sessionId !== options.session) throw new Error(`\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u4F1A\u8BDD\uFF1A${options.task}`);
@@ -159054,7 +159314,7 @@ agent.command("execute").requiredOption("--session <id>").requiredOption("--task
   const task = store.task(options.task);
   store.close();
   if (!task || task.sessionId !== options.session) throw new Error(`\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u4F1A\u8BDD\uFF1A${options.task}`);
-  const plan = options.planFile ? parseTriggerPlan(JSON.parse(await readFile8(resolve8(options.planFile), "utf8"))) : task.plan;
+  const plan = options.planFile ? parseTriggerPlan(JSON.parse(await readFile8(resolve9(options.planFile), "utf8"))) : task.plan;
   if (!plan) throw new Error("\u4EFB\u52A1\u5C1A\u672A\u63D0\u4EA4 TriggerPlan");
   await ensureSessionService(projectRoot, options.session);
   const result = await callService(projectRoot, "/api/agent/execute", { method: "POST", body: JSON.stringify({ taskId: task.id, plan }) });
@@ -159082,7 +159342,7 @@ program2.command("export").description("\u5BFC\u51FA\u53EA\u6709\u4E2D\u6587\u30
   const store = await StateStore.open(projectRoot);
   const rows = store.localeCatalog(options.session, englishRoot);
   store.close();
-  output(command, "export", await exportTranslationWorkbook(rows, resolve8(options.output)));
+  output(command, "export", await exportTranslationWorkbook(rows, resolve9(options.output)));
 });
 program2.command("import").description("\u6821\u9A8C\u56DE\u7A3F\u5E76\u6309 Key Path \u5199\u5165 en-us JSON").requiredOption("--file <file>").option("--session <id>").option("--dry-run", "\u4EC5\u6821\u9A8C\uFF0C\u4E0D\u5199\u5165", true).option("--apply", "\u5E94\u7528\u6709\u6548\u7FFB\u8BD1").action(async (options, command) => {
   const projectRoot = projectOf(command);
@@ -159093,7 +159353,7 @@ program2.command("import").description("\u6821\u9A8C\u56DE\u7A3F\u5E76\u6309 Key
   if (!sessionId) throw new Error("\u6CA1\u6709\u53EF\u7528\u4E8E\u5339\u914D Key Path \u7684\u4F1A\u8BDD\u7D22\u5F15");
   const catalog = store.localeCatalog(sessionId, englishRoot);
   store.close();
-  output(command, "import", await importTranslationWorkbook({ workbookPath: resolve8(options.file), catalog, englishRoot, apply: options.apply === true, backup: true }));
+  output(command, "import", await importTranslationWorkbook({ workbookPath: resolve9(options.file), catalog, englishRoot, apply: options.apply === true, backup: true }));
 });
 program2.command("stop").description("\u505C\u6B62\u540E\u53F0\u670D\u52A1").option("--session <id>", "\u53EA\u505C\u6B62\u5339\u914D\u7684\u4F1A\u8BDD\uFF0C\u907F\u514D\u7EC8\u6B62\u5176\u4ED6\u6267\u884C\u8005\u7684\u670D\u52A1").action(async (options, command) => {
   const projectRoot = projectOf(command);

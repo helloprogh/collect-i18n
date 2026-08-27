@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { access, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -12,6 +12,7 @@ import { parseTriggerPlan } from "@collect-i18n/runner";
 import { configPath, createDefaultConfig, doctorProject, loadConfig, saveConfig } from "./config.js";
 import { callService, readServiceDescriptor, serviceDescriptorPath, type ServiceDescriptor } from "./service-client.js";
 import { LocalService } from "./service.js";
+import { resolveStateRoot } from "./state-root.js";
 import { StateStore } from "./store.js";
 
 interface GlobalOptions { json?: boolean; project?: string }
@@ -93,6 +94,7 @@ async function retireStaleDescriptor(projectRoot: string): Promise<ServiceDescri
 }
 
 async function writeDescriptor(projectRoot: string, descriptor: ServiceDescriptor): Promise<void> {
+  await mkdir(dirname(serviceDescriptorPath(projectRoot)), { recursive: true });
   await writeFile(serviceDescriptorPath(projectRoot), `${JSON.stringify(descriptor, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
@@ -114,7 +116,8 @@ async function waitForDescriptor(projectRoot: string, sessionId: string): Promis
 async function startBackground(projectRoot: string, sessionId: string): Promise<ServiceDescriptor> {
   const executable = fileURLToPath(import.meta.url);
   if (executable.endsWith(".ts")) throw new Error("后台模式需要先构建 CLI；开发时请使用 start --foreground");
-  const logPath = join(projectRoot, ".collect-i18n", "service.log");
+  const logPath = join(resolveStateRoot(projectRoot), "service.log");
+  await mkdir(dirname(logPath), { recursive: true });
   const log = openSync(logPath, "a");
   const child = spawn(process.execPath, [executable, "--project", projectRoot, "serve", "--session", sessionId], {
     cwd: projectRoot,
@@ -266,7 +269,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.3.18")
+  .version("0.4.0")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");

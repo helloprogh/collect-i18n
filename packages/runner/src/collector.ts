@@ -376,7 +376,8 @@ export type CollectorErrorCode =
   | "loading_overlay_race"
   | "capture_timeout"
   | "plan_deadline"
-  | "deterministic_b_rejected";
+  | "deterministic_b_rejected"
+  | "login_timeout";
 
 /**
  * Structured collector error. The message stays human-readable (unchanged
@@ -609,6 +610,29 @@ export class BrowserCollector {
         locale: this.options.locale,
       });
       context.setDefaultTimeout(this.options.defaultTimeoutMs ?? 15_000);
+      // Locale guard: run before any application script on every navigation.
+      // Many Vue I18n apps seed their locale from localStorage; seeding the
+      // well-known keys with the source locale guarantees the UI renders
+      // Chinese regardless of a stale profile or an English navigator
+      // language, so screenshots always show the source text.
+      context.addInitScript((sourceLocale) => {
+        try {
+          const variants = Array.from(new Set([
+            sourceLocale,
+            sourceLocale.replace("-", "_"),
+            sourceLocale.split("-")[0] ?? sourceLocale,
+          ]));
+          const primary = variants[0] ?? sourceLocale;
+          const keys = [
+            "locale", "lang", "language", "LOCALE", "LANG", "LANGUAGE",
+            "appLang", "appLocale", "i18nLocale", "i18n_locale",
+            "vue-i18n-locale", "VUE_I18N_LOCALE", "useLocale", "LOCALES_KEY",
+          ];
+          for (const key of keys) {
+            try { window.localStorage.setItem(key, primary); } catch { /* ignore */ }
+          }
+        } catch { /* Storage unavailable: the app default then applies. */ }
+      }, this.options.locale ?? "zh-CN");
       this.context = context;
       // A persistent profile may restore a tab whose previous Vite navigation
       // was interrupted by a crashed service. Reusing that tab can leave a new
@@ -981,6 +1005,96 @@ export class BrowserCollector {
         catch { /* browser died while recovering; the next operation heals via ensureHealthy */ }
       }
     }
+  }
+
+  /**
+   * One-shot deterministic login for gated apps (R-login). Runs only when
+   * the caller passes credentials; resolves selectors with sane defaults,
+   * skips entirely when the app did not redirect to the login path (already
+   * authenticated), and waits for the redirect back out of the login route.
+   * Credentials come from the service config or the
+   * COLLECT_I18N_LOGIN_USERNAME / COLLECT_I18N_LOGIN_PASSWORD environment
+   * variables.
+   */
+  async performLogin(login: {
+    path?: string;
+    usernameSelector?: string;
+    passwordSelector?: string;
+    submitSelector?: string;
+    username?: string;
+    password?: string;
+  }): Promise<boolean> {
+    const username = process.env.COLLECT_I18N_LOGIN_USERNAME || login.username;
+    const password = process.env.COLLECT_I18N_LOGIN_PASSWORD || login.password;
+    if (!username || !password) return false;
+    this.assertSameOrigin();
+    const loginPath = login.path ?? "/login";
+    await this.open(loginPath);
+    if (!this.activePage.url().toLowerCase().includes(loginPath.toLowerCase())) {
+      return false; // Already authenticated: no redirect to the login route.
+    }
+    const timeout = 10_000;
+    await this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first().fill(username, { timeout });
+    await this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first().fill(password, { timeout });
+    await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout });
+    // Cold Vite dev servers re-optimize dependencies on the first submit and
+    // hard-reload the page, which can swallow the login redirect. Retry the
+    // bounded form flow before declaring the login stuck. Success means the
+    // login FORM disappeared or the URL left the login route — some apps
+    // keep a login-ish URL or hash while the dashboard already mounts.
+    const passwordLocator = this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const userLocator = this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first();
+      try {
+        await userLocator.fill(username, { timeout });
+        await passwordLocator.fill(password, { timeout });
+      } catch (error) {
+        // The app may have left the login route on its own (auto-login,
+        // bounced session, guard redirect): that means we ARE authenticated
+        // and the form flow is moot. Diagnostics still land in the log for
+        // genuinely stuck forms.
+        const state = await this.activePage.evaluate(() => ({
+          url: location.href,
+          loginFormPresent: !!document.querySelector('.login-form, form[action*="login"], input[type="password"]'),
+          inputs: [...document.querySelectorAll("input")].slice(0, 8).map((el) => ({
+            id: el.id, disabled: el.disabled, type: el.type,
+            placeholder: el.placeholder, form: el.closest("form")?.className ?? null,
+          })),
+          messages: document.querySelectorAll(".el-message").length,
+        })).catch(() => ({ url: this.activePage.url(), loginFormPresent: true, inputs: [], messages: -1 }));
+        console.error("[collect-i18n] login fill failed", JSON.stringify(state));
+        const rawUrl = typeof state.url === "string" ? state.url : this.activePage.url();
+        const hashIndex = rawUrl.indexOf("#");
+        const routePart = hashIndex >= 0 ? rawUrl.slice(hashIndex + 1) : new URL(rawUrl).pathname;
+        const onLoginRoute = routePart.toLowerCase().includes(loginPath.toLowerCase());
+        if (state.loginFormPresent === false && !onLoginRoute) {
+          await this.waitForLoadingCleared();
+          return true;
+        }
+        throw error;
+      }
+      await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout });
+      // Bounded wait for the app to leave the login form.
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 15_000) {
+        const formStillVisible = await passwordLocator.isVisible().catch(() => false);
+        // Hash-router apps keep the document path (often the login path
+        // itself) and change the fragment on navigation: compare the
+        // fragment when present, the pathname otherwise.
+        const rawUrl = this.activePage.url();
+        const hashIndex = rawUrl.indexOf("#");
+        const routePart = hashIndex >= 0
+          ? rawUrl.slice(hashIndex + 1)
+          : new URL(rawUrl).pathname;
+        const onLoginRoute = routePart.toLowerCase().includes(loginPath.toLowerCase());
+        if (!formStillVisible || !onLoginRoute) {
+          await this.waitForLoadingCleared();
+          return true;
+        }
+        await new Promise((done) => setTimeout(done, 200));
+      }
+    }
+    throw new CollectorError("login_timeout", `Login form still visible after the retry budget`, { url: this.activePage.url() });
   }
 
   async open(path = "/"): Promise<void> {
@@ -1787,6 +1901,17 @@ export class BrowserCollector {
       this.activePage.evaluate((budget) => {
         const visible = (el: Element): el is HTMLElement =>
           el instanceof HTMLElement && el.offsetParent !== null;
+        // A panel opened by the previous round would block interactions with
+        // the widgets under it: close it before advancing.
+        for (const panel of document.querySelectorAll<HTMLElement>(
+          ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper",
+        )) {
+          if (visible(panel)) {
+            document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            break;
+          }
+        }
         let clicks = 0;
         // 1) Collapsed Element Plus tree nodes: expanding is pure client
         // state and reveals child node labels.
@@ -1804,6 +1929,19 @@ export class BrowserCollector {
           if (clicks >= budget) return "advanced";
           if (!visible(next) || next.hasAttribute("disabled") || next.getAttribute("aria-disabled") === "true") continue;
           next.click();
+          clicks += 1;
+          break;
+        }
+        // 3) One deep widget per round: cascader/select/date pickers keep
+        // their option texts in teleported panels that only mount while the
+        // widget is open. Mark swept widgets so later rounds advance.
+        for (const trigger of document.querySelectorAll<HTMLElement>(
+          ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor",
+        )) {
+          if (!visible(trigger)) continue;
+          if (trigger.dataset.collectI18nSwept) continue;
+          trigger.dataset.collectI18nSwept = "1";
+          trigger.click();
           clicks += 1;
           break;
         }

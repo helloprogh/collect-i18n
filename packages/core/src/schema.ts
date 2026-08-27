@@ -86,6 +86,23 @@ export const ProjectConfigSchema = z
           .optional(),
         loadingCropMarginPx: z.number().int().min(0).max(500).optional(),
         loadingClearWaitMs: z.number().int().positive().optional(),
+        /**
+         * One-shot deterministic login performed before the first route
+         * visit, for login-gated apps. Credentials resolve from
+         * COLLECT_I18N_LOGIN_USERNAME / COLLECT_I18N_LOGIN_PASSWORD when
+         * absent here, so secrets never have to live in the config file.
+         */
+        login: z
+          .object({
+            path: z.string().min(1).default('/login'),
+            usernameSelector: z.string().min(1).max(300).default('input[type="text"], input[name*="user" i], input[placeholder*="用户名"], input[placeholder*="账号"]'),
+            passwordSelector: z.string().min(1).max(300).default('input[type="password"]'),
+            submitSelector: z.string().min(1).max(300).default('button[type="submit"], .el-button--primary'),
+            username: z.string().max(200).optional(),
+            password: z.string().max(200).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .default({
         headless: true,

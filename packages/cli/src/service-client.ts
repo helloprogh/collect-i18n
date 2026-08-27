@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { resolveStateRoot } from "./state-root.js";
 
 export interface ServiceDescriptor {
   pid: number;
@@ -12,7 +13,9 @@ export interface ServiceDescriptor {
   capability: string;
 }
 
-export const serviceDescriptorPath = (projectRoot: string) => join(resolve(projectRoot), ".collect-i18n", "service.json");
+// The descriptor carries session capability tokens: it lives in the external
+// state root, not in the target project.
+export const serviceDescriptorPath = (projectRoot: string) => join(resolveStateRoot(resolve(projectRoot)), "service.json");
 
 export async function readServiceDescriptor(projectRoot: string): Promise<ServiceDescriptor> {
   try {

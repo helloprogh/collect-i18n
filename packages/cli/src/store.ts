@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { cpSync, existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
+import { legacyStateRoot, resolveStateRoot } from "./state-root.js";
 
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
 export const MAX_AGENT_ATTEMPTS = 2;
@@ -11,6 +13,34 @@ export const MAX_AGENT_ATTEMPTS = 2;
  * after this many plans (R4); the cap prevents low-yield routes from
  * consuming the whole Agent phase. */
 export const MAX_AGENT_ANCHORS_PER_ROUTE = 5;
+
+/**
+ * One-time migration from the pre-v0.4.0 in-project state directory: copy
+ * the database, evidence screenshots and browser profile to the external
+ * state root and rewrite recorded evidence paths. Idempotent — it only runs
+ * while the external database does not exist and the legacy database does.
+ */
+function migrateLegacyState(projectRoot: string, stateDirectory: string, databasePath: string): void {
+  if (existsSync(databasePath)) return;
+  const legacy = legacyStateRoot(projectRoot);
+  const legacyDatabase = join(legacy, "state.sqlite");
+  if (!existsSync(legacyDatabase)) return;
+  for (const entry of ["state.sqlite", "state.sqlite-wal", "state.sqlite-shm", "evidence", "browser-profile"]) {
+    const source = join(legacy, entry);
+    if (!existsSync(source)) continue;
+    try { cpSync(source, join(stateDirectory, entry), { recursive: true, force: true }); }
+    catch { /* A partial copy of a regenerable folder (profile) must not block startup. */ }
+  }
+  if (!existsSync(databasePath)) return;
+  const from = legacy.endsWith("\\") ? legacy : legacy + "\\";
+  const to = stateDirectory.endsWith("\\") ? stateDirectory : stateDirectory + "\\";
+  try {
+    const db = new DatabaseSync(databasePath);
+    db.prepare("UPDATE evidence SET screenshot_path = ? || substr(screenshot_path, ?) WHERE substr(screenshot_path, 1, ?) = ?")
+      .run(to, from.length + 1, from.length, from);
+    db.close();
+  } catch { /* Path rewriting is best-effort; absolute legacy paths stay readable. */ }
+}
 
 function evidenceGradeRank(grade: unknown): number {
   return grade === "A" ? 3 : grade === "B" ? 2 : grade === "C" ? 1 : 0;
@@ -246,10 +276,21 @@ export class StateStore {
     this.migrate();
   }
 
-  static async open(projectRoot: string): Promise<StateStore> {
-    const stateDirectory = join(resolve(projectRoot), ".collect-i18n");
+  /**
+   * Opens the external state root for a project (see resolveStateRoot): the
+   * database, evidence screenshots and browser profile all live outside the
+   * project so its own watcher never observes high-frequency writes. When
+   * the external database does not exist yet but a pre-v0.4.0 in-project
+   * `.collect-i18n` directory does, the volatile state is migrated over and
+   * recorded evidence paths are rewritten to the new location.
+   */
+  static async open(projectRoot: string, options?: { stateRoot?: string }): Promise<StateStore> {
+    const resolvedRoot = resolve(projectRoot);
+    const stateDirectory = options?.stateRoot ?? resolveStateRoot(resolvedRoot);
     await mkdir(stateDirectory, { recursive: true });
-    return new StateStore(join(stateDirectory, "state.sqlite"));
+    const databasePath = join(stateDirectory, "state.sqlite");
+    await migrateLegacyState(resolvedRoot, stateDirectory, databasePath);
+    return new StateStore(databasePath);
   }
 
   close(): void { this.db.close(); }

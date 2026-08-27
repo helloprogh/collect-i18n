@@ -5,10 +5,23 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resolveStateRoot } from "./state-root.js";
 import { agentActionScore, agentTaskPriority, preferredAgentRoute, representativeRouteTasks, StateStore, type StoredTask } from "./store.js";
 
 const temporaryRoots: string[] = [];
+
+// Volatile state lives in an external root; tests redirect it to a temp dir
+// so the suite never writes to the real user home.
+beforeEach(() => {
+  const base = join(tmpdir(), `collect-i18n-state-${randomUUID()}`);
+  temporaryRoots.push(base);
+  process.env.COLLECT_I18N_STATE_DIR = base;
+});
+
+afterEach(() => {
+  delete process.env.COLLECT_I18N_STATE_DIR;
+});
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -472,7 +485,7 @@ describe("StateStore transactions", () => {
     legacyStore.addEvidence(task.id, evidence("agent"));
     legacyStore.close();
 
-    const legacyDb = new DatabaseSync(join(projectRoot, ".collect-i18n", "state.sqlite"));
+    const legacyDb = new DatabaseSync(join(resolveStateRoot(projectRoot), "state.sqlite"));
     legacyDb.exec(`
       DROP INDEX idx_evidence_task_sha;
       ALTER TABLE evidence DROP COLUMN screenshot_sha256;

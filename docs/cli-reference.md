@@ -86,7 +86,13 @@ collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 
 确定性队列会直接接受 A 级 Host DOM 证据。可靠路由上的 B 级 Vue 组件证据会先在隔离页面执行一次无副作用 Canary；只有目标 occurrence 随 Canary 精确变化后才提升为 A 级并截图。Canary 失败只会把任务转交 Agent，不会使用相似文本生成证据。
 
-确定性阶段还包含两条有界的内容展开通路：R3 滚屏（窗口与页面内滚动容器步进，至多 12 步并带稳定性早退）与 R7 控件扫描（只点击 Element Plus 树展开图标与分页「下一页」按钮等纯客户端控件，每轮至多 6 次点击、每路由至多 8 轮，不触碰任何表单或动作按钮）。两者都只让更多译文挂载到 DOM，再交由同一批采通路截图。
+确定性阶段还包含两条有界的内容展开通路：R3 滚屏（窗口与页面内滚动容器步进，至多 12 步并带稳定性早退）与 R7 控件扫描（树展开图标、分页「下一页」按钮、以及逐轮打开的级联/下拉/日期选择面板等纯客户端控件，每轮至多 6 次点击、每路由至多 8 轮，不触碰任何表单或动作按钮）。两者都只让更多译文挂载到 DOM，再交由同一批采通路截图。
+
+**中文界面守卫**：上下文 `addInitScript` 在应用脚本前把常见语言存储键预置为 `browser.locale`（默认 `zh-CN`）；会话首个路由若抽样渲染文本与 zh-cn 原文零匹配（如英文占位界面），自动带 `?locale=zh-CN&lang=zh-CN` 重访一次再继续。
+
+**登录门控应用**：在配置 `browser.login`（`path`/选择器/`username`/`password`）后，首个路由访问前自动执行一次确定性登录（已认证则跳过）；凭据可用环境变量 `COLLECT_I18N_LOGIN_USERNAME` / `COLLECT_I18N_LOGIN_PASSWORD` 注入。冷启动 Vite 重优化导致的首次登录失败会在重试预算内自动补登。
+
+**状态目录**：状态库、证据截图、浏览器配置与日志位于工程外的 `~/.collect-i18n/projects/<项目哈希>/`（`COLLECT_I18N_STATE_DIR` 覆盖父目录），工程内只保留 `.collect-i18n/config.json` 与导出的 Excel；旧版工程内目录首次打开自动迁移。采集服务托管的 Vite 可用 `COLLECT_I18N_VITE_MODE` 透传 `--mode`（如应用依赖 mock 模式）。
 
 ### `start`
 

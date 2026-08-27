@@ -1,0 +1,4 @@
+[submodule "examples/oss/vue-element-plus-admin"]
+	path = examples/oss/vue-element-plus-admin
+	url = https://github.com/kailong321200875/vue-element-plus-admin.git
+	branch = main
