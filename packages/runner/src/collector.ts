@@ -3,6 +3,7 @@ import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
+import { isExactTextMatch, pickExactTextRows } from "./textMatch.js";
 
 export type RuntimeEvidenceGrade = "A" | "B" | "C";
 
@@ -1408,6 +1409,36 @@ export class BrowserCollector {
         if (registryTarget) {
           const normalized = normalizeRuntimeTarget(registryTarget);
           if (normalized) return normalized;
+        }
+        // Transient imperative toasts (ElMessage/ElNotification/ElMessageBox) carry
+        // key+text in the runtime registry but no attributed DOM rect, so the
+        // attribution paths above cannot see them while they are visible.
+        // Fall back to an exact-text scan over leaf elements for the recorded text(s).
+        const registeredTexts = (collector?.getSnapshot?.() ?? [])
+          .filter((entry) => entry.key === targetKey && typeof entry.text === "string" && entry.text.trim().length > 0)
+          .map((entry) => ({ text: entry.text as string, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
+        if (registeredTexts.length > 0) {
+          const leaves = Array.from(document.querySelectorAll<HTMLElement>("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
+          for (const element of leaves) {
+            if (element.childElementCount > 0) continue;
+            const ownText = element.innerText || element.getAttribute("placeholder") || element.getAttribute("aria-label") || "";
+            const needle = ownText.trim();
+            if (!needle) continue;
+            if (!registeredTexts.some((entry) => isExactTextMatch(entry, needle))) continue;
+            const matched = pickExactTextRows(registeredTexts, needle)[0];
+            if (!matched) continue;
+            const rect = element.getBoundingClientRect();
+            if (!intersectsViewport(rect)) continue;
+            return normalizeRuntimeTarget({
+              key: targetKey,
+              occurrenceId: undefined,
+              kind: matched.binding ?? "imperative-service",
+              evidenceGrade: matched.grade ?? "B",
+              evidenceProof: matched.proof ?? "imperative-text-scan",
+              text: ownText.trim(),
+              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            });
+          }
         }
         const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(targetKey) : targetKey.replace(/["\\]/g, "\\$&");
         const element = document.querySelector<HTMLElement>(`[data-i18n-key~="${escaped}"]`);

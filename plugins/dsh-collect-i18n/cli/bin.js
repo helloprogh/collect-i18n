@@ -153064,6 +153064,12 @@ var triggerPlanSchema = TriggerPlanSchema;
 function parseTriggerPlan(value) {
   return triggerPlanSchema.parse(value);
 }
+function isExactTextMatch(row, needle) {
+  return typeof row.text === "string" && row.text.trim() === needle;
+}
+function pickExactTextRows(rows, needle) {
+  return rows.filter((row) => isExactTextMatch(row, needle));
+}
 function resolveProjectUrl(path6, options) {
   const base = new URL(options.baseUrl);
   const absolute = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path6) || path6.startsWith("//");
@@ -154051,6 +154057,30 @@ var BrowserCollector = class {
         if (registryTarget) {
           const normalized = normalizeRuntimeTarget(registryTarget);
           if (normalized) return normalized;
+        }
+        const registeredTexts = (collector?.getSnapshot?.() ?? []).filter((entry) => entry.key === targetKey2 && typeof entry.text === "string" && entry.text.trim().length > 0).map((entry) => ({ text: entry.text, grade: entry.evidenceGrade, proof: entry.evidenceProof, binding: entry.kind }));
+        if (registeredTexts.length > 0) {
+          const leaves = Array.from(document.querySelectorAll("p,span,div,li,td,dt,dd,button,a,h1,h2,h3,h4,label"));
+          for (const element2 of leaves) {
+            if (element2.childElementCount > 0) continue;
+            const ownText = element2.innerText || element2.getAttribute("placeholder") || element2.getAttribute("aria-label") || "";
+            const needle = ownText.trim();
+            if (!needle) continue;
+            if (!registeredTexts.some((entry) => isExactTextMatch(entry, needle))) continue;
+            const matched = pickExactTextRows(registeredTexts, needle)[0];
+            if (!matched) continue;
+            const rect2 = element2.getBoundingClientRect();
+            if (!intersectsViewport(rect2)) continue;
+            return normalizeRuntimeTarget({
+              key: targetKey2,
+              occurrenceId: void 0,
+              kind: matched.binding ?? "imperative-service",
+              evidenceGrade: matched.grade ?? "B",
+              evidenceProof: matched.proof ?? "imperative-text-scan",
+              text: ownText.trim(),
+              rect: { x: rect2.x, y: rect2.y, width: rect2.width, height: rect2.height }
+            });
+          }
         }
         const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(targetKey2) : targetKey2.replace(/["\\]/g, "\\$&");
         const element = document.querySelector(`[data-i18n-key~="${escaped}"]`);
@@ -158567,7 +158597,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.15").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.16").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);
