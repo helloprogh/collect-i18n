@@ -86,6 +86,8 @@ collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 
 确定性队列会直接接受 A 级 Host DOM 证据。可靠路由上的 B 级 Vue 组件证据会先在隔离页面执行一次无副作用 Canary；只有目标 occurrence 随 Canary 精确变化后才提升为 A 级并截图。Canary 失败只会把任务转交 Agent，不会使用相似文本生成证据。
 
+确定性阶段还包含两条有界的内容展开通路：R3 滚屏（窗口与页面内滚动容器步进，至多 12 步并带稳定性早退）与 R7 控件扫描（只点击 Element Plus 树展开图标与分页「下一页」按钮等纯客户端控件，每轮至多 6 次点击、每路由至多 8 轮，不触碰任何表单或动作按钮）。两者都只让更多译文挂载到 DOM，再交由同一批采通路截图。
+
 ### `start`
 
 ```text

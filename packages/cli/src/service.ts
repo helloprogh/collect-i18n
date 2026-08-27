@@ -583,6 +583,12 @@ export class LocalService {
     if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
       newlyCaptured += await this.captureScrolledVisible(sessionId, collector, group, handledKeys);
     }
+    // R7: bounded widget sweep; paginated tables and collapsed trees keep
+    // row/child keys out of the DOM until clicked. Same contract as the
+    // scroll pass — only run while candidates remain unhandled.
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureWidgetSweptVisible(sessionId, collector, group, handledKeys);
+    }
     // Final pass: keys the batches never resolved. The per-key fallback is
     // a short waitForKey (1-2s) cadence bounded per visit: a route with
     // hundreds of below-fold rows must not grind the window on individual
@@ -673,6 +679,52 @@ export class LocalService {
         // Stability check: nothing new visible and nothing captured on this
         // step means further scrolling is unlikely to surface more keys.
         if (step > 2) break;
+        continue;
+      }
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
+  }
+
+  /**
+   * R7: bounded widget-sweep pass for a visited route. Each round clicks a
+   * bounded batch of client-side widgets (tree expands, pagination next),
+   * waits for the loading mask to clear, re-inspects the settled runtime
+   * and batch-captures newly visible pending/needs_agent keys. The loop
+   * ends when a round advances nothing or the round cap is reached, so a
+   * fully swept route pays one probe and no more.
+   */
+  private async captureWidgetSweptVisible(
+    sessionId: string,
+    collector: BrowserCollector,
+    group: Array<import("./store.js").StoredTask>,
+    handledKeys: Set<string>,
+  ): Promise<number> {
+    const store = this.store!;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxRounds = 8;
+    let newlyCaptured = 0;
+    for (let round = 1; round <= maxRounds; round += 1) {
+      if (this.manualActive) return newlyCaptured;
+      const outcome = await collector.widgetSweepForCapture(6);
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"])
+        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      if (notYetHandled.length === 0) {
+        if (outcome === "exhausted") break;
         continue;
       }
       const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));

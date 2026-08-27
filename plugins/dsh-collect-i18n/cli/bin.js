@@ -154371,6 +154371,44 @@ var BrowserCollector = class {
     return results;
   }
   /**
+   * Deterministic widget sweep step (R7): clicks bounded, client-side-only
+   * widgets that keep more translated content mounted — Element Plus tree
+   * expand icons and pagination "next" buttons. Never touches forms or
+   * action buttons, so the sweep cannot mutate project data. The caller
+   * re-inspects and batch-captures between rounds; the returned outcome
+   * tells it whether another round can surface anything new.
+   */
+  async widgetSweepForCapture(maxClicks) {
+    this.assertSameOrigin();
+    const outcome = await bounded(
+      this.activePage.evaluate((budget) => {
+        const visible = (el) => el instanceof HTMLElement && el.offsetParent !== null;
+        let clicks = 0;
+        for (const icon of document.querySelectorAll(".el-tree-node__expand-icon:not(.is-leaf)")) {
+          if (clicks >= budget) return "advanced";
+          if (!visible(icon) || icon.getAttribute("aria-expanded") === "true") continue;
+          icon.click();
+          clicks += 1;
+        }
+        for (const next of document.querySelectorAll(
+          ".el-pagination .btn-next"
+        )) {
+          if (clicks >= budget) return "advanced";
+          if (!visible(next) || next.hasAttribute("disabled") || next.getAttribute("aria-disabled") === "true") continue;
+          next.click();
+          clicks += 1;
+          break;
+        }
+        return clicks > 0 ? "advanced" : "exhausted";
+      }, maxClicks),
+      5e3,
+      "Page became unresponsive during the widget sweep"
+    );
+    await this.waitForLoadingCleared();
+    await this.activePage.waitForTimeout(150);
+    return outcome;
+  }
+  /**
    * Deterministic scroll step for a visited route (R3): intermediate steps
    * push the viewport down by about 80% of its height and the final step
    * jumps to the bottom, bringing lazily rendered and virtualized rows into
@@ -158001,6 +158039,9 @@ var LocalService = class {
     if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
       newlyCaptured += await this.captureScrolledVisible(sessionId, collector, group, handledKeys);
     }
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureWidgetSweptVisible(sessionId, collector, group, handledKeys);
+    }
     let fallbackRemaining = DETERMINISTIC_FALLBACK_BUDGET;
     for (const task of candidates) {
       if (this.manualActive) break;
@@ -158061,6 +158102,49 @@ var LocalService = class {
       const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         if (step > 2) break;
+        continue;
+      }
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try {
+            store.addEvidence(task.id, result.evidence);
+            newlyCaptured += 1;
+          } catch (error51) {
+            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51));
+          }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
+  }
+  /**
+   * R7: bounded widget-sweep pass for a visited route. Each round clicks a
+   * bounded batch of client-side widgets (tree expands, pagination next),
+   * waits for the loading mask to clear, re-inspects the settled runtime
+   * and batch-captures newly visible pending/needs_agent keys. The loop
+   * ends when a round advances nothing or the round cap is reached, so a
+   * fully swept route pays one probe and no more.
+   */
+  async captureWidgetSweptVisible(sessionId, collector, group, handledKeys) {
+    const store = this.store;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxRounds = 8;
+    let newlyCaptured = 0;
+    for (let round = 1; round <= maxRounds; round += 1) {
+      if (this.manualActive) return newlyCaptured;
+      const outcome = await collector.widgetSweepForCapture(6);
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      if (notYetHandled.length === 0) {
+        if (outcome === "exhausted") break;
         continue;
       }
       const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
@@ -158685,7 +158769,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.17").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.18").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);

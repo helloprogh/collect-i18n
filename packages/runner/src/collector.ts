@@ -1774,6 +1774,50 @@ export class BrowserCollector {
   }
 
   /**
+   * Deterministic widget sweep step (R7): clicks bounded, client-side-only
+   * widgets that keep more translated content mounted — Element Plus tree
+   * expand icons and pagination "next" buttons. Never touches forms or
+   * action buttons, so the sweep cannot mutate project data. The caller
+   * re-inspects and batch-captures between rounds; the returned outcome
+   * tells it whether another round can surface anything new.
+   */
+  async widgetSweepForCapture(maxClicks: number): Promise<"advanced" | "exhausted"> {
+    this.assertSameOrigin();
+    const outcome = await bounded(
+      this.activePage.evaluate((budget) => {
+        const visible = (el: Element): el is HTMLElement =>
+          el instanceof HTMLElement && el.offsetParent !== null;
+        let clicks = 0;
+        // 1) Collapsed Element Plus tree nodes: expanding is pure client
+        // state and reveals child node labels.
+        for (const icon of document.querySelectorAll<HTMLElement>(".el-tree-node__expand-icon:not(.is-leaf)")) {
+          if (clicks >= budget) return "advanced";
+          if (!visible(icon) || icon.getAttribute("aria-expanded") === "true") continue;
+          icon.click();
+          clicks += 1;
+        }
+        // 2) One pagination step per round: linear forward walk of paginated
+        // tables. Disabled/absent buttons end the walk.
+        for (const next of document.querySelectorAll<HTMLElement>(
+          ".el-pagination .btn-next",
+        )) {
+          if (clicks >= budget) return "advanced";
+          if (!visible(next) || next.hasAttribute("disabled") || next.getAttribute("aria-disabled") === "true") continue;
+          next.click();
+          clicks += 1;
+          break;
+        }
+        return clicks > 0 ? "advanced" : "exhausted";
+      }, maxClicks),
+      5_000,
+      "Page became unresponsive during the widget sweep",
+    );
+    await this.waitForLoadingCleared();
+    await this.activePage.waitForTimeout(150);
+    return outcome;
+  }
+
+  /**
    * Deterministic scroll step for a visited route (R3): intermediate steps
    * push the viewport down by about 80% of its height and the final step
    * jumps to the bottom, bringing lazily rendered and virtualized rows into
