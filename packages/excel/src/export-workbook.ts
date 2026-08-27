@@ -132,8 +132,8 @@ export async function exportTranslationWorkbook(
   header.alignment = { vertical: "middle", horizontal: "left" };
 
   // Deprecated rows (classified at finalize as no-source-occurrence) are
-  // grouped at the very end of the sheet; every other row keeps the
-  // alphabetical order.
+  // grouped at the very end of the sheet; every other row — including
+  // non-visual rows — keeps the alphabetical order.
   const normalRows = rows
     .filter((row) => !row.deprecated)
     .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
@@ -193,6 +193,13 @@ export async function exportTranslationWorkbook(
       // instead of leaving it empty so the reviewer knows why.
       const cell = row.getCell(3);
       cell.value = "词条废弃";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.nonVisual) {
+      // Non-visual keys (aria-*/native title only) cannot be screenshotted;
+      // annotate in place with the same visual style as deprecated rows.
+      const cell = row.getCell(3);
+      cell.value = "非可视";
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }

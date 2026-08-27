@@ -95,6 +95,26 @@ export function resolveProjectUrl(
   return target.toString();
 }
 
+/**
+ * True when the active page already shows the route a TriggerPlan would open,
+ * so executePlan can skip the redundant full navigation (Vite rebuild + route
+ * settle, several seconds per plan) and reuse the current page. Same-origin
+ * URLs are compared exactly; blank pages or anything that fails to resolve
+ * behave as "not the same" so navigation still happens.
+ */
+export function sameRouteUrl(
+  currentUrl: string,
+  planRoute: string,
+  options: Pick<BrowserCollectorOptions, "baseUrl" | "viteBase" | "hashRouter">,
+): boolean {
+  try {
+    if (!currentUrl || currentUrl === "about:blank") return false;
+    return new URL(resolveProjectUrl(planRoute, options)).href === new URL(currentUrl).href;
+  } catch {
+    return false;
+  }
+}
+
 function basePathFromViteBase(viteBase: string): string {
   // Vite allows base to be a full URL (for example a CDN origin). Only its
   // pathname is meaningful for a same-origin dev-server navigation; the
@@ -833,6 +853,72 @@ export class BrowserCollector {
     }
   }
 
+  /**
+   * Isolated causal canary for many B-grade targets on the same route at
+   * once: a single probe page navigation carries one token per occurrence, so
+   * the per-key newPage+replay cost collapses into one replay. Per-key
+   * semantics are unchanged from verifyCausalBinding: a key is verified only
+   * when its probed occurrence id matches the original target and its
+   * rendered text equals its token.
+   */
+  private async verifyCausalBindings(targets: RuntimeTargetSnapshot[]): Promise<Map<string, boolean>> {
+    const verified = new Map<string, boolean>();
+    for (const target of targets) verified.set(target.key, false);
+    const probeable = targets.filter((target) =>
+      target.evidenceGrade === "B" &&
+      Boolean(target.occurrenceId) &&
+      isCausalProbeSafe(undefined) &&
+      Boolean(this.context),
+    );
+    if (probeable.length === 0 || !this.context) return verified;
+
+    const originalPage = this.activePage;
+    const probePage = await this.context.newPage();
+    await probePage.route("**/*", (route) => this.routeRequest(route));
+    const tokens = new Map<string, string>();
+    for (const target of probeable) {
+      const occurrenceId = target.occurrenceId!;
+      if (!tokens.has(occurrenceId)) {
+        tokens.set(occurrenceId, "__COLLECT_CANARY_" + Date.now() + "_" + Math.random().toString(36).slice(2) + "__");
+      }
+    }
+    const origin = new URL(this.options.baseUrl).origin;
+    await probePage.addInitScript(
+      ({ expectedOrigin, storageKey, entries }) => {
+        if (location.origin === expectedOrigin) {
+          sessionStorage.setItem(storageKey, JSON.stringify({ tokens: Object.fromEntries(entries) }));
+        }
+      },
+      {
+        expectedOrigin: origin,
+        storageKey: CAUSAL_PROBE_STORAGE_KEY,
+        entries: [...tokens.entries()],
+      },
+    );
+
+    this.page = probePage;
+    try {
+      this.setMockRules([]);
+      await this.replaySafeProbePlan(undefined, probeable[0]!.route);
+      const probed = await this.captureVisibleTargets(probeable.map((target) => target.key), "B");
+      for (const probe of probed) {
+        const target = probeable.find((candidate) => candidate.key === probe.key);
+        if (!target) continue;
+        const token = target.occurrenceId ? tokens.get(target.occurrenceId) : undefined;
+        if (token && probe.occurrenceId === target.occurrenceId && probe.text === token) {
+          verified.set(probe.key, true);
+        }
+      }
+      return verified;
+    } catch {
+      return verified;
+    } finally {
+      this.page = originalPage;
+      await probePage.close().catch(() => undefined);
+      await originalPage.bringToFront().catch(() => undefined);
+    }
+  }
+
   async executePlan(
     rawPlan: TriggerPlan,
     source: CollectedEvidence["source"] = "agent",
@@ -844,7 +930,13 @@ export class BrowserCollector {
     const deadlineMs = this.options.planTimeoutMs ?? 90_000;
     const execution = (async () => {
       this.setMockRules(plan.mocks);
-      if (plan.route) await this.open(plan.route);
+      // R5: reuse the current page when it already shows the plan route; a
+      // full re-navigation costs a Vite rebuild + settle (seconds per plan)
+      // and consecutive anchors on the same route were the largest Agent
+      // throughput waste measured in the research.
+      if (plan.route && !sameRouteUrl(this.activePage.url(), plan.route, this.options)) {
+        await this.open(plan.route);
+      }
 
       for (const step of plan.steps) {
         this.assertSameOrigin();
@@ -1523,6 +1615,97 @@ export class BrowserCollector {
       }
     }
     return results;
+  }
+
+  /**
+   * Deterministic batch capture for the route queue: resolves a set of
+   * already-mounted keys in one page evaluation, verifies B-grade Vue
+   * evidence through a single batched causal canary probe page, and
+   * screenshots each accepted key with one marker pass. This replaces the
+   * per-key double waitForKey + 6-sample stability loop: the caller already
+   * confirmed mounting via a settled inspection, so stable keys skip every
+   * redundant re-verification. Keys that cannot be resolved or verified are
+   * reported per key so the caller keeps the rest of the batch.
+   */
+  async captureDeterministicBatch(
+    keys: readonly string[],
+  ): Promise<Array<{ key: string; evidence?: CollectedEvidence; rejected?: string }>> {
+    const targetKeys = [...new Set(keys)].slice(0, 250);
+    if (targetKeys.length === 0) return [];
+    // Virtual lists register rows lazily; mirror waitForKey's first-poll
+    // rescan so one batch evaluation sees freshly mounted rows instead of
+    // missing them and falling back to per-key polling.
+    await bounded(
+      this.activePage.evaluate(() => {
+        const runtimeWindow = window as RuntimeWindow;
+        const installed = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+        installed?.rescan?.(document);
+      }),
+      2_000,
+      "Page became unresponsive while rescanning for batch capture",
+    ).catch(() => undefined);
+    const initial = await this.captureVisibleTargets(targetKeys, "B");
+    if (initial.length === 0) return [];
+    await this.waitForLoadingCleared();
+    await this.activePage.waitForTimeout(100);
+    const settledByKey = new Map(
+      (await this.captureVisibleTargets(initial.map((target) => target.key), "B"))
+        .map((target) => [target.key, target] as const),
+    );
+    const bTargets = [...settledByKey.values()].filter((target) => target.evidenceGrade === "B");
+    const verified = bTargets.length > 0
+      ? await this.verifyCausalBindings(bTargets)
+      : new Map<string, boolean>();
+    const results: Array<{ key: string; evidence?: CollectedEvidence; rejected?: string }> = [];
+    for (const target of initial) {
+      const latest = settledByKey.get(target.key) ?? target;
+      if (latest.evidenceGrade === "B" && verified.get(latest.key) !== true) {
+        results.push({
+          key: latest.key,
+          rejected: "[deterministic_b_rejected] Deterministic B evidence for " + latest.key
+            + " did not pass the isolated causal canary",
+        });
+        continue;
+      }
+      try {
+        const evidence = await this.screenshotEvidence(
+          latest,
+          "deterministic",
+          undefined,
+          latest.evidenceGrade === "B",
+        );
+        results.push({ key: latest.key, evidence });
+      } catch (error) {
+        results.push({
+          key: latest.key,
+          rejected: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Deterministic scroll step for a visited route (R3): intermediate steps
+   * push the viewport down by about 80% of its height and the final step
+   * jumps to the bottom, bringing lazily rendered and virtualized rows into
+   * view so the follow-up inspection can batch-capture them. Bounded by
+   * design; the caller decides the step count and re-inspects after each.
+   */
+  async scrollForCapture(step: number, totalSteps: number): Promise<void> {
+    this.assertSameOrigin();
+    await bounded(
+      this.activePage.evaluate(({ toBottom }) => {
+        if (toBottom) {
+          window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
+        } else {
+          window.scrollBy(0, Math.max(1, Math.round(innerHeight * 0.8)));
+        }
+      }, { toBottom: step >= totalSteps }),
+      2_000,
+      "Page became unresponsive while scrolling for capture",
+    );
+    await this.activePage.waitForTimeout(100);
   }
 
   private async screenshotEvidence(

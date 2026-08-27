@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, stripInlineMarkers } from "./collector.js";
+import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, sameRouteUrl, stripInlineMarkers } from "./collector.js";
 
 describe("isBrowserGoneError", () => {
   it("detects crashed-browser Playwright errors", () => {
@@ -104,8 +104,30 @@ describe("resolveProjectUrl", () => {
 
   it("rejects cross-origin navigation", () => {
     expect(() => resolveProjectUrl("https://evil.example/x", { baseUrl })).toThrow(
-      /outside project origin/,
+      /outside project origin/
     );
+  });
+});
+
+describe("sameRouteUrl (R5 plan page reuse)", () => {
+  const baseUrl = "http://127.0.0.1:5173/";
+
+  it("is true when the active page already shows the plan route", () => {
+    expect(sameRouteUrl("http://127.0.0.1:5173/users", "/users", { baseUrl })).toBe(true);
+    expect(sameRouteUrl("http://127.0.0.1:5173/admin/#/users", "/users", { baseUrl, viteBase: "/admin/", hashRouter: true })).toBe(true);
+    expect(sameRouteUrl("http://127.0.0.1:5173/", "/", { baseUrl })).toBe(true);
+  });
+
+  it("is false when the page shows a different route or is blank", () => {
+    expect(sameRouteUrl("http://127.0.0.1:5173/", "/users", { baseUrl })).toBe(false);
+    expect(sameRouteUrl("http://127.0.0.1:5173/users", "/orders", { baseUrl })).toBe(false);
+    expect(sameRouteUrl("about:blank", "/users", { baseUrl })).toBe(false);
+    expect(sameRouteUrl("", "/users", { baseUrl })).toBe(false);
+  });
+
+  it("is false for a cross-origin current URL or unresolvable plan route", () => {
+    expect(sameRouteUrl("https://evil.example/users", "/users", { baseUrl })).toBe(false);
+    expect(sameRouteUrl("http://127.0.0.1:5173/users", "https://evil.example/x", { baseUrl })).toBe(false);
   });
 });
 

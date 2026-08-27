@@ -22,6 +22,13 @@ export interface WorkbookExportRow extends LocaleCatalogEntry {
    * 「词条废弃」 instead of an empty cell.
    */
   deprecated?: boolean;
+  /**
+   * True when every occurrence of the key is non-visual
+   * (skip_reason non_visual_source_only: aria attributes or native title
+   * properties only). Non-visual rows keep their alphabetical position and
+   * the 截图 column shows 「非可视」 instead of an empty cell.
+   */
+  nonVisual?: boolean;
 }
 
 export type ImportIssueCode =

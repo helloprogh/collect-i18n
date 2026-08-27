@@ -96,6 +96,43 @@ describe('CollectorRegistry', () => {
     )
   })
 
+  it('substitutes a canary from a token map for batched probes', () => {
+    enqueueDescriptors([
+      {
+        occurrenceId: 'map-label-a',
+        key: 'orders.row.1.label',
+        kind: 'text',
+        metadata: { canarySafe: true },
+      },
+      {
+        occurrenceId: 'map-label-b',
+        key: 'orders.row.2.label',
+        kind: 'text',
+        metadata: { canarySafe: true },
+      },
+      {
+        occurrenceId: 'map-unsafe',
+        key: 'message.saved',
+        kind: 'text',
+        metadata: { canarySafe: false },
+      },
+    ])
+    installCollectorRuntime({ overlay: false })
+    window.sessionStorage.setItem(
+      CAUSAL_PROBE_STORAGE_KEY,
+      JSON.stringify({
+        tokens: {
+          'map-label-a': '__COLLECT_CANARY_A_12345678__',
+          'map-label-b': '__COLLECT_CANARY_B_12345678__',
+        },
+      }),
+    )
+
+    expect(recordRenderedValue('一', 'map-label-a')).toBe('__COLLECT_CANARY_A_12345678__')
+    expect(recordRenderedValue('二', 'map-label-b')).toBe('__COLLECT_CANARY_B_12345678__')
+    expect(recordRenderedValue('已保存', 'map-unsafe')).toBe('已保存')
+  })
+
   it('transports script display provenance through an invisible string marker', async () => {
     enqueueDescriptors([
       {

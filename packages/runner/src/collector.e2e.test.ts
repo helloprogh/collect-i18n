@@ -18,8 +18,32 @@ describe('real browser collection smoke test', () => {
     const artifactDir = path.join(root, 'evidence')
     const userDataDir = path.join(root, 'profile')
     await mkdir(artifactDir, { recursive: true })
-    server = createServer((_request, response) => {
+    server = createServer((request, response) => {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      if ((request.url ?? '').startsWith('/batch')) {
+        // A dense visible-key page: 100 native-DOM sinks, all inside the
+        // first viewport, for the R2 batch throughput timing assertion.
+        const rows = Array.from({ length: 100 }, (_v, index) =>
+          `<span data-i18n-key="batch.key${index}" data-i18n-occurrence="occ_batch_${index}">批量文本${index}</span>`,
+        ).join('\n')
+        response.end(`<!doctype html>
+          <html><head><style>
+            body { font: 4px sans-serif; padding: 0; margin: 0; }
+            span { display: block; height: 6px; line-height: 6px; font-size: 4px; }
+          </style></head><body>
+            <main>${rows}</main>
+            <script>
+              window.__COLLECT_I18N__ = {
+                rescan() {},
+                setTarget() {},
+                focus() {},
+                targets() { return [] },
+                getSnapshot() { return [] },
+              }
+            </script>
+          </body></html>`);
+        return
+      }
       response.end(`<!doctype html>
         <html><head><style>
           body { font: 16px sans-serif; padding: 32px; }
@@ -41,7 +65,7 @@ describe('real browser collection smoke test', () => {
               document.querySelector('#dialog').hidden = false
             })
           </script>
-        </body></html>`)
+        </body></html>`);
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
@@ -88,5 +112,16 @@ describe('real browser collection smoke test', () => {
       evidenceProof: 'compiler-native-sink',
       source: 'agent',
     })
+  })
+
+  it('batch-captures 100 visible keys well inside the 30s budget (R2)', async () => {
+    await collector.open('/batch')
+    const keys = Array.from({ length: 100 }, (_v, index) => `batch.key${index}`)
+    const started = Date.now()
+    const results = await collector.captureDeterministicBatch(keys)
+    const elapsedMs = Date.now() - started
+    expect(results).toHaveLength(100)
+    expect(results.every((item) => item.evidence !== undefined)).toBe(true)
+    expect(elapsedMs).toBeLessThan(30_000)
   })
 })

@@ -85,6 +85,29 @@ describe("four-column translation workbook export", () => {
     expect(sheet.getRow(3).getCell(3).text).toBe("");
   });
 
+
+  it("keeps non-visual rows in alphabetical order with 非可视 in the screenshot column", async () => {
+    const item = await fixture();
+    await exportTranslationWorkbook([
+      { ...item.catalog[0]!, english: "" },
+      { ...item.catalog[1]!, english: "" },
+      { keyPath: "users.aria.label", chinese: "无障碍标签", targetFile: item.targetFile, jsonPath: ["users", "aria", "label"], nonVisual: true },
+      { keyPath: "users.old.banner", chinese: "旧横幅", targetFile: item.targetFile, jsonPath: ["users", "old", "banner"], deprecated: true },
+      { keyPath: "users.old.notice", chinese: "旧通知", targetFile: item.targetFile, jsonPath: ["users", "old", "notice"], deprecated: true },
+    ], item.workbookPath);
+
+    const { sheet } = await workbookRows(item.workbookPath);
+    // The non-visual row keeps its alphabetical position among normal rows.
+    expect(sheet.getRow(2).getCell(4).text).toBe("users.aria.label");
+    expect(sheet.getRow(3).getCell(4).text).toBe("users.create.save");
+    expect(sheet.getRow(4).getCell(4).text).toBe("users.create.title");
+    // Deprecated rows are still grouped at the end of the sheet.
+    expect(sheet.getRow(5).getCell(4).text).toBe("users.old.banner");
+    expect(sheet.getRow(6).getCell(4).text).toBe("users.old.notice");
+    expect(sheet.getRow(2).getCell(3).text).toBe("非可视");
+    expect(sheet.getRow(3).getCell(3).text).toBe("");
+    expect(sheet.getRow(5).getCell(3).text).toBe("词条废弃");
+  });
   it("draws thin borders on the header and every data cell", async () => {
     const item = await fixture();
     await exportTranslationWorkbook(

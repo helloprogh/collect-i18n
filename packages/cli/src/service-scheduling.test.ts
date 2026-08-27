@@ -302,3 +302,298 @@ describe("collector scheduling", () => {
     expect(maximumConcurrent).toBe(1);
   });
 });
+
+describe("deterministic queue throughput (R1/R2/R3)", () => {
+  interface FakeTask {
+    id: string;
+    keyPath: string;
+    status: string;
+    stage: string;
+    sessionId: string;
+    chinese: string;
+    relativeFile: string;
+    occurrences: unknown[];
+    routeHints: unknown[];
+    actionHints: unknown[];
+    attempts: number;
+    lastError?: string;
+  }
+
+  function pendingTask(id: string, keyPath: string, route?: string, status = "pending"): FakeTask {
+    return {
+      id, keyPath, status, stage: "deterministic", sessionId: "session_test",
+      chinese: keyPath, relativeFile: "src/views/page.vue", occurrences: [],
+      routeHints: route ? [{ path: route, confidence: 0.95 }] : [],
+      actionHints: [], attempts: 0,
+    };
+  }
+
+  function sampleEvidence(key: string): CollectedEvidence {
+    return {
+      key, evidenceGrade: "A", evidenceProof: "compiler-text-sink", text: key,
+      route: "http://127.0.0.1:5173/route",
+      rect: { x: 10, y: 10, width: 100, height: 24 },
+      screenshotPath: "D:/evidence/" + key + ".png",
+      screenshotSha256: "0".repeat(64),
+      capturedAt: new Date().toISOString(),
+      source: "deterministic",
+    };
+  }
+
+  interface FakeLog {
+    opens: string[];
+    batchCalls: string[][];
+    scrolls: number[];
+    waitForKeyCalls: string[];
+    captured: string[];
+    needsAgent: Array<{ keyPath: string; error?: string }>;
+    statusChanges: Array<{ keyPath: string; status: string; error?: string }>;
+  }
+
+  function makeLog(): FakeLog {
+    return {
+      opens: [], batchCalls: [], scrolls: [], waitForKeyCalls: [], captured: [], needsAgent: [],
+      statusChanges: [],
+    };
+  }
+
+  function fakeStore(tasks: FakeTask[], log: FakeLog) {
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    return {
+      listTasks: (_sessionId: string, statuses: string[]) => tasks.filter((task) => statuses.includes(task.status)),
+      task: (id: string) => byId.get(id),
+      markTask: (id: string, status: string, error?: string) => {
+        const task = byId.get(id);
+        if (!task) return;
+        task.status = status;
+        task.lastError = error;
+        log.statusChanges.push({ keyPath: task.keyPath, status, error });
+        if (status === "needs_agent") log.needsAgent.push({ keyPath: task.keyPath, error });
+      },
+      addEvidence: (id: string, evidence: CollectedEvidence) => {
+        const task = byId.get(id);
+        if (!task) return "evidence_" + id;
+        task.status = "captured";
+        log.captured.push(evidence.key);
+        return "evidence_" + id;
+      },
+    };
+  }
+
+  function fakeCollector(handlers: {
+    mountedKeys: (inspectionIndex: number, route: string) => Set<string>;
+    batchResolver: (keys: string[]) => Array<{ key: string; evidence?: CollectedEvidence; rejected?: string }>;
+    log: FakeLog;
+    waitForKeyImpl?: (key: string) => Promise<RuntimeTargetSnapshot>;
+  }) {
+    let inspectionIndex = 0;
+    let currentRoute = "";
+    return {
+      setMockRules: () => undefined,
+      open: async (route: string) => { currentRoute = route; handlers.log.opens.push(route); },
+      inspectRuntimeSettled: async () => {
+        inspectionIndex += 1;
+        const mounted = handlers.mountedKeys(inspectionIndex, currentRoute);
+        return {
+          url: "http://127.0.0.1:5173/route",
+          collectorInstalled: true,
+          markedElements: 0,
+          pendingDescriptors: 0,
+          snapshots: [...mounted].map((key) => ({
+            key, evidenceGrade: "A" as const, connected: true,
+            rect: { x: 10, y: 10, width: 100, height: 24 },
+          })),
+        };
+      },
+      captureDeterministicBatch: async (keys: string[]) => {
+        handlers.log.batchCalls.push([...keys]);
+        return handlers.batchResolver(keys);
+      },
+      scrollForCapture: async (step: number) => { handlers.log.scrolls.push(step); },
+      waitForKey: async (key: string) => {
+        handlers.log.waitForKeyCalls.push(key);
+        if (handlers.waitForKeyImpl) return handlers.waitForKeyImpl(key);
+        return { key, evidenceGrade: "A" as const, evidenceProof: "compiler-text-sink", text: key, route: "http://127.0.0.1:5173/route", rect: { x: 10, y: 10, width: 100, height: 24 } };
+      },
+      capture: async (target: RuntimeTargetSnapshot): Promise<CollectedEvidence> => sampleEvidence(target.key),
+    };
+  }
+
+  async function runQueue(tasks: FakeTask[], collector: ReturnType<typeof fakeCollector>, log: FakeLog) {
+    const config = {
+      version: 1,
+      projectRoot: "D:/project",
+      stateDirectory: ".collect-i18n",
+      source: { include: [], exclude: [], translationCallees: [] },
+      locales: { source: "zh-cn", target: "en-us", roots: ["src"] },
+      app: { baseUrl: "http://127.0.0.1:5173", devCommand: "pnpm dev", healthPath: "/" },
+      browser: { headless: true, viewport: { width: 1440, height: 900 }, locale: "zh-CN", cookies: [], timeoutMs: 15_000 },
+      instrumentation: { enabled: true, devOnly: true },
+    } as ProjectConfig;
+    const service = new LocalService({ config, sessionId: "session_test", capability: "c".repeat(43) });
+    const internals = service as unknown as {
+      store: ReturnType<typeof fakeStore>;
+      collector: () => Promise<typeof collector>;
+      runDeterministicQueue: () => Promise<void>;
+    };
+    internals.store = fakeStore(tasks, log);
+    internals.collector = async () => collector;
+    await internals.runDeterministicQueue();
+    return { service, log };
+  }
+
+  it("visits routes by pending density instead of key-path alphabet (R1)", async () => {
+    const tasks = [
+      pendingTask("t_alpha_1", "alpha.first", "/alpha"),
+      pendingTask("t_alpha_2", "alpha.second", "/alpha"),
+      pendingTask("t_bill_1", "bill.key1", "/billing"),
+      pendingTask("t_bill_2", "bill.key2", "/billing"),
+      pendingTask("t_bill_3", "bill.key3", "/billing"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({
+      mountedKeys: (_index: number, route: string) =>
+        new Set(route === "/billing"
+          ? ["bill.key1", "bill.key2", "bill.key3"]
+          : ["alpha.first", "alpha.second"]),
+      batchResolver: (keys) => keys.map((key) => ({ key, evidence: sampleEvidence(key) })),
+      log,
+    });
+
+    await runQueue(tasks, collector, log);
+
+    // /billing (3 pending) is visited before /alpha (2 pending) despite
+    // being later in the alphabet, and both drain completely.
+    expect(log.opens).toEqual(["/billing", "/alpha"]);
+    expect(log.captured.sort()).toEqual(["alpha.first", "alpha.second", "bill.key1", "bill.key2", "bill.key3"].sort());
+    // The batch path replaces per-key waitForKey + capture entirely.
+    expect(log.waitForKeyCalls).toEqual([]);
+  });
+
+  it("defers tasks without a high-confidence route immediately (R1)", async () => {
+    const tasks = [
+      pendingTask("t_no_route_1", "orphan.first"),
+      pendingTask("t_no_route_2", "orphan.second"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({ mountedKeys: () => new Set(), batchResolver: () => [], log });
+
+    await runQueue(tasks, collector, log);
+
+    expect(log.opens).toEqual([]);
+    expect(log.needsAgent).toEqual([
+      { keyPath: "orphan.first", error: "No high-confidence route is available" },
+      { keyPath: "orphan.second", error: "No high-confidence route is available" },
+    ]);
+  });
+
+  it("captures mounted keys through the deterministic batch and defers B rejections (R2)", async () => {
+    const tasks = [
+      pendingTask("t_title", "form.title", "/form"),
+      pendingTask("t_valid", "form.valid", "/form"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({
+      mountedKeys: () => new Set(["form.title", "form.valid"]),
+      batchResolver: (keys) => keys.map((key) => key === "form.valid"
+        ? { key, rejected: "[deterministic_b_rejected] Deterministic B evidence for form.valid did not pass the isolated causal canary" }
+        : { key, evidence: sampleEvidence(key) }),
+      log,
+    });
+
+    await runQueue(tasks, collector, log);
+
+    expect(log.captured).toEqual(["form.title"]);
+    expect(log.needsAgent).toEqual([
+      expect.objectContaining({ keyPath: "form.valid", error: expect.stringContaining("deterministic_b_rejected") }),
+    ]);
+    // Neither key went through the per-key fallback; the batch decided both.
+    expect(log.waitForKeyCalls).toEqual([]);
+    expect(log.scrolls).toEqual([]);
+  });
+
+  it("scroll-captures below-fold/lazy keys and only then defers never-mounted keys (R3)", async () => {
+    const tasks = [
+      pendingTask("t_visible", "inv.title", "/inventory"),
+      pendingTask("t_lazy", "inv.rows.label", "/inventory"),
+      pendingTask("t_collapsed", "inv.collapsed", "/inventory"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({
+      // The lazy row only mounts after the first scroll step.
+      mountedKeys: (index) => {
+        const mounted = new Set(["inv.title"]);
+        if (index >= 2) mounted.add("inv.rows.label");
+        return mounted;
+      },
+      batchResolver: (keys) => keys.map((key) => ({ key, evidence: sampleEvidence(key) })),
+      log,
+    });
+
+    await runQueue(tasks, collector, log);
+
+    expect(log.opens).toEqual(["/inventory"]);
+    expect(log.scrolls).toEqual([1, 2, 3]);
+    // The lazy row was captured after scrolling, never handed to Agent.
+    expect(log.captured).toEqual(expect.arrayContaining(["inv.rows.label"]));
+    expect(log.needsAgent).toEqual([
+      expect.objectContaining({ keyPath: "inv.collapsed", error: expect.stringContaining("not mounted in the initial state") }),
+    ]);
+  });
+
+  it("opportunistically captures needs_agent keys mounted on the visited route", async () => {
+    const tasks = [
+      pendingTask("t_group", "orders.title", "/orders"),
+      pendingTask("t_opp", "orders.rows.label", "/orders", "needs_agent"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({
+      mountedKeys: () => new Set(["orders.title", "orders.rows.label"]),
+      batchResolver: (keys) => keys.map((key) => ({ key, evidence: sampleEvidence(key) })),
+      log,
+    });
+
+    await runQueue(tasks, collector, log);
+
+    expect(log.captured).toEqual(expect.arrayContaining(["orders.rows.label"]));
+    expect(log.captured).toContain("orders.title");
+  });
+
+  it("skips zero-yield routes and bounds the per-key fallback (R1+R3)", async () => {
+    const aKeys = Array.from({ length: 20 }, (_v, index) => `a.k${index}`);
+    const tasks = [
+      ...aKeys.map((key) => pendingTask("t_" + key.replaceAll(".", "_"), key, "/a")),
+      pendingTask("t_b", "b.k", "/b"),
+    ];
+    const log = makeLog();
+    const collector = fakeCollector({
+      mountedKeys: (_index: number, route: string) =>
+        new Set(route === "/a" ? aKeys : ["b.k"]),
+      // The batch never resolves /a keys (below-fold rows that need manual
+      // interaction) and the per-key fallback always times out for them.
+      batchResolver: (keys) => keys.filter((key) => key === "b.k")
+        .map((key) => ({ key, evidence: sampleEvidence(key) })),
+      waitForKeyImpl: async (key: string) => {
+        throw new Error("Timed out waiting for i18n key: " + key);
+      },
+      log,
+    });
+
+    await runQueue(tasks, collector, log);
+
+    // /a (20 keys) is densest and visited first but yields zero; the queue
+    // then drains /b before ever revisiting /a despite /a still having 8
+    // pending keys (the zero-yield skip). The final /a revisit retries once
+    // and stops when the sweep produces nothing.
+    expect(log.opens).toEqual(["/a", "/b", "/a"]);
+    expect(log.captured).toContain("b.k");
+    // Round 1 exhausts the 12-key fallback budget (8 keys deferred pending
+    // with the budget message); the revisit re-attempts those 8 group keys
+    // and 4 mounted opportunistic a.k keys inside a fresh budget of 12.
+    expect(log.waitForKeyCalls).toHaveLength(24);
+    expect(log.statusChanges.filter((change) => change.status === "pending" && change.error?.includes("fallback budget"))).toHaveLength(8);
+    // Every /a key eventually reached the Agent queue with the short-wait
+    // timeout (12 + 8 + 4 per-key attempts); the queue never loops forever.
+    expect(log.needsAgent.filter((item) => item.keyPath.startsWith("a.k") && item.error?.includes("Timed out waiting"))).toHaveLength(24);
+  });
+});

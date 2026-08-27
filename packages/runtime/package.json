@@ -1,6 +1,6 @@
 {
   "name": "@collect-i18n/runtime",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "private": true,
   "type": "module",
   "sideEffects": false,

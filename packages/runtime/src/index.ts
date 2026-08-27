@@ -95,7 +95,15 @@ function activeCausalProbe(occurrenceId: string): CausalProbe | undefined {
   try {
     const raw = window.sessionStorage.getItem(CAUSAL_PROBE_STORAGE_KEY)
     if (!raw) return undefined
-    const parsed = JSON.parse(raw) as Partial<CausalProbe>
+    const parsed = JSON.parse(raw) as Partial<CausalProbe> & { tokens?: Record<string, string> }
+    // Batched canary: a map of occurrenceId -> token lets one isolated probe
+    // page verify many keys on the same route with a single navigation.
+    if (parsed.tokens && typeof parsed.tokens === 'object') {
+      const token = parsed.tokens[occurrenceId]
+      if (typeof token !== 'string' || token.length < 8) return undefined
+      return { occurrenceId, token }
+    }
+    // Legacy single-probe shape, kept for backward compatibility.
     if (
       parsed.occurrenceId !== occurrenceId ||
       typeof parsed.token !== 'string' ||

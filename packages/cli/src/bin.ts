@@ -266,7 +266,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.3.14")
+  .version("0.3.15")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -405,18 +405,24 @@ program.command("run")
   .description("为 Skill 初始化、启动、等待静态采集并生成可立即交付的进度 Excel")
   .option("--output <file>", "Excel 输出路径")
   .option("--deadline-minutes <minutes>", "完整工作流截止时间", "120")
-  .option("--deterministic-timeout-minutes <minutes>", "等待静态队列的最长时间", "15")
-  .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes: string }, command) => {
+  .option("--deterministic-timeout-minutes <minutes>", "等待静态队列的最长时间(默认 max(15, ceil(词条数/60)) 自适应)")
+  .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes?: string }, command) => {
     const workflowStartedAt = Date.now();
     const projectRoot = projectOf(command);
     const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
     const deadlineAt = new Date(workflowStartedAt + deadlineMinutes * 60_000).toISOString();
-    const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || 15);
     const jsonMode = Boolean((command.optsWithGlobals() as GlobalOptions).json);
     if (!jsonMode) process.stderr.write("[collect-i18n] 正在检查项目并启动采集服务…\n");
     const workflow = await prepareWorkflow(projectRoot);
     const deadlineStore = await StateStore.open(projectRoot);
     deadlineStore.setDeadline(workflow.descriptor.sessionId, deadlineAt);
+    // R6: adaptive deterministic window. At the measured 34-87 keys/min a
+    // fixed 15min default under-budgets 2000+ key projects (research t1),
+    // leaving hundreds of pending tasks every run.
+    const sessionStatus = deadlineStore.status(workflow.descriptor.sessionId);
+    const totalKeys = Number(((sessionStatus.counts as Record<string, number> | undefined)?.total) ?? 0);
+    const adaptiveTimeout = Math.max(15, Math.ceil(totalKeys / 60));
+    const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || adaptiveTimeout);
     deadlineStore.close();
     if (!jsonMode) process.stderr.write("[collect-i18n] 自动处理已开始。\n");
     const status = await waitForDeterministicQueue(
@@ -447,11 +453,16 @@ program.command("run")
       ? "failed"
       : String(status.status) !== "running" && unresolved > 0
         ? "restart"
-        : counts.needs_agent > 0
-          ? "agent"
-          : counts.needs_manual > 0
-            ? "manual"
-            : "complete";
+        // R6: deterministic work still pending inside a live session means the
+        // window ended early; the Skill continues polling the same session
+        // instead of mistaking it for Agent/manual work.
+        : counts.pending > 0
+          ? "deterministic_continue"
+          : counts.needs_agent > 0
+            ? "agent"
+            : counts.needs_manual > 0
+              ? "manual"
+              : "complete";
     output(command, "run", {
       sessionId: workflow.descriptor.sessionId,
       studioUrl: workflow.descriptor.studioUrl,

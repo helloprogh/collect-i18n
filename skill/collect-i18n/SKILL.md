@@ -45,6 +45,8 @@ The returned workbook is a valid progress delivery. Missing runtime evidence lea
 
 If `nextAction` is `restart`, or the returned session `status` is not `running` while unresolved tasks remain, run `start --session <same-sessionId> --background`. Never recover with an unqualified `start`: that creates a new session, invalidates task IDs and plans, and can associate screenshots with the wrong run. Poll `status` until `pending` and `running` are both zero, then run `export` again to refresh the progress workbook before entering the Agent queue.
 
+If `nextAction` is `deterministic_continue`, the deterministic window ended early but the session is still running: keep polling `status` for the same session until `pending` and `running` are both zero, then run `export` again to refresh the workbook. The default `--deterministic-timeout-minutes` adapts to the key count as `max(15, ceil(total/60))`.
+
 If `nextAction` is `failed`, stop the workflow and report the collector startup or infrastructure error. Do not reinterpret an unavailable browser as 100% Agent work. Do not treat the session-level `status: stopped` or `status: interrupted` as an automatic-phase result; `automatic.phase` is the automatic-phase field.
 
 Present progress using only returned fields, for example:
@@ -91,7 +93,7 @@ Repeat `manual open` only after the previous target is captured or the user asks
 
 ### 4. Export or import
 
-For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm the returned row and image counts. The workbook must contain only `中文`, `英文`, `截图`, `Key Path`, in that order. Keys the finalize step classified as deprecated (no source occurrence) are grouped at the end of the sheet with 词条废弃 in the 截图 column.
+For export, run `export --session <id> --output <absolute-xlsx-path>`. Confirm the returned row and image counts. The workbook must contain only `中文`, `英文`, `截图`, `Key Path`, in that order. Keys the finalize step classified as deprecated (no source occurrence) are grouped at the end of the sheet with 词条废弃 in the 截图 column. Non-visual keys (every occurrence is an `aria-*` or native `title` property) keep their alphabetical position with 非可视 in the 截图 column.
 
 For a translated return, run `import --file <absolute-xlsx-path> --session <id> --dry-run` first. Report duplicate, unknown, missing, or modified-Chinese issues from the JSON response. Run the same command with `--apply` only when validation has no fatal issues and the user's request authorizes importing the return.
 

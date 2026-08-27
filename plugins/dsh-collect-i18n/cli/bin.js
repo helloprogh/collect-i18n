@@ -152652,9 +152652,9 @@ async function exportTranslationWorkbook(rows, outputPath) {
     fgColor: { argb: "FF2563EB" }
   };
   header.alignment = { vertical: "middle", horizontal: "left" };
-  const orderedRows = [...rows].sort(
-    (a, b) => a.keyPath.localeCompare(b.keyPath, "en")
-  );
+  const normalRows = rows.filter((row) => !row.deprecated).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const deprecatedRows = rows.filter((row) => row.deprecated).sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
+  const orderedRows = [...normalRows, ...deprecatedRows];
   let imageCount = 0;
   for (const source of orderedRows) {
     const row = worksheet.addRow([
@@ -152694,6 +152694,16 @@ async function exportTranslationWorkbook(rows, outputPath) {
       };
       worksheet.addImage(imageId, imageRange);
       imageCount += 1;
+    } else if (source.deprecated) {
+      const cell = row.getCell(3);
+      cell.value = "\u8BCD\u6761\u5E9F\u5F03";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.nonVisual) {
+      const cell = row.getCell(3);
+      cell.value = "\u975E\u53EF\u89C6";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }
   }
   applyCellBorders(worksheet, 1, worksheet.actualRowCount, 4);
@@ -153066,6 +153076,14 @@ function resolveProjectUrl(path6, options) {
     );
   }
   return target.toString();
+}
+function sameRouteUrl(currentUrl, planRoute, options) {
+  try {
+    if (!currentUrl || currentUrl === "about:blank") return false;
+    return new URL(resolveProjectUrl(planRoute, options)).href === new URL(currentUrl).href;
+  } catch {
+    return false;
+  }
 }
 function basePathFromViteBase(viteBase) {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(viteBase) || viteBase.startsWith("//")) {
@@ -153545,6 +153563,66 @@ var BrowserCollector = class {
       await originalPage.bringToFront().catch(() => void 0);
     }
   }
+  /**
+   * Isolated causal canary for many B-grade targets on the same route at
+   * once: a single probe page navigation carries one token per occurrence, so
+   * the per-key newPage+replay cost collapses into one replay. Per-key
+   * semantics are unchanged from verifyCausalBinding: a key is verified only
+   * when its probed occurrence id matches the original target and its
+   * rendered text equals its token.
+   */
+  async verifyCausalBindings(targets) {
+    const verified = /* @__PURE__ */ new Map();
+    for (const target of targets) verified.set(target.key, false);
+    const probeable = targets.filter(
+      (target) => target.evidenceGrade === "B" && Boolean(target.occurrenceId) && isCausalProbeSafe(void 0) && Boolean(this.context)
+    );
+    if (probeable.length === 0 || !this.context) return verified;
+    const originalPage = this.activePage;
+    const probePage = await this.context.newPage();
+    await probePage.route("**/*", (route) => this.routeRequest(route));
+    const tokens = /* @__PURE__ */ new Map();
+    for (const target of probeable) {
+      const occurrenceId2 = target.occurrenceId;
+      if (!tokens.has(occurrenceId2)) {
+        tokens.set(occurrenceId2, "__COLLECT_CANARY_" + Date.now() + "_" + Math.random().toString(36).slice(2) + "__");
+      }
+    }
+    const origin = new URL(this.options.baseUrl).origin;
+    await probePage.addInitScript(
+      ({ expectedOrigin, storageKey, entries }) => {
+        if (location.origin === expectedOrigin) {
+          sessionStorage.setItem(storageKey, JSON.stringify({ tokens: Object.fromEntries(entries) }));
+        }
+      },
+      {
+        expectedOrigin: origin,
+        storageKey: CAUSAL_PROBE_STORAGE_KEY,
+        entries: [...tokens.entries()]
+      }
+    );
+    this.page = probePage;
+    try {
+      this.setMockRules([]);
+      await this.replaySafeProbePlan(void 0, probeable[0].route);
+      const probed = await this.captureVisibleTargets(probeable.map((target) => target.key), "B");
+      for (const probe of probed) {
+        const target = probeable.find((candidate) => candidate.key === probe.key);
+        if (!target) continue;
+        const token = target.occurrenceId ? tokens.get(target.occurrenceId) : void 0;
+        if (token && probe.occurrenceId === target.occurrenceId && probe.text === token) {
+          verified.set(probe.key, true);
+        }
+      }
+      return verified;
+    } catch {
+      return verified;
+    } finally {
+      this.page = originalPage;
+      await probePage.close().catch(() => void 0);
+      await originalPage.bringToFront().catch(() => void 0);
+    }
+  }
   async executePlan(rawPlan, source = "agent", onCheckpoint) {
     const plan = parseTriggerPlan(rawPlan);
     const executingPage = this.activePage;
@@ -153552,7 +153630,9 @@ var BrowserCollector = class {
     const deadlineMs = this.options.planTimeoutMs ?? 9e4;
     const execution = (async () => {
       this.setMockRules(plan.mocks);
-      if (plan.route) await this.open(plan.route);
+      if (plan.route && !sameRouteUrl(this.activePage.url(), plan.route, this.options)) {
+        await this.open(plan.route);
+      }
       for (const step of plan.steps) {
         this.assertSameOrigin();
         switch (step.type) {
@@ -154141,6 +154221,86 @@ var BrowserCollector = class {
       }
     }
     return results;
+  }
+  /**
+   * Deterministic batch capture for the route queue: resolves a set of
+   * already-mounted keys in one page evaluation, verifies B-grade Vue
+   * evidence through a single batched causal canary probe page, and
+   * screenshots each accepted key with one marker pass. This replaces the
+   * per-key double waitForKey + 6-sample stability loop: the caller already
+   * confirmed mounting via a settled inspection, so stable keys skip every
+   * redundant re-verification. Keys that cannot be resolved or verified are
+   * reported per key so the caller keeps the rest of the batch.
+   */
+  async captureDeterministicBatch(keys) {
+    const targetKeys = [...new Set(keys)].slice(0, 250);
+    if (targetKeys.length === 0) return [];
+    await bounded(
+      this.activePage.evaluate(() => {
+        const runtimeWindow = window;
+        const installed = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
+        installed?.rescan?.(document);
+      }),
+      2e3,
+      "Page became unresponsive while rescanning for batch capture"
+    ).catch(() => void 0);
+    const initial = await this.captureVisibleTargets(targetKeys, "B");
+    if (initial.length === 0) return [];
+    await this.waitForLoadingCleared();
+    await this.activePage.waitForTimeout(100);
+    const settledByKey = new Map(
+      (await this.captureVisibleTargets(initial.map((target) => target.key), "B")).map((target) => [target.key, target])
+    );
+    const bTargets = [...settledByKey.values()].filter((target) => target.evidenceGrade === "B");
+    const verified = bTargets.length > 0 ? await this.verifyCausalBindings(bTargets) : /* @__PURE__ */ new Map();
+    const results = [];
+    for (const target of initial) {
+      const latest = settledByKey.get(target.key) ?? target;
+      if (latest.evidenceGrade === "B" && verified.get(latest.key) !== true) {
+        results.push({
+          key: latest.key,
+          rejected: "[deterministic_b_rejected] Deterministic B evidence for " + latest.key + " did not pass the isolated causal canary"
+        });
+        continue;
+      }
+      try {
+        const evidence = await this.screenshotEvidence(
+          latest,
+          "deterministic",
+          void 0,
+          latest.evidenceGrade === "B"
+        );
+        results.push({ key: latest.key, evidence });
+      } catch (error51) {
+        results.push({
+          key: latest.key,
+          rejected: error51 instanceof Error ? error51.message : String(error51)
+        });
+      }
+    }
+    return results;
+  }
+  /**
+   * Deterministic scroll step for a visited route (R3): intermediate steps
+   * push the viewport down by about 80% of its height and the final step
+   * jumps to the bottom, bringing lazily rendered and virtualized rows into
+   * view so the follow-up inspection can batch-capture them. Bounded by
+   * design; the caller decides the step count and re-inspects after each.
+   */
+  async scrollForCapture(step, totalSteps) {
+    this.assertSameOrigin();
+    await bounded(
+      this.activePage.evaluate(({ toBottom }) => {
+        if (toBottom) {
+          window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
+        } else {
+          window.scrollBy(0, Math.max(1, Math.round(innerHeight * 0.8)));
+        }
+      }, { toBottom: step >= totalSteps }),
+      2e3,
+      "Page became unresponsive while scrolling for capture"
+    );
+    await this.activePage.waitForTimeout(100);
   }
   async screenshotEvidence(resolvedTarget, source, plan, causalVerified = false) {
     const page = this.activePage;
@@ -156265,6 +156425,7 @@ import { mkdir as mkdir5 } from "fs/promises";
 import { join as join3, resolve as resolve6 } from "path";
 import { DatabaseSync } from "node:sqlite";
 var MAX_AGENT_ATTEMPTS = 2;
+var MAX_AGENT_ANCHORS_PER_ROUTE = 5;
 function evidenceGradeRank(grade) {
   return grade === "A" ? 3 : grade === "B" ? 2 : grade === "C" ? 1 : 0;
 }
@@ -156452,6 +156613,7 @@ var StateStore = class _StateStore {
         attempts INTEGER NOT NULL DEFAULT 0,
         plan_json TEXT,
         last_error TEXT,
+        skip_reason TEXT,
         updated_at TEXT NOT NULL,
         UNIQUE(session_id, key_path),
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -156489,6 +156651,7 @@ var StateStore = class _StateStore {
         route TEXT NOT NULL,
         last_new_captured INTEGER NOT NULL DEFAULT 0,
         consecutive_low INTEGER NOT NULL DEFAULT 0,
+        plans INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (session_id, route),
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -156517,6 +156680,14 @@ var StateStore = class _StateStore {
     }
     if (!evidenceColumns.some((column) => column.name === "evidence_grade")) {
       this.db.exec("ALTER TABLE evidence ADD COLUMN evidence_grade TEXT");
+    }
+    const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all();
+    if (!taskColumns.some((column) => column.name === "skip_reason")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN skip_reason TEXT");
+    }
+    const routeStatsColumns = this.db.prepare("PRAGMA table_info(agent_route_stats)").all();
+    if (!routeStatsColumns.some((column) => column.name === "plans")) {
+      this.db.exec("ALTER TABLE agent_route_stats ADD COLUMN plans INTEGER NOT NULL DEFAULT 0");
     }
     const legacyEvidence = this.db.prepare(
       "SELECT id,data_json FROM evidence WHERE screenshot_sha256 IS NULL OR evidence_grade IS NULL"
@@ -156605,7 +156776,7 @@ var StateStore = class _StateStore {
         "SELECT has_unresolved_dynamic FROM projects WHERE id=?"
       ).get(projectId);
       const hasUnresolvedDynamic = Number(project?.has_unresolved_dynamic ?? 0) === 1;
-      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,last_error,updated_at) VALUES(?,?,?,?,?,?,?)");
+      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,last_error,skip_reason,updated_at) VALUES(?,?,?,?,?,?,?,?)");
       for (const key of keys) {
         const parsed = occurrencesByKey.get(key.key_path) ?? [];
         const noSource = parsed.length === 0;
@@ -156613,7 +156784,7 @@ var StateStore = class _StateStore {
         if (noSource && hasUnresolvedDynamic) {
           const taskId = stableId("task", `${id}:${key.key_path}`);
           const message = "\u5B58\u5728\u65E0\u6CD5\u9759\u6001\u89E3\u6790\u7684\u52A8\u6001 i18n \u8C03\u7528\uFF0C\u9700\u8FD0\u884C\u65F6\u6216\u4EBA\u5DE5\u786E\u8BA4";
-          insertTask.run(taskId, id, key.key_path, "needs_manual", "manual", message, now);
+          insertTask.run(taskId, id, key.key_path, "needs_manual", "manual", message, null, now);
           this.addEvent(id, "task.needs_manual", {
             taskId,
             keyPath: key.key_path,
@@ -156626,7 +156797,7 @@ var StateStore = class _StateStore {
         if (noSource || nonVisualOnly) {
           const taskId = stableId("task", `${id}:${key.key_path}`);
           const reason = noSource ? "no_source_occurrence" : "non_visual_source_only";
-          insertTask.run(taskId, id, key.key_path, "skipped", "agent", null, now);
+          insertTask.run(taskId, id, key.key_path, "skipped", "agent", null, reason, now);
           this.addEvent(id, "task.skipped", { taskId, keyPath: key.key_path, stage: "agent", origin: "system", reason });
           continue;
         }
@@ -156635,7 +156806,7 @@ var StateStore = class _StateStore {
             (hint) => typeof hint === "object" && hint !== null && "confidence" in hint && Number(hint.confidence) >= 0.8
           ))
         );
-        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", null, now);
+        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", null, null, now);
       }
       this.addEvent(id, "session.created", { projectId, keyCount: keys.length, origin: "system" });
     });
@@ -156801,13 +156972,39 @@ var StateStore = class _StateStore {
       "INSERT INTO agent_route_stats(session_id,route,last_new_captured,consecutive_low,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(session_id,route) DO UPDATE SET last_new_captured=excluded.last_new_captured, consecutive_low=excluded.consecutive_low, updated_at=excluded.updated_at"
     ).run(sessionId, route, newCaptured, consecutiveLow, (/* @__PURE__ */ new Date()).toISOString());
   }
+  routePlanCounts(sessionId) {
+    const rows = this.db.prepare(
+      "SELECT route,plans FROM agent_route_stats WHERE session_id=? AND plans>0"
+    ).all(sessionId);
+    return new Map(rows.map((row) => [row.route, Number(row.plans)]));
+  }
+  /**
+   * Count one submitted Agent plan against the route anchor budget
+   * (MAX_AGENT_ANCHORS_PER_ROUTE plans per session).
+   */
+  recordRoutePlan(sessionId, route) {
+    this.db.prepare(
+      "INSERT INTO agent_route_stats(session_id,route,last_new_captured,consecutive_low,plans,updated_at) VALUES(?,?,0,0,1,?) ON CONFLICT(session_id,route) DO UPDATE SET plans=plans+1, updated_at=excluded.updated_at"
+    ).run(sessionId, route, (/* @__PURE__ */ new Date()).toISOString());
+  }
   saturatedRoutes(sessionId, threshold = 2) {
     const rows = this.db.prepare(
       "SELECT route FROM agent_route_stats WHERE session_id=? AND consecutive_low>=?"
     ).all(sessionId, threshold);
     return rows.map((row) => row.route);
   }
-  nextAgentTask(sessionId, excludedRoutes = []) {
+  /**
+   * Next Agent anchor with saturation and budget hardening (R4):
+   * - Saturated routes (consecutive low-yield runs) are hard-excluded; when
+   *   every candidate route is saturated the queue reports no anchor instead
+   *   of grinding the same low-yield route, so consecutive_low can never
+   *   grow unbounded from repeated anchoring.
+   * - Each route gets at most MAX_AGENT_ANCHORS_PER_ROUTE plans per session;
+   *   over-budget routes stop providing anchors. The budget relaxes only
+   *   when every remaining non-saturated route is over budget, so a healthy
+   *   route is never left idling.
+   */
+  nextAgentTask(sessionId, excludedRoutes = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE) {
     const excluded = new Set(excludedRoutes);
     const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2e3).filter((task) => task.occurrences.length > 0);
     const staticCandidates = withOccurrences.filter((task) => task.occurrences.some((occurrence) => !isDynamicOccurrence(occurrence)));
@@ -156820,13 +157017,30 @@ var StateStore = class _StateStore {
       routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
       routeActionScores.set(route, (routeActionScores.get(route) ?? 0) + agentActionScore(task));
     }
+    const candidateRoutes = [...routeCounts.keys()];
+    const saturated = new Set(this.saturatedRoutes(sessionId));
+    if (candidateRoutes.length > 0 && candidateRoutes.every((route) => saturated.has(route))) {
+      return void 0;
+    }
+    const routeBudget = this.routePlanCounts(sessionId);
+    const unsaturated = candidateRoutes.filter((route) => !saturated.has(route));
+    const unsaturatedUnderBudget = unsaturated.filter(
+      (route) => (routeBudget.get(route) ?? 0) < maxAnchorsPerRoute
+    );
+    const relaxBudget = unsaturated.length > 0 && unsaturatedUnderBudget.length === 0;
+    const allowRoute = (route) => {
+      if (!route) return true;
+      if (saturated.has(route)) return false;
+      const plans = routeBudget.get(route) ?? 0;
+      return plans < maxAnchorsPerRoute || relaxBudget;
+    };
     return tasks.map((task, index2) => {
       const route = preferredAgentRoute(task);
       const routeFanout = route ? routeCounts.get(route) ?? 1 : 0;
       const routeActionScore = route ? routeActionScores.get(route) ?? 0 : 0;
       const priority = (route && excluded.has(route) ? -1e6 : 0) + routeFanout * 1e4 + Math.min(routeActionScore, 6e4) + agentTaskPriority(task);
-      return { task, index: index2, priority };
-    }).sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
+      return { task, index: index2, priority, route };
+    }).filter((item) => allowRoute(item.route)).sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
   }
   agentRouteBatch(sessionId, anchor, limit = 12) {
     const route = preferredAgentRoute(anchor);
@@ -156904,6 +157118,7 @@ var StateStore = class _StateStore {
       actionHints,
       attempts: Number(row.attempts),
       lastError: typeof row.last_error === "string" ? row.last_error : void 0,
+      skipReason: typeof row.skip_reason === "string" ? row.skip_reason : null,
       plan: parseJson(row.plan_json, void 0)
     };
   }
@@ -156939,7 +157154,11 @@ var StateStore = class _StateStore {
       throw new Error(`\u4EFB\u52A1\u5DF2\u8FBE\u5230 Agent \u6700\u5927\u5C1D\u8BD5\u6B21\u6570 ${MAX_AGENT_ATTEMPTS}\uFF1A${task2.keyPath}`);
     }
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
+    if (task) {
+      this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
+      const route = preferredAgentRoute(task);
+      if (route) this.recordRoutePlan(task.sessionId, route);
+    }
   }
   savePlan(taskId, plan) {
     const result = this.db.prepare("UPDATE tasks SET plan_json=?,updated_at=? WHERE id=? AND status='needs_agent' AND attempts<?").run(JSON.stringify(plan), (/* @__PURE__ */ new Date()).toISOString(), taskId, MAX_AGENT_ATTEMPTS);
@@ -156979,7 +157198,7 @@ var StateStore = class _StateStore {
     const hasUnresolvedDynamic = Number(this.session(sessionId)?.has_unresolved_dynamic ?? 0) === 1;
     this.transaction(() => {
       const update = this.db.prepare(
-        "UPDATE tasks SET status=?,stage=?,last_error=NULL,updated_at=? WHERE id=? AND status='needs_agent'"
+        "UPDATE tasks SET status=?,stage=?,last_error=NULL,skip_reason=?,updated_at=? WHERE id=? AND status='needs_agent'"
       );
       for (const task of unresolved) {
         const noSource = task.occurrences.length === 0;
@@ -156990,6 +157209,7 @@ var StateStore = class _StateStore {
         const changed = update.run(
           nextStatus,
           nextStage,
+          nextStatus === "skipped" ? reason : null,
           (/* @__PURE__ */ new Date()).toISOString(),
           task.id
         );
@@ -157072,7 +157292,7 @@ var StateStore = class _StateStore {
   }
   localeCatalog(sessionId, englishRoot) {
     const rows = this.db.prepare(`
-      SELECT k.*, (
+      SELECT k.*, t.status AS task_status, t.skip_reason, (
         SELECT e.screenshot_path
         FROM evidence e
         WHERE e.session_id=k.session_id AND e.task_id=t.id AND e.key_path=k.key_path
@@ -157096,6 +157316,8 @@ var StateStore = class _StateStore {
         keyPath: row.key_path,
         chinese: row.chinese,
         english: row.english,
+        deprecated: row.task_status === "skipped" && row.skip_reason === "no_source_occurrence",
+        nonVisual: row.task_status === "skipped" && row.skip_reason === "non_visual_source_only",
         relativeFile: row.relative_file,
         targetFile: join3(resolve6(englishRoot), row.relative_file),
         jsonPath: parseJson(row.json_path, row.key_path.split(".")),
@@ -157188,6 +157410,7 @@ function resolveRuntimeAssetPath() {
 }
 var CAPABILITY_COOKIE_PREFIX = "collect_i18n_cap_";
 var MAX_PAGE_SIZE = 500;
+var DETERMINISTIC_FALLBACK_BUDGET = 12;
 var taskStatuses = /* @__PURE__ */ new Set(["pending", "running", "captured", "needs_agent", "needs_manual", "failed", "skipped"]);
 function describeFailure(error51) {
   const code = collectorErrorCode(error51);
@@ -157559,56 +157782,45 @@ var LocalService = class {
         console.error("[collect-i18n] collector startup failed", error51);
         return;
       }
+      const zeroYieldRoutes = /* @__PURE__ */ new Set();
+      let sweepCaptured = 0;
       for (; ; ) {
         if (this.manualActive) break;
-        const seed = store.nextTask(sessionId, ["pending"]);
-        if (!seed) break;
-        const route = this.reliableRoute(seed);
-        if (!route) {
-          store.markTask(seed.id, "needs_agent", "No high-confidence route is available");
-          continue;
+        const pending = store.listTasks(sessionId, ["pending"]);
+        if (pending.length === 0) break;
+        const noRoute = [];
+        const groups = /* @__PURE__ */ new Map();
+        for (const task of pending) {
+          const route2 = this.reliableRoute(task);
+          if (!route2) {
+            noRoute.push(task);
+            continue;
+          }
+          const list = groups.get(route2) ?? [];
+          list.push(task);
+          groups.set(route2, list);
         }
-        const group = store.listTasks(sessionId, ["pending"]).filter((task) => this.reliableRoute(task) === route);
+        for (const task of noRoute) {
+          store.markTask(task.id, "needs_agent", "No high-confidence route is available");
+        }
+        if (groups.size === 0) break;
+        const entries = [...groups.entries()].sort((left, right) => right[1].length - left[1].length || left[0].localeCompare(right[0]));
+        const fresh = entries.filter(([candidate]) => !zeroYieldRoutes.has(candidate));
+        let route;
+        let group;
+        if (fresh.length > 0) {
+          [route, group] = fresh[0];
+        } else {
+          if (sweepCaptured === 0) break;
+          sweepCaptured = 0;
+          zeroYieldRoutes.clear();
+          [route, group] = entries[0];
+        }
         try {
           await this.exclusive(() => this.withBrowser(sessionId, async (collector) => {
-            collector.setMockRules([]);
-            await collector.open(route);
-            const inspection = await collector.inspectRuntimeSettled(2e3);
-            const gradeRank = (grade) => grade === "A" ? 3 : grade === "B" ? 2 : 1;
-            const mountedKeys = new Set(
-              inspection.snapshots.filter(
-                (snapshot) => snapshot.key && gradeRank(snapshot.evidenceGrade) >= 2 && snapshot.connected !== false && Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0)
-              ).map((snapshot) => snapshot.key)
-            );
-            const groupIds = new Set(group.map((task) => task.id));
-            const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
-              (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath)
-            );
-            for (const task of [...group, ...opportunistic]) {
-              if (this.manualActive) break;
-              if (!mountedKeys.has(task.keyPath)) {
-                if (groupIds.has(task.id)) {
-                  store.markTask(
-                    task.id,
-                    "needs_agent",
-                    `Key is not mounted in the initial state of route ${route}`
-                  );
-                }
-                continue;
-              }
-              store.markTask(task.id, "running");
-              try {
-                const target = await collector.waitForKey(task.keyPath, 2500, "B");
-                const evidence = await collector.capture(target, "deterministic");
-                store.addEvidence(task.id, evidence);
-              } catch (error51) {
-                if (this.stopping) {
-                  store.markTask(task.id, "pending", "Deterministic capture was interrupted");
-                  break;
-                }
-                store.markTask(task.id, "needs_agent", describeFailure(error51));
-              }
-            }
+            const newlyCaptured = await this.captureDeterministicRoute(sessionId, collector, route, group);
+            sweepCaptured += newlyCaptured;
+            if (newlyCaptured === 0) zeroYieldRoutes.add(route);
           }));
         } catch (error51) {
           const message = error51 instanceof Error ? error51.message : String(error51);
@@ -157629,6 +157841,130 @@ var LocalService = class {
     } finally {
       this.deterministicRunning = false;
     }
+  }
+  /**
+   * Deterministic capture of one route visit: open once, inspect the settled
+   * runtime, batch-resolve and screenshot every mounted group/opportunistic
+   * key (R2), then run a bounded scroll pass that brings lazily rendered and
+   * virtualized content into view for another batch (R3). Only keys neither
+   * batch path resolved fall back to the per-key waitForKey + capture path.
+   */
+  async captureDeterministicRoute(sessionId, collector, route, group) {
+    const store = this.store;
+    let newlyCaptured = 0;
+    collector.setMockRules([]);
+    await collector.open(route);
+    const mountedKeys = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(2e3)));
+    const groupIds = new Set(group.map((task) => task.id));
+    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
+      (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath)
+    );
+    const candidates = [...group, ...opportunistic];
+    const handledKeys = /* @__PURE__ */ new Set();
+    const mountedCandidates = candidates.filter((task) => mountedKeys.has(task.keyPath));
+    const batchResults = mountedCandidates.length > 0 ? await collector.captureDeterministicBatch(mountedCandidates.map((task) => task.keyPath)) : [];
+    const batchByKey = new Map(batchResults.map((result) => [result.key, result]));
+    for (const task of candidates) {
+      if (this.manualActive) break;
+      const result = batchByKey.get(task.keyPath);
+      if (result?.evidence) {
+        handledKeys.add(task.keyPath);
+        try {
+          store.addEvidence(task.id, result.evidence);
+          newlyCaptured += 1;
+        } catch (error51) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51));
+        }
+        continue;
+      }
+      if (result?.rejected) {
+        handledKeys.add(task.keyPath);
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        continue;
+      }
+    }
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureScrolledVisible(sessionId, collector, group, handledKeys);
+    }
+    let fallbackRemaining = DETERMINISTIC_FALLBACK_BUDGET;
+    for (const task of candidates) {
+      if (this.manualActive) break;
+      if (handledKeys.has(task.keyPath)) continue;
+      if (!mountedKeys.has(task.keyPath)) {
+        if (groupIds.has(task.id)) {
+          store.markTask(task.id, "needs_agent", `Key is not mounted in the initial state of route ${route}`);
+        }
+        continue;
+      }
+      if (fallbackRemaining <= 0) {
+        if (groupIds.has(task.id)) {
+          store.markTask(task.id, "pending", `Route ${route} exceeded the per-visit fallback budget ${DETERMINISTIC_FALLBACK_BUDGET}`);
+        }
+        continue;
+      }
+      fallbackRemaining -= 1;
+      store.markTask(task.id, "running");
+      try {
+        const target = await collector.waitForKey(task.keyPath, 1500, "B");
+        const evidence = await collector.capture(target, "deterministic");
+        store.addEvidence(task.id, evidence);
+        newlyCaptured += 1;
+      } catch (error51) {
+        if (this.stopping) {
+          store.markTask(task.id, "pending", "Deterministic capture was interrupted");
+          break;
+        }
+        store.markTask(task.id, "needs_agent", describeFailure(error51));
+      }
+    }
+    return newlyCaptured;
+  }
+  inspectionMountedKeys(inspection) {
+    const gradeRank = (grade) => grade === "A" ? 3 : grade === "B" ? 2 : 1;
+    return new Set(
+      inspection.snapshots.filter(
+        (snapshot) => snapshot.key && gradeRank(snapshot.evidenceGrade) >= 2 && snapshot.connected !== false && Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0)
+      ).map((snapshot) => snapshot.key)
+    );
+  }
+  /**
+   * R3: bounded viewport-stepping scroll pass for a visited route. Each step
+   * scrolls down, re-inspects the settled runtime and batch-captures newly
+   * visible pending/needs_agent keys, so virtualized and lazily rendered
+   * rows that only mount below the fold get deterministic evidence instead
+   * of sinking into the Agent queue.
+   */
+  async captureScrolledVisible(sessionId, collector, group, handledKeys) {
+    const store = this.store;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxSteps = 3;
+    let newlyCaptured = 0;
+    for (let step = 1; step <= maxSteps; step += 1) {
+      if (this.manualActive) return newlyCaptured;
+      await collector.scrollForCapture(step, maxSteps);
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      if (notYetHandled.length === 0) continue;
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try {
+            store.addEvidence(task.id, result.evidence);
+            newlyCaptured += 1;
+          } catch (error51) {
+            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51));
+          }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
   }
   async executeAgent(taskId, planValue) {
     const store = this.store;
@@ -158231,7 +158567,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.14").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.3.15").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);
@@ -158359,17 +158695,20 @@ program2.command("start").description("\u542F\u52A8\u540E\u53F0\u91C7\u96C6\u670
     throw error51;
   }
 });
-program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F\u52A8\u3001\u7B49\u5F85\u9759\u6001\u91C7\u96C6\u5E76\u751F\u6210\u53EF\u7ACB\u5373\u4EA4\u4ED8\u7684\u8FDB\u5EA6 Excel").option("--output <file>", "Excel \u8F93\u51FA\u8DEF\u5F84").option("--deadline-minutes <minutes>", "\u5B8C\u6574\u5DE5\u4F5C\u6D41\u622A\u6B62\u65F6\u95F4", "120").option("--deterministic-timeout-minutes <minutes>", "\u7B49\u5F85\u9759\u6001\u961F\u5217\u7684\u6700\u957F\u65F6\u95F4", "15").action(async (options, command) => {
+program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F\u52A8\u3001\u7B49\u5F85\u9759\u6001\u91C7\u96C6\u5E76\u751F\u6210\u53EF\u7ACB\u5373\u4EA4\u4ED8\u7684\u8FDB\u5EA6 Excel").option("--output <file>", "Excel \u8F93\u51FA\u8DEF\u5F84").option("--deadline-minutes <minutes>", "\u5B8C\u6574\u5DE5\u4F5C\u6D41\u622A\u6B62\u65F6\u95F4", "120").option("--deterministic-timeout-minutes <minutes>", "\u7B49\u5F85\u9759\u6001\u961F\u5217\u7684\u6700\u957F\u65F6\u95F4(\u9ED8\u8BA4 max(15, ceil(\u8BCD\u6761\u6570/60)) \u81EA\u9002\u5E94)").action(async (options, command) => {
   const workflowStartedAt = Date.now();
   const projectRoot = projectOf(command);
   const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
   const deadlineAt = new Date(workflowStartedAt + deadlineMinutes * 6e4).toISOString();
-  const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || 15);
   const jsonMode = Boolean(command.optsWithGlobals().json);
   if (!jsonMode) process.stderr.write("[collect-i18n] \u6B63\u5728\u68C0\u67E5\u9879\u76EE\u5E76\u542F\u52A8\u91C7\u96C6\u670D\u52A1\u2026\n");
   const workflow = await prepareWorkflow(projectRoot);
   const deadlineStore = await StateStore.open(projectRoot);
   deadlineStore.setDeadline(workflow.descriptor.sessionId, deadlineAt);
+  const sessionStatus = deadlineStore.status(workflow.descriptor.sessionId);
+  const totalKeys = Number(sessionStatus.counts?.total ?? 0);
+  const adaptiveTimeout = Math.max(15, Math.ceil(totalKeys / 60));
+  const deterministicTimeoutMinutes = Math.max(1, Number(options.deterministicTimeoutMinutes) || adaptiveTimeout);
   deadlineStore.close();
   if (!jsonMode) process.stderr.write("[collect-i18n] \u81EA\u52A8\u5904\u7406\u5DF2\u5F00\u59CB\u3002\n");
   const status = await waitForDeterministicQueue(
@@ -158393,7 +158732,7 @@ program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F
   const exported = await exportTranslationWorkbook(rows, outputPath);
   const counts = status.counts;
   const unresolved = counts.pending + counts.running + counts.needs_agent + counts.needs_manual + counts.failed;
-  const nextAction = counts.failed > 0 || String(status.status) === "failed" ? "failed" : String(status.status) !== "running" && unresolved > 0 ? "restart" : counts.needs_agent > 0 ? "agent" : counts.needs_manual > 0 ? "manual" : "complete";
+  const nextAction = counts.failed > 0 || String(status.status) === "failed" ? "failed" : String(status.status) !== "running" && unresolved > 0 ? "restart" : counts.pending > 0 ? "deterministic_continue" : counts.needs_agent > 0 ? "agent" : counts.needs_manual > 0 ? "manual" : "complete";
   output(command, "run", {
     sessionId: workflow.descriptor.sessionId,
     studioUrl: workflow.descriptor.studioUrl,

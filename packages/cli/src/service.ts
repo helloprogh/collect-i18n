@@ -37,6 +37,14 @@ interface ServiceOptions {
 
 const CAPABILITY_COOKIE_PREFIX = "collect_i18n_cap_";
 const MAX_PAGE_SIZE = 500;
+/**
+ * Cap on per-key deterministic fallback attempts within one route visit.
+ * Below-fold/virtualized rows that the batch paths cannot resolve are probed
+ * individually with a short waitForKey at most this many times per route;
+ * anything beyond stays pending for the next deterministic round instead of
+ * flooding the Agent queue or grinding the window on per-key waits.
+ */
+const DETERMINISTIC_FALLBACK_BUDGET = 12;
 const taskStatuses = new Set<TaskStatus>(["pending", "running", "captured", "needs_agent", "needs_manual", "failed", "skipped"]);
 
 /**
@@ -450,59 +458,57 @@ export class LocalService {
         console.error("[collect-i18n] collector startup failed", error);
         return;
       }
+      // Routes visited in this queue run that produced zero new evidence are
+      // skipped on later rounds (rare: mostly budget-deferred keys); a full
+      // zero-progress sweep stops the loop defensively.
+      const zeroYieldRoutes = new Set<string>();
+      let sweepCaptured = 0;
       for (;;) {
         if (this.manualActive) break;
-        const seed = store.nextTask(sessionId, ["pending"]);
-        if (!seed) break;
-        const route = this.reliableRoute(seed);
-        if (!route) { store.markTask(seed.id, "needs_agent", "No high-confidence route is available"); continue; }
-        const group = store.listTasks(sessionId, ["pending"]).filter((task) => this.reliableRoute(task) === route);
+        const pending = store.listTasks(sessionId, ["pending"]);
+        if (pending.length === 0) break;
+        // R1: visit routes by pending density instead of the alphabetical
+        // key_path order so the window budget is spent on routes with the
+        // most remaining keys. Sparse routes sort last and every round
+        // re-picks the currently densest route. Routes that produced zero
+        // new evidence are skipped on the next round; only when every
+        // remaining route is skipped is the whole set revisited, and a
+        // complete zero-progress sweep stops the queue (budget-deferred
+        // keys stay pending and surface as deterministic_continue).
+        const noRoute: Array<import("./store.js").StoredTask> = [];
+        const groups = new Map<string, Array<import("./store.js").StoredTask>>();
+        for (const task of pending) {
+          const route = this.reliableRoute(task);
+          if (!route) { noRoute.push(task); continue; }
+          const list = groups.get(route) ?? [];
+          list.push(task);
+          groups.set(route, list);
+        }
+        for (const task of noRoute) {
+          store.markTask(task.id, "needs_agent", "No high-confidence route is available");
+        }
+        if (groups.size === 0) break;
+        const entries = [...groups.entries()]
+          .sort((left, right) => right[1].length - left[1].length || left[0].localeCompare(right[0]));
+        const fresh = entries.filter(([candidate]) => !zeroYieldRoutes.has(candidate));
+        let route: string;
+        let group: Array<import("./store.js").StoredTask>;
+        if (fresh.length > 0) {
+          [route, group] = fresh[0]!;
+        } else {
+          // Every remaining route yielded zero on its last visit. A sweep
+          // that itself produced nothing terminates: nothing will change by
+          // revisiting, so leave deferred keys pending for the next round.
+          if (sweepCaptured === 0) break;
+          sweepCaptured = 0;
+          zeroYieldRoutes.clear();
+          [route, group] = entries[0]!;
+        }
         try {
           await this.exclusive(() => this.withBrowser(sessionId, async (collector) => {
-            collector.setMockRules([]);
-            await collector.open(route);
-            const inspection = await collector.inspectRuntimeSettled(2_000);
-            const gradeRank = (grade: string | undefined): number =>
-              grade === "A" ? 3 : grade === "B" ? 2 : 1;
-            const mountedKeys = new Set(
-              inspection.snapshots
-                .filter((snapshot) =>
-                  snapshot.key &&
-                  gradeRank(snapshot.evidenceGrade) >= 2 &&
-                  snapshot.connected !== false &&
-                  Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0),
-                )
-                .map((snapshot) => snapshot.key!),
-            );
-            const groupIds = new Set(group.map((task) => task.id));
-            const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
-              (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
-            );
-            for (const task of [...group, ...opportunistic]) {
-              if (this.manualActive) break;
-              if (!mountedKeys.has(task.keyPath)) {
-                if (groupIds.has(task.id)) {
-                  store.markTask(
-                    task.id,
-                    "needs_agent",
-                    `Key is not mounted in the initial state of route ${route}`,
-                  );
-                }
-                continue;
-              }
-              store.markTask(task.id, "running");
-              try {
-                const target = await collector.waitForKey(task.keyPath, 2_500, "B");
-                const evidence = await collector.capture(target, "deterministic");
-                store.addEvidence(task.id, evidence);
-              } catch (error) {
-                if (this.stopping) {
-                  store.markTask(task.id, "pending", "Deterministic capture was interrupted");
-                  break;
-                }
-                store.markTask(task.id, "needs_agent", describeFailure(error));
-              }
-            }
+            const newlyCaptured = await this.captureDeterministicRoute(sessionId, collector, route, group);
+            sweepCaptured += newlyCaptured;
+            if (newlyCaptured === 0) zeroYieldRoutes.add(route);
           }));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -521,6 +527,162 @@ export class LocalService {
         }
       }
     } finally { this.deterministicRunning = false; }
+  }
+
+  /**
+   * Deterministic capture of one route visit: open once, inspect the settled
+   * runtime, batch-resolve and screenshot every mounted group/opportunistic
+   * key (R2), then run a bounded scroll pass that brings lazily rendered and
+   * virtualized content into view for another batch (R3). Only keys neither
+   * batch path resolved fall back to the per-key waitForKey + capture path.
+   */
+  private async captureDeterministicRoute(
+    sessionId: string,
+    collector: BrowserCollector,
+    route: string,
+    group: Array<import("./store.js").StoredTask>,
+  ): Promise<number> {
+    const store = this.store!;
+    let newlyCaptured = 0;
+    collector.setMockRules([]);
+    await collector.open(route);
+    const mountedKeys = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(2_000)));
+    const groupIds = new Set(group.map((task) => task.id));
+    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
+      (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
+    );
+    const candidates = [...group, ...opportunistic];
+    const handledKeys = new Set<string>();
+    // R2: one batched resolution + screenshot pass replaces per-key
+    // waitForKey + capture for every mounted key.
+    const mountedCandidates = candidates.filter((task) => mountedKeys.has(task.keyPath));
+    const batchResults = mountedCandidates.length > 0
+      ? await collector.captureDeterministicBatch(mountedCandidates.map((task) => task.keyPath))
+      : [];
+    const batchByKey = new Map(batchResults.map((result) => [result.key, result]));
+    for (const task of candidates) {
+      if (this.manualActive) break;
+      const result = batchByKey.get(task.keyPath);
+      if (result?.evidence) {
+        handledKeys.add(task.keyPath);
+        try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
+        catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+        continue;
+      }
+      if (result?.rejected) {
+        handledKeys.add(task.keyPath);
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        continue;
+      }
+      // Resolved later by the scroll pass or the per-key fallback.
+    }
+    // R3: bounded scroll pass; lazy/virtualized content mounts below the
+    // fold. Only run when a candidate is still unhandled (never mounted or
+    // mounted but not resolvable in the batch), so fully captured routes pay
+    // no scroll overhead.
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureScrolledVisible(sessionId, collector, group, handledKeys);
+    }
+    // Final pass: keys the batches never resolved. The per-key fallback is
+    // a short waitForKey (1-2s) cadence bounded per visit: a route with
+    // hundreds of below-fold rows must not grind the window on individual
+    // waits. Keys still mounted get the fallback; keys that never mounted
+    // after scrolling belong to the Agent queue; keys beyond the budget
+    // stay pending for the next deterministic round.
+    let fallbackRemaining = DETERMINISTIC_FALLBACK_BUDGET;
+    for (const task of candidates) {
+      if (this.manualActive) break;
+      if (handledKeys.has(task.keyPath)) continue;
+      if (!mountedKeys.has(task.keyPath)) {
+        if (groupIds.has(task.id)) {
+          store.markTask(task.id, "needs_agent", `Key is not mounted in the initial state of route ${route}`);
+        }
+        continue;
+      }
+      if (fallbackRemaining <= 0) {
+        // Budget exhausted: keep the keys pending so the next deterministic
+        // round (or a longer window) can retry them instead of flooding the
+        // Agent queue with row keys.
+        if (groupIds.has(task.id)) {
+          store.markTask(task.id, "pending", `Route ${route} exceeded the per-visit fallback budget ${DETERMINISTIC_FALLBACK_BUDGET}`);
+        }
+        continue;
+      }
+      fallbackRemaining -= 1;
+      store.markTask(task.id, "running");
+      try {
+        const target = await collector.waitForKey(task.keyPath, 1_500, "B");
+        const evidence = await collector.capture(target, "deterministic");
+        store.addEvidence(task.id, evidence);
+        newlyCaptured += 1;
+      } catch (error) {
+        if (this.stopping) {
+          store.markTask(task.id, "pending", "Deterministic capture was interrupted");
+          break;
+        }
+        store.markTask(task.id, "needs_agent", describeFailure(error));
+      }
+    }
+    return newlyCaptured;
+  }
+
+  private inspectionMountedKeys(inspection: {
+    snapshots: Array<{ key?: string; evidenceGrade?: string; connected?: unknown; rect?: { width: number; height: number } | null }>;
+  }): Set<string> {
+    const gradeRank = (grade: string | undefined): number =>
+      grade === "A" ? 3 : grade === "B" ? 2 : 1;
+    return new Set(
+      inspection.snapshots
+        .filter((snapshot) =>
+          snapshot.key &&
+          gradeRank(snapshot.evidenceGrade) >= 2 &&
+          snapshot.connected !== false &&
+          Boolean(snapshot.rect && snapshot.rect.width > 0 && snapshot.rect.height > 0),
+        )
+        .map((snapshot) => snapshot.key!),
+    );
+  }
+
+  /**
+   * R3: bounded viewport-stepping scroll pass for a visited route. Each step
+   * scrolls down, re-inspects the settled runtime and batch-captures newly
+   * visible pending/needs_agent keys, so virtualized and lazily rendered
+   * rows that only mount below the fold get deterministic evidence instead
+   * of sinking into the Agent queue.
+   */
+  private async captureScrolledVisible(
+    sessionId: string,
+    collector: BrowserCollector,
+    group: Array<import("./store.js").StoredTask>,
+    handledKeys: Set<string>,
+  ): Promise<number> {
+    const store = this.store!;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxSteps = 3;
+    let newlyCaptured = 0;
+    for (let step = 1; step <= maxSteps; step += 1) {
+      if (this.manualActive) return newlyCaptured;
+      await collector.scrollForCapture(step, maxSteps);
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"])
+        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      if (notYetHandled.length === 0) continue;
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
   }
 
   private async executeAgent(taskId: string, planValue: unknown): Promise<Record<string, unknown>> {

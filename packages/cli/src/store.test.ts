@@ -624,6 +624,24 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("annotates the locale catalog with deprecated and non-visual screenshot notes", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysisForFinalize());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    const catalog = store.localeCatalog(sessionId, join(projectRoot, "en-us"));
+    const byKey = new Map(catalog.map((row) => [row.keyPath, row]));
+    expect(byKey.get("fixture.unused")?.deprecated).toBe(true);
+    expect(byKey.get("fixture.unused")?.nonVisual).toBe(false);
+    expect(byKey.get("fixture.accessible")?.deprecated).toBe(false);
+    expect(byKey.get("fixture.accessible")?.nonVisual).toBe(true);
+    expect(byKey.get("fixture.nativeTitle")?.nonVisual).toBe(true);
+    expect(byKey.get("fixture.visible")?.deprecated).toBe(false);
+    expect(byKey.get("fixture.visible")?.nonVisual).toBe(false);
+    store.close();
+  });
+
   it("keeps no-source keys for manual confirmation when unresolved dynamic calls exist", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
@@ -1096,3 +1114,65 @@ describe("StateStore transactions", () => {
     expect(store.saturatedRoutes(sessionId)).not.toContain("/dashboard");
     store.close();
   });
+
+describe("StateStore Agent anchor hardening (R4)", () => {
+  it("returns no anchor when every candidate route is saturated", async () => {
+    const store = await StateStore.open(root());
+    const projectId = store.syncProject(root(), {}, analysisForAgentQueue());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    for (const keyPath of ["users.form.submit", "users.table.delete", "orders.form.save"]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+    store.recordRouteCapture(sessionId, "/users", 0);
+    store.recordRouteCapture(sessionId, "/users", 0);
+    store.recordRouteCapture(sessionId, "/orders", 0);
+    store.recordRouteCapture(sessionId, "/orders", 0);
+    expect(store.saturatedRoutes(sessionId).sort()).toEqual(["/orders", "/users"]);
+
+    expect(store.nextAgentTask(sessionId)).toBeUndefined();
+    store.close();
+  });
+
+  it("budgets Agent anchors per route and relaxes only when every route is over budget", async () => {
+    const store = await StateStore.open(root());
+    const sessionId = store.createSession(store.syncProject(root(), {}, analysisForAgentQueue()), "http://127.0.0.1:5173");
+    for (const keyPath of ["users.form.submit", "users.table.delete", "orders.form.save"]) {
+      const task = store.taskByKey(sessionId, keyPath);
+      if (!task) throw new Error(`missing fixture task: ${keyPath}`);
+      store.markTask(task.id, "needs_agent");
+    }
+
+    // /users exhausts its 5-plan session budget; anchors move to /orders.
+    for (let i = 0; i < 5; i += 1) store.recordRoutePlan(sessionId, "/users");
+    expect(store.routePlanCounts(sessionId).get("/users")).toBe(5);
+    const next = store.nextAgentTask(sessionId);
+    expect(next?.keyPath).toBe("orders.form.save");
+
+    // Every unsaturated route is now over budget: the budget relaxes and a
+    // healthy (non-saturated) route provides the anchor again.
+    for (let i = 0; i < 5; i += 1) store.recordRoutePlan(sessionId, "/orders");
+    const relaxed = store.nextAgentTask(sessionId);
+    expect(relaxed).toBeDefined();
+    expect(preferredAgentRoute(relaxed!)).toBe("/users");
+    store.close();
+  });
+
+  it("submitPlan counts the route anchor budget", async () => {
+    const store = await StateStore.open(root());
+    const projectId = store.syncProject(root(), {}, analysisForAgentQueue());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.taskByKey(sessionId, "users.form.submit");
+    if (!task) throw new Error("missing fixture task");
+    store.markTask(task.id, "needs_agent");
+    store.submitPlan(task.id, {
+      version: 1,
+      targetKey: "users.form.submit",
+      route: "/users",
+      steps: [{ type: "wait", milliseconds: 50 }],
+    });
+    expect(store.routePlanCounts(sessionId).get("/users")).toBe(1);
+    store.close();
+  });
+});

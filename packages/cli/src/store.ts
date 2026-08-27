@@ -7,6 +7,10 @@ import type { CollectedEvidence } from "@collect-i18n/runner";
 
 export type TaskStatus = "pending" | "running" | "captured" | "needs_agent" | "needs_manual" | "failed" | "skipped";
 export const MAX_AGENT_ATTEMPTS = 2;
+/** Per-route Agent anchor budget per session: a route stops providing anchors
+ * after this many plans (R4); the cap prevents low-yield routes from
+ * consuming the whole Agent phase. */
+export const MAX_AGENT_ANCHORS_PER_ROUTE = 5;
 
 function evidenceGradeRank(grade: unknown): number {
   return grade === "A" ? 3 : grade === "B" ? 2 : grade === "C" ? 1 : 0;
@@ -34,7 +38,7 @@ export interface StoredTask {
   actionHints: unknown[];
   attempts: number;
   lastError?: string;
-  /** Set when finalize classified the task as skipped (no_source_occurrence / non_visual_source_only). */
+  /** Set when the session pre-classified or finalize classified the task as skipped (no_source_occurrence / non_visual_source_only). */
   skipReason?: string | null;
   plan?: unknown;
 }
@@ -360,6 +364,7 @@ export class StateStore {
         route TEXT NOT NULL,
         last_new_captured INTEGER NOT NULL DEFAULT 0,
         consecutive_low INTEGER NOT NULL DEFAULT 0,
+        plans INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (session_id, route),
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -392,6 +397,10 @@ export class StateStore {
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     if (!taskColumns.some((column) => column.name === "skip_reason")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN skip_reason TEXT");
+    }
+    const routeStatsColumns = this.db.prepare("PRAGMA table_info(agent_route_stats)").all() as Array<{ name: string }>;
+    if (!routeStatsColumns.some((column) => column.name === "plans")) {
+      this.db.exec("ALTER TABLE agent_route_stats ADD COLUMN plans INTEGER NOT NULL DEFAULT 0");
     }
     const legacyEvidence = this.db.prepare(
       "SELECT id,data_json FROM evidence WHERE screenshot_sha256 IS NULL OR evidence_grade IS NULL",
@@ -494,7 +503,7 @@ export class StateStore {
         "SELECT has_unresolved_dynamic FROM projects WHERE id=?",
       ).get(projectId) as { has_unresolved_dynamic: number } | undefined;
       const hasUnresolvedDynamic = Number(project?.has_unresolved_dynamic ?? 0) === 1;
-      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,last_error,updated_at) VALUES(?,?,?,?,?,?,?)");
+      const insertTask = this.db.prepare("INSERT INTO tasks(id,session_id,key_path,status,stage,last_error,skip_reason,updated_at) VALUES(?,?,?,?,?,?,?,?)");
       for (const key of keys) {
         const parsed = occurrencesByKey.get(key.key_path) ?? [];
         const noSource = parsed.length === 0;
@@ -502,7 +511,7 @@ export class StateStore {
         if (noSource && hasUnresolvedDynamic) {
           const taskId = stableId("task", `${id}:${key.key_path}`);
           const message = "存在无法静态解析的动态 i18n 调用，需运行时或人工确认";
-          insertTask.run(taskId, id, key.key_path, "needs_manual", "manual", message, now);
+          insertTask.run(taskId, id, key.key_path, "needs_manual", "manual", message, null, now);
           this.addEvent(id, "task.needs_manual", {
             taskId,
             keyPath: key.key_path,
@@ -515,7 +524,7 @@ export class StateStore {
         if (noSource || nonVisualOnly) {
           const taskId = stableId("task", `${id}:${key.key_path}`);
           const reason = noSource ? "no_source_occurrence" : "non_visual_source_only";
-          insertTask.run(taskId, id, key.key_path, "skipped", "agent", null, now);
+          insertTask.run(taskId, id, key.key_path, "skipped", "agent", null, reason, now);
           this.addEvent(id, "task.skipped", { taskId, keyPath: key.key_path, stage: "agent", origin: "system", reason });
           continue;
         }
@@ -529,7 +538,7 @@ export class StateStore {
             ))
           ),
         );
-        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", null, now);
+        insertTask.run(stableId("task", `${id}:${key.key_path}`), id, key.key_path, deterministic ? "pending" : "needs_agent", deterministic ? "deterministic" : "agent", null, null, now);
       }
       this.addEvent(id, "session.created", { projectId, keyCount: keys.length, origin: "system" });
     });
@@ -717,6 +726,23 @@ export class StateStore {
     ).run(sessionId, route, newCaptured, consecutiveLow, new Date().toISOString());
   }
 
+  routePlanCounts(sessionId: string): Map<string, number> {
+    const rows = this.db.prepare(
+      "SELECT route,plans FROM agent_route_stats WHERE session_id=? AND plans>0",
+    ).all(sessionId) as Array<{ route: string; plans: number }>;
+    return new Map(rows.map((row) => [row.route, Number(row.plans)]));
+  }
+
+  /**
+   * Count one submitted Agent plan against the route anchor budget
+   * (MAX_AGENT_ANCHORS_PER_ROUTE plans per session).
+   */
+  recordRoutePlan(sessionId: string, route: string): void {
+    this.db.prepare(
+      "INSERT INTO agent_route_stats(session_id,route,last_new_captured,consecutive_low,plans,updated_at) VALUES(?,?,0,0,1,?) ON CONFLICT(session_id,route) DO UPDATE SET plans=plans+1, updated_at=excluded.updated_at",
+    ).run(sessionId, route, new Date().toISOString());
+  }
+
   saturatedRoutes(sessionId: string, threshold = 2): string[] {
     const rows = this.db.prepare(
       "SELECT route FROM agent_route_stats WHERE session_id=? AND consecutive_low>=?",
@@ -724,16 +750,27 @@ export class StateStore {
     return rows.map((row) => row.route);
   }
 
-  nextAgentTask(sessionId: string, excludedRoutes: string[] = []): StoredTask | undefined {
+  /**
+   * Next Agent anchor with saturation and budget hardening (R4):
+   * - Saturated routes (consecutive low-yield runs) are hard-excluded; when
+   *   every candidate route is saturated the queue reports no anchor instead
+   *   of grinding the same low-yield route, so consecutive_low can never
+   *   grow unbounded from repeated anchoring.
+   * - Each route gets at most MAX_AGENT_ANCHORS_PER_ROUTE plans per session;
+   *   over-budget routes stop providing anchors. The budget relaxes only
+   *   when every remaining non-saturated route is over budget, so a healthy
+   *   route is never left idling.
+   */
+  nextAgentTask(sessionId: string, excludedRoutes: string[] = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE): StoredTask | undefined {
     const excluded = new Set(excludedRoutes);
     // Zero-occurrence keys are confirmed non-renderable and belong to
     // finalize's skippedNoSource; never hand them to an Agent as an anchor.
     const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2_000)
       .filter((task) => task.occurrences.length > 0);
     // Prefer anchors with at least one concrete literal occurrence. Keys that
-    // only match dynamic template interpolation (t(`dashboard.${x}`)) are
-    // low-confidence and mostly non-renderable; they stay in the queue and are
-    // anchored on only after every static anchor has been processed.
+    // only match dynamic template interpolation are low-confidence and mostly
+    // non-renderable; they stay in the queue and are anchored on only after
+    // every static anchor has been processed.
     const staticCandidates = withOccurrences.filter((task) =>
       task.occurrences.some((occurrence) => !isDynamicOccurrence(occurrence)));
     const tasks = staticCandidates.length > 0 ? staticCandidates : withOccurrences;
@@ -745,6 +782,25 @@ export class StateStore {
       routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
       routeActionScores.set(route, (routeActionScores.get(route) ?? 0) + agentActionScore(task));
     }
+    const candidateRoutes = [...routeCounts.keys()];
+    const saturated = new Set(this.saturatedRoutes(sessionId));
+    // Verification A: only saturated routes remain -> no anchor. The Agent
+    // phase ends cleanly instead of spinning on low-yield repeats.
+    if (candidateRoutes.length > 0 && candidateRoutes.every((route) => saturated.has(route))) {
+      return undefined;
+    }
+    const routeBudget = this.routePlanCounts(sessionId);
+    const unsaturated = candidateRoutes.filter((route) => !saturated.has(route));
+    const unsaturatedUnderBudget = unsaturated.filter(
+      (route) => (routeBudget.get(route) ?? 0) < maxAnchorsPerRoute,
+    );
+    const relaxBudget = unsaturated.length > 0 && unsaturatedUnderBudget.length === 0;
+    const allowRoute = (route: string | undefined): boolean => {
+      if (!route) return true;
+      if (saturated.has(route)) return false;
+      const plans = routeBudget.get(route) ?? 0;
+      return plans < maxAnchorsPerRoute || relaxBudget;
+    };
     return tasks
       .map((task, index) => {
         const route = preferredAgentRoute(task);
@@ -755,8 +811,9 @@ export class StateStore {
           routeFanout * 10_000 +
           Math.min(routeActionScore, 60_000) +
           agentTaskPriority(task);
-        return { task, index, priority };
+        return { task, index, priority, route };
       })
+      .filter((item) => allowRoute(item.route))
       .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
   }
 
@@ -882,7 +939,12 @@ export class StateStore {
       throw new Error(`任务已达到 Agent 最大尝试次数 ${MAX_AGENT_ATTEMPTS}：${task.keyPath}`);
     }
     const task = this.task(taskId);
-    if (task) this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
+    if (task) {
+      this.addEvent(task.sessionId, "agent.plan_submitted", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
+      // R4: count the plan against the route anchor budget.
+      const route = preferredAgentRoute(task);
+      if (route) this.recordRoutePlan(task.sessionId, route);
+    }
   }
 
   savePlan(taskId: string, plan: unknown): void {
@@ -1040,7 +1102,7 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
-  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean }> {
+  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean; nonVisual?: boolean }> {
     const rows = this.db.prepare(`
       SELECT k.*, t.status AS task_status, t.skip_reason, (
         SELECT e.screenshot_path
@@ -1067,6 +1129,7 @@ export class StateStore {
         chinese: row.chinese as string,
         english: row.english as string | undefined,
         deprecated: row.task_status === "skipped" && row.skip_reason === "no_source_occurrence",
+        nonVisual: row.task_status === "skipped" && row.skip_reason === "non_visual_source_only",
         relativeFile: row.relative_file as string,
         targetFile: join(resolve(englishRoot), row.relative_file as string),
         jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),

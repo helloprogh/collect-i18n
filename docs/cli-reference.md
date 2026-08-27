@@ -82,6 +82,8 @@ collect-i18n run --output <absolute-xlsx-path> --deadline-minutes 120
 
 命令自动检查环境，在缺少配置时初始化，否则刷新索引；随后启动或复用采集服务、等待确定性队列结束并导出首版四列 Excel。非 JSON 模式会在等待期间持续向标准错误输出自动处理进度，包括当前 Key、已处理数、可信截图数、转交数和失败数；JSON 标准输出仍保持单一稳定结果。最终返回 `sessionId`、`studioUrl`、`appUrl`、`deadlineAt`、`nextAction`、状态和工作簿结果。人工项不会阻止导出，未取证词条的截图单元格保持为空。
 
+`nextAction=deterministic_continue` 表示确定性窗口提前结束但会话仍在运行，应继续轮询同一会话 `status` 直至 `pending`/`running` 归零，随后 `export` 刷新工作簿；`--deterministic-timeout-minutes` 默认按词条数自适应 `max(15, ceil(total/60))`。
+
 确定性队列会直接接受 A 级 Host DOM 证据。可靠路由上的 B 级 Vue 组件证据会先在隔离页面执行一次无副作用 Canary；只有目标 occurrence 随 Canary 精确变化后才提升为 A 级并截图。Canary 失败只会把任务转交 Agent，不会使用相似文本生成证据。
 
 ### `start`
@@ -207,7 +209,7 @@ collect-i18n export --session <session-id> --output <absolute-xlsx-path>
 
 导出一个可见工作表和严格四列：`中文`、`英文`、`截图`、`Key Path`。英文列逐行复制中文原文，不读取当前 `en-us` 作为初值。命令返回输出路径、行数和嵌入图片数。
 
-finalize 判定为废弃的词条（无源码引用且无未决动态渲染，`no_source_occurrence`）在导出中集中排在列表末尾，其截图列填写「词条废弃」；其余无截图词条（未采集、非可视 aria/title）保持原有排序与空截图列。
+finalize 判定为废弃的词条（无源码引用且无未决动态渲染，`no_source_occurrence`）在导出中集中排在列表末尾，其截图列填写「词条废弃」；非可视词条（全部 occurrence 为 `aria-*` 或原生元素 `title`，`non_visual_source_only`）保持原有排序，截图列填写「非可视」；其余无截图词条保持原有排序与空截图列。
 
 ### `import`
 
