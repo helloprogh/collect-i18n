@@ -4,16 +4,16 @@
 
 Collect I18n 只应对本地、可信且已获授权的项目运行。工作台/API 只绑定 `127.0.0.1`，每次服务启动都会生成随机 capability：CLI 使用 Bearer 凭据访问 API，工作台通过带 capability 的 `/auth` 地址换取 `HttpOnly`、`SameSite=Strict` Cookie 后立即重定向到无凭据 URL。API 不发送 CORS 许可，并拒绝携带工作台 Cookie 的跨源请求。
 
-`start` 返回的 `studioUrl` 含当前服务的 capability，应按临时访问凭据保护，不要发布到不受信任的聊天、工单或日志。即使服务只监听回环地址，也不要端口转发、反向代理或把它暴露到局域网/公网；能够读取项目 `.collect-i18n/service.json` 的其他本机进程仍处于同一信任边界内。
+`start` 返回的 `studioUrl` 含当前服务的 capability，应按临时访问凭据保护，不要发布到不受信任的聊天、工单或日志。即使服务只监听回环地址，也不要端口转发、反向代理或把它暴露到局域网/公网；能够读取状态根下 `service.json` 的其他本机进程仍处于同一信任边界内。服务连接描述与锁文件保存在项目外的本地状态根 `~/.collect-i18n/projects/<hash>/`（可用 `COLLECT_I18N_STATE_DIR` 重定向），不在项目 `.collect-i18n/` 目录内。
 
 采集器会加载并执行目标项目的 Vite 配置、插件和前端代码。这等价于在本机运行该项目的开发服务器，不能用它检查来源不明的仓库。
 
 ## 敏感数据
 
-目标项目的 `.collect-i18n/` 可能包含：
+目标项目内 `.collect-i18n/` 与项目外状态根可能包含：
 
 - Chrome profile 中的 Cookie、Local Storage 和登录态；
-- `config.json` 中配置的浏览器 Cookie、`service.json` 中的 capability 以及尚未完成重定向的工作台认证 URL；
+- `config.json` 中配置的浏览器 Cookie、状态根下 `service.json` 中的 capability 以及尚未完成重定向的工作台认证 URL；
 - 页面截图中的姓名、账号、业务数据或访问令牌；
 - SQLite 中的中文文案、源码位置、路由和错误；
 - TriggerPlan、请求 Mock 响应和服务日志；

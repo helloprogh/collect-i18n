@@ -120,6 +120,20 @@ export const ProjectConfigSchema = z
           })
           .strict()
           .optional(),
+        /**
+         * Interaction-layer DOM hints, appended to the built-in selector
+         * groups (Element Plus + ARIA + Ant Design/naive-ui/Arco classes).
+         * Same append-only contract as loadingSelectors: built-ins never
+         * regress, custom libraries are supported by configuration alone.
+         */
+        controls: z
+          .object({
+            dropdownOptionSelector: z.string().min(1).max(500).optional(),
+            dialogSelector: z.string().min(1).max(500).optional(),
+            toastHostSelector: z.string().min(1).max(500).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .default({
         headless: true,

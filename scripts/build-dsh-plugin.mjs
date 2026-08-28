@@ -37,6 +37,9 @@ async function fileExists(path) {
 
 const checkOnly = process.argv.includes("--check");
 
+const RUNTIME_NAMES = ["index.js", "index.js.map", "registry.js", "registry.js.map", "types.js", "types.js.map", "element-plus.js", "element-plus.js.map"];
+
+
 const version = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8")).version;
 
 const prerequisites = [
@@ -67,7 +70,39 @@ if (checkOnly) {
     console.error("Plugin incomplete, missing: " + missing.join(", "));
     process.exit(1);
   }
-  console.log("Plugin check passed (" + (await readdir(pluginDirectory, { recursive: true })).length + " entries).");
+
+  // Content-level drift guard: the committed plugin must carry exactly the
+  // current skill sources, engine bundle and runtime dist. This failed
+  // silently twice before v0.6.0 (v0.4.0 SKILL.md shipped inside a v0.5.0
+  // engine), so every copied artifact is compared byte-for-byte.
+  const copied = [
+    ["SKILL.md", join(skillDirectory, "SKILL.md")],
+    ["references/cli-protocol.md", join(skillDirectory, "references", "cli-protocol.md")],
+    ["references/trigger-plan.md", join(skillDirectory, "references", "trigger-plan.md")],
+    ["cli/bootstrap.mjs", join(skillDirectory, "cli", "bootstrap.mjs")],
+    ["cli/bin.js", bundlePath],
+    ...RUNTIME_NAMES.map((name) => ["cli/runtime/" + name, join(runtimeDirectory, name)]),
+  ];
+  const drift = [];
+  for (const [rel, source] of copied) {
+    if (!(await fileExists(source))) {
+      drift.push(rel + ": source missing (" + source + ")");
+      continue;
+    }
+    const [plugin, origin] = await Promise.all([
+      readFile(join(pluginDirectory, rel)),
+      readFile(source),
+    ]);
+    if (!plugin.equals(origin)) drift.push(rel + " differs from " + source);
+  }
+  const pluginVersion = JSON.parse(await readFile(join(pluginDirectory, "package.json"), "utf8")).version;
+  if (pluginVersion !== version) drift.push("package.json version " + pluginVersion + " != " + version);
+  if (drift.length) {
+    console.error("Plugin drifted from its sources:\n" + drift.join("\n"));
+    console.error("Run: pnpm build && pnpm --filter @collect-i18n/cli build:bundle && node scripts/build-dsh-plugin.mjs");
+    process.exit(1);
+  }
+  console.log("Plugin check passed (" + (await readdir(pluginDirectory, { recursive: true })).length + " entries, content matches sources).");
   process.exit(0);
 }
 
@@ -78,8 +113,6 @@ const skillCliPkg = {
   type: "module",
   dependencies: { "playwright-core": "^1.55.0" },
 };
-
-const RUNTIME_NAMES = ["index.js", "index.js.map", "registry.js", "registry.js.map", "types.js", "types.js.map", "element-plus.js", "element-plus.js.map"];
 
 const pluginPackageJson = {
   name: "@collect-i18n/dsh-plugin",

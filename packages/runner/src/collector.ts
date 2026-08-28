@@ -44,6 +44,18 @@ export interface BrowserCollectorOptions {
    * capture is skipped with loading_overlay_timeout. Default 5_000 (matches
    * the pre-F2 hard-coded settle wait so default behavior is unchanged). */
   loadingClearWaitMs?: number;
+  /**
+   * Extra dropdown-option selectors (browser.controls.dropdownOptionSelector,
+   * comma-split) appended to the built-in list so custom select widgets can
+   * be driven deterministically.
+   */
+  extraDropdownOptionSelectors?: string[];
+  /** Extra dialog selectors (browser.controls.dialogSelector) appended to the
+   * built-in ambiguity-resolution dialog list. */
+  extraDialogSelectors?: string[];
+  /** Extra toast/notification host selectors (browser.controls.toastHostSelector)
+   * appended to the built-in exact-text fallback hosts. */
+  extraToastHostSelectors?: string[];
 }
 
 export interface RuntimeTargetSnapshot {
@@ -307,7 +319,7 @@ export interface SweepSelectors {
 export const DEFAULT_SWEEP_SELECTORS: Required<SweepSelectors> = {
   treeExpand: ".el-tree-node__expand-icon:not(.is-leaf)",
   paginationNext: ".el-pagination .btn-next",
-  deepWidget: ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor",
+  deepWidget: ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor,.el-sub-menu__title",
   closePopper: ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper",
 };
 
@@ -317,13 +329,74 @@ export function resolveSweepSelectors(sweep: SweepSelectors = {}): Required<Swee
 }
 
 /**
+ * Built-in interaction-layer selectors: Element Plus first, then ARIA roles,
+ * then the class structures other Vue component libraries render. Project
+ * configuration (browser.controls) appends extra selectors to each group so
+ * any component library can be supported without touching the engine — the
+ * same append-only contract as browser.loadingSelectors.
+ */
+export const DEFAULT_DROPDOWN_OPTION_SELECTORS = [
+  ".el-select-dropdown:visible .el-select-dropdown__item",
+  '[role="option"]:visible',
+  ".ant-select-item-option:visible",
+  ".arco-select-option:visible",
+  ".n-base-select-option:visible",
+];
+
+export const DEFAULT_DIALOG_SELECTORS = [
+  ".el-message-box:visible",
+  '[role="dialog"]:visible',
+  ".ant-modal:visible",
+  ".n-modal:visible",
+  ".arco-modal:visible",
+];
+
+export const DEFAULT_TOAST_HOST_SELECTORS = [
+  ".el-message",
+  ".el-message-box",
+  ".el-notification",
+  '[role="alert"]',
+  '[role="dialog"]',
+  ".el-popconfirm",
+  ".ant-message",
+  ".ant-notification",
+  ".ant-modal",
+  ".arco-message",
+  ".arco-notification",
+  ".arco-modal",
+  ".n-message",
+  ".n-message-container",
+  ".n-notification",
+  ".n-modal",
+];
+
+function appendSelectors(builtIn: string[], custom?: string[]): string[] {
+  const extra = (custom ?? []).map((selector) => selector.trim()).filter((selector) => selector.length > 0);
+  return [...builtIn, ...extra];
+}
+
+/** Built-in dropdown-option selectors plus project extras (browser.controls). */
+export function mergedDropdownOptionSelectors(custom?: string[]): string[] {
+  return appendSelectors(DEFAULT_DROPDOWN_OPTION_SELECTORS, custom);
+}
+
+/** Built-in dialog selectors plus project extras (browser.controls). */
+export function mergedDialogSelectors(custom?: string[]): string[] {
+  return appendSelectors(DEFAULT_DIALOG_SELECTORS, custom);
+}
+
+/** Built-in toast/notification host selectors plus project extras (browser.controls). */
+export function mergedToastHostSelectors(custom?: string[]): string[] {
+  return appendSelectors(DEFAULT_TOAST_HOST_SELECTORS, custom);
+}
+
+/**
  * Merge project-supplied loading selectors (F1: configurable selectors) with
  * the built-in list. Custom selectors are appended so built-in detection can
  * never regress while apps can still mark their own spinners.
  */
 export function mergedLoadingSelectors(custom?: string[]): string[] {
-  const extra = (custom ?? []).map((selector) => selector.trim()).filter((selector) => selector.length > 0);
-  return [...LOADING_INDICATOR_SELECTOR_LIST, ...extra];
+  return appendSelectors(LOADING_INDICATOR_SELECTOR_LIST, custom);
 }
 
 /**
@@ -562,12 +635,19 @@ export class BrowserCollector {
   private readonly loadingSelectors: string;
   private readonly loadingCropMarginPx: number;
   private readonly loadingClearWaitMs: number;
+  /** Resolved interaction-layer selectors: built-ins plus browser.controls extras. */
+  private readonly dropdownOptionSelectors: string;
+  private readonly dialogSelectors: string;
+  private readonly toastHostSelectors: string;
 
   constructor(private readonly options: BrowserCollectorOptions) {
     this.loadingSelectorList = mergedLoadingSelectors(options.extraLoadingSelectors);
     this.loadingSelectors = this.loadingSelectorList.join(",");
     this.loadingCropMarginPx = options.loadingCropMarginPx ?? 48;
     this.loadingClearWaitMs = options.loadingClearWaitMs ?? 5_000;
+    this.dropdownOptionSelectors = mergedDropdownOptionSelectors(options.extraDropdownOptionSelectors).join(", ");
+    this.dialogSelectors = mergedDialogSelectors(options.extraDialogSelectors).join(", ");
+    this.toastHostSelectors = mergedToastHostSelectors(options.extraToastHostSelectors).join(",");
   }
 
   private async createFreshPage(restoredPages: Page[] = []): Promise<Page> {
@@ -766,10 +846,10 @@ export class BrowserCollector {
     }
     const matchCount = await primary.count().catch(() => 0);
     if (matchCount > 1) {
-      // Element Plus message boxes plus the generic dialog role cover the
-      // common teleported modal hosts; class fallbacks catch libraries that
-      // do not set role="dialog" on their modal root.
-      const dialog = page.locator('.el-message-box:visible, [role="dialog"]:visible, .ant-modal:visible, .n-modal:visible, .arco-modal:visible').last();
+      // Ambiguity resolution prefers a control inside an open dialog
+      // (Element Plus message boxes plus the generic role and other
+      // libraries' modal classes, extendable via browser.controls).
+      const dialog = page.locator(this.dialogSelectors).last();
       if ((await dialog.count().catch(() => 0)) > 0) {
         const scoped = this.scopedLocator(dialog, spec);
         if ((await scoped.count().catch(() => 0)) > 0) {
@@ -822,20 +902,12 @@ export class BrowserCollector {
   private async chooseCustomOption(locator: Locator, value: string, timeoutMs: number): Promise<void> {
     const page = this.activePage;
     await clickResolvedLocator(locator, timeoutMs);
-    // Element Plus first (dropdown item), then ARIA option roles, then the
-    // option-item class names other Vue component libraries render, then a
-    // last-resort exact-text search inside any visible floating panel. This
-    // keeps the deterministic select flow working on Ant Design, naive-ui and
-    // Arco projects without per-library configuration.
-    const optionSelectors = [
-      '.el-select-dropdown:visible .el-select-dropdown__item',
-      '[role="option"]:visible',
-      '.ant-select-item-option:visible, .arco-select-option:visible, .n-base-select-option:visible',
-    ];
-    let match = page.locator(optionSelectors.map((selector) => `${selector}`).join(", "))
-      .getByText(markerTolerantRegExp(value), { exact: true });
+    // Built-in option selectors (Element Plus, ARIA roles, Ant/naive/Arco
+    // classes) plus any project-supplied browser.controls extras.
+    const options = page.locator(this.dropdownOptionSelectors);
+    let match = options.getByText(markerTolerantRegExp(value), { exact: true });
     if ((await match.count().catch(() => 0)) === 0) {
-      match = page.locator(optionSelectors.join(", ")).filter({ hasText: stripInlineMarkers(value) });
+      match = options.filter({ hasText: stripInlineMarkers(value) });
     }
     if ((await match.count().catch(() => 0)) === 0) {
       // Some libraries render option labels as nested spans that exclude the
@@ -1668,18 +1740,15 @@ export class BrowserCollector {
     );
     if (registeredTexts.length === 0) return undefined;
     const leafHits = await bounded(
-      page.evaluate(() => {
+      page.evaluate((hostSelectors) => {
         const intersectsViewport = (rect: { x: number; y: number; width: number; height: number }): boolean =>
           rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight &&
           rect.x + rect.width > 0 && rect.y + rect.height > 0;
         const hosts = new Set<HTMLElement>();
-        // Imperative hosts across the common Vue component libraries: their
-        // teleported leaves are preferred over page-body matches.
-        for (const host of document.querySelectorAll<HTMLElement>(
-          ".el-message,.el-message-box,.el-notification,[role=\"alert\"],[role=\"dialog\"],.el-popconfirm,"
-          + ".ant-message,.ant-notification,.ant-modal,.arco-message,.arco-notification,.arco-modal,"
-          + ".n-message,.n-message-container,.n-notification,.n-modal",
-        )) {
+        // Imperative hosts across the common Vue component libraries (plus
+        // any browser.controls extras): their teleported leaves are preferred
+        // over page-body matches.
+        for (const host of document.querySelectorAll<HTMLElement>(hostSelectors)) {
           let current: HTMLElement | null = host;
           while (current) {
             hosts.add(current);
@@ -1702,7 +1771,7 @@ export class BrowserCollector {
           hits.push({ needle, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
         }
         return hits;
-      }),
+      }, this.toastHostSelectors),
       2_000,
       "Page became unresponsive while scanning exact-text leaves",
     );

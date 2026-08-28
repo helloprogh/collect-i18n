@@ -1048,11 +1048,22 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "agent.plan_saved", { taskId, keyPath: task.keyPath, stage: "agent", origin: "agent" });
   }
 
-  markTask(taskId: string, status: TaskStatus, error?: string): void {
-    this.db.prepare("UPDATE tasks SET status=?,last_error=?,updated_at=? WHERE id=?")
-      .run(status, error ?? null, new Date().toISOString(), taskId);
+  /**
+   * Mark a task, optionally guarded: when `expected` statuses are given the
+   * update only applies while the task is still in one of them. The CLI
+   * auto-drive and the background service write the same database from two
+   * processes, so every demotion/transition must refuse to clobber a state
+   * another writer has already moved forward (e.g. captured). Returns true
+   * when the update applied.
+   */
+  markTask(taskId: string, status: TaskStatus, error?: string, expected?: readonly TaskStatus[]): boolean {
+    const guardClause = expected?.length ? ` AND status IN (${expected.map(() => "?").join(",")})` : "";
+    const result = this.db.prepare(`UPDATE tasks SET status=?,last_error=?,updated_at=? WHERE id=?${guardClause}`)
+      .run(status, error ?? null, new Date().toISOString(), taskId, ...(expected ?? []));
+    if (Number(result.changes) !== 1) return false;
     const task = this.task(taskId);
     if (task) this.addEvent(task.sessionId, `task.${status}`, { taskId, keyPath: task.keyPath, error, stage: task.stage, origin: task.stage });
+    return true;
   }
 
   finalizeUnresolved(sessionId: string): FinalizeUnresolvedResult {

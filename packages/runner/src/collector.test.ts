@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, DEFAULT_SWEEP_SELECTORS, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, resolveSweepSelectors, sameRouteUrl, stripInlineMarkers } from "./collector.js";
+import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, DEFAULT_DROPDOWN_OPTION_SELECTORS, DEFAULT_DIALOG_SELECTORS, DEFAULT_SWEEP_SELECTORS, DEFAULT_TOAST_HOST_SELECTORS, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedDialogSelectors, mergedDropdownOptionSelectors, mergedLoadingSelectors, mergedToastHostSelectors, resolveProjectUrl, resolveSweepSelectors, sameRouteUrl, stripInlineMarkers } from "./collector.js";
 
 describe("isBrowserGoneError", () => {
   it("detects crashed-browser Playwright errors", () => {
@@ -269,6 +269,28 @@ describe("F1: configurable loading selectors", () => {
   });
 });
 
+describe("browser.controls interaction selectors", () => {
+  it("appends project dropdown/dialog/toast selectors without losing built-ins", () => {
+    expect(mergedDropdownOptionSelectors()).toEqual(DEFAULT_DROPDOWN_OPTION_SELECTORS);
+    expect(mergedDialogSelectors()).toEqual(DEFAULT_DIALOG_SELECTORS);
+    expect(mergedToastHostSelectors()).toEqual(DEFAULT_TOAST_HOST_SELECTORS);
+
+    expect(mergedDropdownOptionSelectors([" .my-select-menu__item ", ""]))
+      .toEqual([...DEFAULT_DROPDOWN_OPTION_SELECTORS, ".my-select-menu__item"]);
+    expect(mergedDialogSelectors([".v-dialog"]))
+      .toEqual([...DEFAULT_DIALOG_SELECTORS, ".v-dialog"]);
+    expect(mergedToastHostSelectors([".q-toast"]))
+      .toEqual([...DEFAULT_TOAST_HOST_SELECTORS, ".q-toast"]);
+  });
+
+  it("keeps ARIA option roles and non-Element-Plus fallbacks in the built-in defaults", () => {
+    expect(DEFAULT_DROPDOWN_OPTION_SELECTORS.some((selector) => selector.includes('[role="option"]'))).toBe(true);
+    expect(DEFAULT_DROPDOWN_OPTION_SELECTORS.some((selector) => selector.includes(".ant-select-item-option"))).toBe(true);
+    expect(DEFAULT_DIALOG_SELECTORS.some((selector) => selector.includes('[role="dialog"]'))).toBe(true);
+    expect(DEFAULT_TOAST_HOST_SELECTORS.some((selector) => selector.includes(".ant-message"))).toBe(true);
+  });
+});
+
 describe("F3: multi-point sampling geometry", () => {
   const viewport = { width: 1440, height: 900 };
 
@@ -370,6 +392,10 @@ describe("resolveSweepSelectors", () => {
   it("returns the Element Plus defaults when no config is given", () => {
     expect(resolveSweepSelectors()).toEqual(DEFAULT_SWEEP_SELECTORS);
     expect(resolveSweepSelectors({})).toEqual(DEFAULT_SWEEP_SELECTORS);
+  });
+
+  it("sweeps collapsed Element Plus submenus so sidebar entries mount", () => {
+    expect(DEFAULT_SWEEP_SELECTORS.deepWidget).toContain(".el-sub-menu__title");
   });
 
   it("keeps the engine component-library-agnostic: any selector overrides win", () => {

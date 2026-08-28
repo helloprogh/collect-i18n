@@ -12,6 +12,7 @@ import { parseTriggerPlan } from "@collect-i18n/runner";
 import { configPath, createDefaultConfig, doctorProject, loadConfig, saveConfig } from "./config.js";
 import { callService, readServiceDescriptor, serviceDescriptorPath, type ServiceDescriptor } from "./service-client.js";
 import { LocalService } from "./service.js";
+import { hasLiveServiceLock } from "./service-lock.js";
 import { resolveStateRoot } from "./state-root.js";
 import { StateStore } from "./store.js";
 
@@ -79,6 +80,13 @@ async function closeDescriptorSession(projectRoot: string, descriptor: ServiceDe
 }
 
 async function retireStaleDescriptor(projectRoot: string): Promise<ServiceDescriptor | undefined> {
+  // A live startup lock means a service is booting or running even though the
+  // descriptor has not landed yet (Vite still compiling). Interrupting its
+  // sessions here used to kill a concurrent boot mid-capture; fail fast with
+  // the actionable message instead of guessing "dead".
+  if (hasLiveServiceLock(projectRoot)) {
+    throw new Error("检测到另一个采集服务正在运行或启动中，已保留其会话不被打断；请先运行 collect-i18n stop 或稍后重试");
+  }
   try {
     const descriptor = await readServiceDescriptor(projectRoot);
     const store = await StateStore.open(projectRoot);
@@ -534,7 +542,7 @@ program.command("run")
         const saturated = driveStore.saturatedRoutes(sessionId);
         // one-shot picks: nextAgentTask excludes anything already attempted
         const task = driveStore.nextAgentTask(sessionId, saturated, 48, driveAttempted);
-        if (!task || (task as { done?: boolean }).done) break;
+        if (!task) break;
         driveAttempted.add(String(task.id));
         const planStartedAt = Date.now();
         const occurrences = ((task as { occurrences?: Array<{ routeHints?: Array<{ path?: string; source?: string }> }> }).occurrences ?? []);
@@ -563,15 +571,28 @@ program.command("run")
           });
           consecutiveFailures = 0;
         } catch (error) {
-          // A slow execution failure (waits ran, key not found) is data, not
-          // an outage; only fast rejects (connection/route errors) count
-          // against the run as likely service problems.
-          if (Date.now() - planStartedAt < 2_000) {
-            consecutiveFailures += 1;
-            if (consecutiveFailures >= 5) break;
+          // The service may have executed the plan and captured the key even
+          // though the response failed (timeout, dropped connection): judge by
+          // the task's actual state, not the call outcome.
+          const current = driveStore.task(String(task.id));
+          const captured = current?.status === "captured";
+          if (captured) {
+            consecutiveFailures = 0;
+          } else {
+            // A slow execution failure (waits ran, key not found) is data, not
+            // an outage; only fast rejects (connection/route errors) count
+            // against the run as likely service problems.
+            if (Date.now() - planStartedAt < 2_000) {
+              consecutiveFailures += 1;
+              if (consecutiveFailures >= 5) break;
+            }
+            // Backstop only for a task the service left stuck in 'running'
+            // (crashed mid-execute): the service writes its own, more specific
+            // failure reason for everything it processed, and needs_manual
+            // demotions (dynamic keys) must never be overridden here.
+            driveStore.markTask(String(task.id), "needs_agent", "自动驱动未能执行计划", ["running"]);
           }
-          try { driveStore.markTask(String(task.id), "needs_agent", "自动驱动未能执行计划"); } catch { /* best effort */ }
-          if (!jsonMode) {
+          if (!jsonMode && !captured) {
             process.stderr.write(`[collect-i18n] 计划执行失败 ${task.keyPath}: ${error instanceof Error ? error.message : String(error)}\n`);
           }
         }

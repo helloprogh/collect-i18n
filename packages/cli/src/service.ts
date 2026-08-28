@@ -12,6 +12,7 @@ import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i
 import type { ProjectConfig } from "@collect-i18n/core";
 import { resolveStateRoot } from "./state-root.js";
 import { preferredAgentRoute, StateStore, type StoredTask, type TaskStatus } from "./store.js";
+import { acquireServiceLock, type AcquiredServiceLock } from "./service-lock.js";
 
 /**
  * Structural task view shared by the deterministic passes. The sweep passes
@@ -265,6 +266,10 @@ export class LocalService {
   private deterministicRunning = false;
   private stopping = false;
   private stopPromise?: Promise<void>;
+  // Startup mutex: claimed before Vite boots so a concurrent start fails fast
+  // with an actionable message instead of interrupting this service's
+  // sessions or colliding on the app's strict port.
+  private serviceLock?: AcquiredServiceLock;
 
   constructor(private readonly options: ServiceOptions) {
     this.capability = options.capability ?? randomBytes(32).toString("base64url");
@@ -274,6 +279,18 @@ export class LocalService {
   async start(): Promise<{ serviceUrl: string; studioUrl: string; appUrl: string; capability: string }> {
     const { config } = this.options;
     if (!config.instrumentation.enabled) throw new Error("运行时采集要求 instrumentation.enabled=true");
+    this.serviceLock = acquireServiceLock(config.projectRoot, this.options.sessionId);
+    try {
+      return await this.startLocked();
+    } catch (error) {
+      this.serviceLock.release();
+      this.serviceLock = undefined;
+      throw error;
+    }
+  }
+
+  private async startLocked(): Promise<{ serviceUrl: string; studioUrl: string; appUrl: string; capability: string }> {
+    const { config } = this.options;
     process.env.COLLECT_I18N = "1";
     process.env.VITE_COLLECT_I18N = "1";
     const appUrl = new URL(config.app.baseUrl);
@@ -364,6 +381,10 @@ export class LocalService {
           server.closeIdleConnections?.();
         });
       }
+      // Release the startup mutex last so a concurrent start cannot slip in
+      // while the old service still owns the app port.
+      this.serviceLock?.release();
+      this.serviceLock = undefined;
     })();
     return this.stopPromise;
   }
@@ -409,6 +430,11 @@ export class LocalService {
       extraLoadingSelectors: config.browser.loadingSelectors,
       loadingCropMarginPx: config.browser.loadingCropMarginPx,
       loadingClearWaitMs: config.browser.loadingClearWaitMs,
+      // browser.controls: append-only interaction-layer hints so custom
+      // component libraries work without engine changes.
+      extraDropdownOptionSelectors: config.browser.controls?.dropdownOptionSelector?.split(","),
+      extraDialogSelectors: config.browser.controls?.dialogSelector?.split(","),
+      extraToastHostSelectors: config.browser.controls?.toastHostSelector?.split(","),
     });
     await collector.start();
     if (this.stopping) {
@@ -492,7 +518,7 @@ export class LocalService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         for (const task of store.listTaskSummaries(sessionId, ["pending"])) {
-          store.markTask(task.id, "failed", `Collector startup failed: ${message}`);
+          store.markTask(task.id, "failed", `Collector startup failed: ${message}`, ["pending"]);
         }
         console.error("[collect-i18n] collector startup failed", error);
         return;
@@ -516,7 +542,7 @@ export class LocalService {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           for (const task of store.listTaskSummaries(sessionId, ["pending"])) {
-            store.markTask(task.id, "needs_agent", `登录引导失败：${message}`);
+            store.markTask(task.id, "needs_agent", `登录引导失败：${message}`, ["pending"]);
           }
           console.error("[collect-i18n] login bootstrap failed; pending keys demoted to the agent queue", error);
         }
@@ -552,7 +578,7 @@ export class LocalService {
           groups.set(route, list);
         }
         for (const task of noRoute) {
-          store.markTask(task.id, "needs_agent", "No high-confidence route is available");
+          store.markTask(task.id, "needs_agent", "No high-confidence route is available", ["pending"]);
         }
         if (groups.size === 0) break;
         const entries = [...groups.entries()]
@@ -580,14 +606,14 @@ export class LocalService {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           for (const task of group.filter((candidate) => candidate.status === "pending" || candidate.status === "running")) {
-            const current = store.task(task.id);
-            if (current?.status === "pending" || current?.status === "running") {
-              store.markTask(
-                task.id,
-                this.stopping ? "pending" : "needs_agent",
-                this.stopping ? "Deterministic capture was interrupted" : `Route ${route} failed: ${message}`,
-              );
-            }
+            // The CLI auto-drive can write concurrently; the guard keeps this
+            // demotion from clobbering a task another writer already moved.
+            store.markTask(
+              task.id,
+              this.stopping ? "pending" : "needs_agent",
+              this.stopping ? "Deterministic capture was interrupted" : `Route ${route} failed: ${message}`,
+              ["pending", "running"],
+            );
           }
           if (this.stopping) break;
           console.error(`[collect-i18n] deterministic route ${route} failed`, error);
@@ -651,12 +677,12 @@ export class LocalService {
       if (result?.evidence) {
         handledKeys.add(task.keyPath);
         try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-        catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+        catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
         continue;
       }
       if (result?.rejected) {
         handledKeys.add(task.keyPath);
-        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
         continue;
       }
       // Resolved later by the scroll pass or the per-key fallback.
@@ -701,7 +727,7 @@ export class LocalService {
       if (handledKeys.has(task.keyPath)) continue;
       if (!mountedKeys.has(task.keyPath)) {
         if (groupIds.has(task.id)) {
-          store.markTask(task.id, "needs_agent", `Key is not mounted in the initial state of route ${route}`);
+          store.markTask(task.id, "needs_agent", `Key is not mounted in the initial state of route ${route}`, ["pending", "running"]);
         }
         continue;
       }
@@ -710,12 +736,12 @@ export class LocalService {
         // round (or a longer window) can retry them instead of flooding the
         // Agent queue with row keys.
         if (groupIds.has(task.id)) {
-          store.markTask(task.id, "pending", `Route ${route} exceeded the per-visit fallback budget ${DETERMINISTIC_FALLBACK_BUDGET}`);
+          store.markTask(task.id, "pending", `Route ${route} exceeded the per-visit fallback budget ${DETERMINISTIC_FALLBACK_BUDGET}`, ["pending"]);
         }
         continue;
       }
       fallbackRemaining -= 1;
-      store.markTask(task.id, "running");
+      store.markTask(task.id, "running", undefined, ["pending"]);
       try {
         const target = await collector.waitForKey(task.keyPath, 1_500, "B");
         const evidence = await collector.capture(target, "deterministic");
@@ -723,10 +749,10 @@ export class LocalService {
         newlyCaptured += 1;
       } catch (error) {
         if (this.stopping) {
-          store.markTask(task.id, "pending", "Deterministic capture was interrupted");
+          store.markTask(task.id, "pending", "Deterministic capture was interrupted", ["running"]);
           break;
         }
-        store.markTask(task.id, "needs_agent", describeFailure(error));
+        store.markTask(task.id, "needs_agent", describeFailure(error), ["running"]);
       }
     }
     return newlyCaptured;
@@ -819,9 +845,9 @@ export class LocalService {
         handledKeys.add(task.keyPath);
         if (result.evidence) {
           try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
         } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
         }
       }
     }
@@ -873,9 +899,9 @@ export class LocalService {
         handledKeys.add(task.keyPath);
         if (result.evidence) {
           try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
         } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
         }
       }
     }
@@ -923,9 +949,9 @@ export class LocalService {
         handledKeys.add(task.keyPath);
         if (result.evidence) {
           try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
         } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
         }
       }
     }
@@ -965,7 +991,10 @@ export class LocalService {
         newlyCaptured += 1;
       } catch (error) {
         handledKeys.add(task.keyPath);
-        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error));
+        // Mirror-pool tasks were never set running: guard with the unresolved
+        // set instead so the demotion still applies but cannot clobber a
+        // concurrently captured task.
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "needs_agent", "needs_manual"]);
       }
     }
     return newlyCaptured;
@@ -1008,7 +1037,7 @@ export class LocalService {
       const failure = dynamicOnly
         ? `动态 Key 已完成唯一一次自动尝试，转人工确认：${describeFailure(error)}`
         : describeFailure(error);
-      store.markTask(taskId, next, failure);
+      store.markTask(taskId, next, failure, ["running"]);
       // Failed plans are the strongest saturation signal: count partial
       // checkpoint captures so a consistently low-yield route is skipped
       // instead of grinding every anchor on it to needs_manual.

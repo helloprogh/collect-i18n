@@ -27,7 +27,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 - 自动处理期间，命令行和工作台持续显示已处理数、可信截图数、转交数、失败数和当前 Key。
 - 一次 Agent 或人工操作建立业务状态后，会批量采集该状态中已挂载的其他 A/B 级词条；每个词条仍单独重新定位、标记和截图。
 - Agent 按路由批量规划：返回全量 section/kind/service 统计、相关源码文件和最多 12 条代表样本，并可在一个 TriggerPlan 的多个 `capture` 检查点连续采集初始页、校验、弹窗、抽屉、表格和消息状态。
-- 语义 radio/checkbox 会自动通过可见 label 激活被组件库包装的原生控件；通常无需为 Element Plus 编写专用选择器。
+- 语义 radio/checkbox 会自动通过可见 label 激活被组件库包装的原生控件；通常无需为 Element Plus 编写专用选择器。下拉选项、对话框、toast 宿主等交互定位选择器可经配置 `browser.controls` 追加（内置 Element Plus + ARIA + Ant Design/naive-ui/Arco 兜底），无需修改引擎即可适配任意组件库。
 - 截图前会等待可见 loading/skeleton 遮罩清除。内置选择器：`.el-loading-mask`、`.el-loading-spinner`、`.el-skeleton`、`.el-skeleton__item`、`.el-icon.is-loading`、`.ant-spin-spinning`、`.n-spin-body`、`.arco-spin-mask`、`.arco-spin-loading`、`#nprogress` 与页面标记 `[data-collect-i18n-loading]`；项目自定义遮罩可经配置 `browser.loadingSelectors` 追加选择器。
 - 初始化会避开已占用的本机 Vite 端口；用户提供的端到端截止时间会持久化，Agent 到期后停止领取新任务并立即进入定案导出。
 - Agent 最多尝试两次；仍无法可靠执行的任务进入人工辅助队列。
@@ -250,22 +250,24 @@ import --session <session-id> --file <translated.xlsx> --apply
 
 ## 本地状态与安全
 
-正常采集不会修改目标项目源码或 Vite 配置。工具会在目标项目创建：
+正常采集不会修改目标项目源码或 Vite 配置。易变状态（数据库、截图、浏览器资料、服务日志）保存在项目外的本地状态根，目标项目的文件监听器永远看不到高频写入：
 
 ```text
-.collect-i18n/
-├─ config.json
-├─ state.sqlite
-├─ service.json
+<project>/.collect-i18n/           项目内
+├─ config.json                     项目配置
+├─ exports/  imports/              导出与回稿临时文件
+
+~/.collect-i18n/projects/<hash>/   项目外状态根（COLLECT_I18N_STATE_DIR 可重定向）
+├─ state.sqlite                    任务、证据与事件
+├─ service.json                    运行中服务的连接描述（含临时凭据）
+├─ service.lock                    服务启动互斥锁（并发 start 快速失败）
 ├─ service.log
 ├─ browser-profile/
 ├─ evidence/
-├─ exports/
-├─ imports/
 └─ plans/
 ```
 
-请将 `.collect-i18n/` 加入目标项目的 `.gitignore`。该目录可能包含 Cookie、登录态、工作台临时凭据、页面截图、业务数据、请求 Mock 和翻译文件，不应提交或整体上传。
+请将 `.collect-i18n/` 加入目标项目的 `.gitignore`。项目内目录可能包含请求 Mock 与翻译工作簿；状态根可能包含 Cookie、登录态、工作台临时凭据、页面截图和业务数据。两者都不应提交或整体上传。
 
 工作台与 API 只监听本机回环地址。`studioUrl` 包含当前会话的临时访问能力，不应复制到公共日志、工单或不受信任的聊天中，也不应通过端口转发或反向代理暴露。
 
@@ -305,6 +307,8 @@ packages/runner                     Playwright、请求 Mock 与 TriggerPlan
 packages/excel                      四列 Excel 导出与安全回稿导入
 packages/cli                        CLI、SQLite、本地服务与任务编排
 skill/collect-i18n                  通用 Agent Skill
+plugins/dsh-collect-i18n            DeepSeek Harness 服务端插件（同一引擎的第二个分发出口）
+benchmarks/vue-i18n-1000            1000 词条 OMS 场景的验证与评估脚本
 examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 ```
 

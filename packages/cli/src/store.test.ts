@@ -521,6 +521,29 @@ describe("StateStore transactions", () => {
     migratedStore.close();
   });
 
+  it("guards markTask against clobbering a state another writer already moved", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+
+    // Guarded update applies while the status matches...
+    expect(store.markTask(task.id, "running", undefined, ["needs_agent"])).toBe(true);
+    expect(store.task(task.id)?.status).toBe("running");
+    // Another writer (the deterministic queue) captures the task...
+    expect(store.markTask(task.id, "captured")).toBe(true);
+    // ...and the CLI auto-drive's guarded demotion must NOT regress it:
+    expect(store.markTask(task.id, "needs_agent", "自动驱动未能执行计划", ["running"])).toBe(false);
+    expect(store.task(task.id)?.status).toBe("captured");
+
+    // Unguarded calls keep working (backward compatible).
+    expect(store.markTask(task.id, "needs_agent", "legacy")).toBe(true);
+    expect(store.task(task.id)?.status).toBe("needs_agent");
+    store.close();
+  });
+
   it("rolls back the session row when task creation fails", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);

@@ -142,9 +142,11 @@ TriggerPlan 是版本化 JSON DSL，当前只允许：
 
 ## 数据与文件写入
 
-目标项目内的 `.collect-i18n/state.sqlite` 保存项目、任务、证据与事件。浏览器资料、截图、计划、服务描述和导入导出临时文件也位于 `.collect-i18n/`，应被目标项目忽略。
+项目外本地状态根 `~/.collect-i18n/projects/<hash>/`（可用 `COLLECT_I18N_STATE_DIR` 重定向）保存 `state.sqlite`（项目、任务、证据与事件）、浏览器资料、截图、计划、服务描述 `service.json`、启动互斥锁 `service.lock` 和服务日志；项目内的 `.collect-i18n/` 只保留 `config.json` 与导入导出临时文件。外置状态根保证目标项目自己的文件监听器永远看不到高频写入；`service.lock` 在服务启动最早阶段以 O_EXCL 创建，让并发 `start` 快速失败并保护启动中服务的会话不被误打断。
 
 Excel 导出始终以中文原文初始化英文列，不把当前 `en-us` 译文带入新任务。导入先检查工作表与四列表头，再核对 Key Path、中文原文和目录映射。写回路径必须解析到发现的 `en-us` 根目录内；JSON 写入保留 BOM、缩进、换行和尾换行风格，采用临时文件替换，并为已有文件创建 `.bak`。
+
+任务状态迁移存在双写方（CLI 自动驱动与后台服务）：所有降级与回退写入都带状态守卫（`WHERE status IN (...)`），已 captured 或已推进的任务不会被另一写方回退。
 
 ## 扩展点
 

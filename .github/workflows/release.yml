@@ -40,6 +40,11 @@ jobs:
           pnpm test:benchmark
           pnpm build
 
+      - name: Verify DSH plugin matches its sources
+        run: |
+          pnpm --filter @collect-i18n/cli build:bundle
+          node scripts/build-dsh-plugin.mjs --check
+
       - name: Verify tag matches package version
         shell: bash
         run: |
