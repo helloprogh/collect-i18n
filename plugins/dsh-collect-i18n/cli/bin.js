@@ -65488,9 +65488,9 @@ ${shared.generateCodeFrame(
       function saveJSON$1(cssFile, json2) {
         return new Promise((resolve10, reject2) => {
           const {
-            writeFile: writeFile5
+            writeFile: writeFile6
           } = (0, _fs.getFileSystem)();
-          writeFile5(`${cssFile}.json`, JSON.stringify(json2), (e) => e ? reject2(e) : resolve10(json2));
+          writeFile6(`${cssFile}.json`, JSON.stringify(json2), (e) => e ? reject2(e) : resolve10(json2));
         });
       }
       return saveJSON;
@@ -114598,8 +114598,8 @@ var require_graceful_fs = __commonJS({
         }
       }
       var fs$writeFile = fs3.writeFile;
-      fs3.writeFile = writeFile5;
-      function writeFile5(path6, data, options, cb) {
+      fs3.writeFile = writeFile6;
+      function writeFile6(path6, data, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
         return go$writeFile(path6, data, options, cb);
@@ -136300,7 +136300,7 @@ var require_excel = __commonJS({
 // src/bin.ts
 import { spawn } from "child_process";
 import { closeSync, openSync } from "fs";
-import { access as access3, mkdir as mkdir7, readFile as readFile8, rm as rm4, writeFile as writeFile4 } from "fs/promises";
+import { access as access3, mkdir as mkdir7, readFile as readFile8, rm as rm4, writeFile as writeFile5 } from "fs/promises";
 import { dirname as dirname5, join as join6, resolve as resolve9 } from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 
@@ -152724,6 +152724,11 @@ async function exportTranslationWorkbook(rows, outputPath) {
       cell.value = "\u6B7B\u952E";
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.manualReason) {
+      const cell = row.getCell(3);
+      cell.value = source.manualReason === "unresolved_dynamic_source" ? "\u52A8\u6001\u952E" : "\u4EBA\u5DE5";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }
   }
   applyCellBorders(worksheet, 1, worksheet.actualRowCount, 4);
@@ -153077,7 +153082,7 @@ async function importTranslationWorkbook(options) {
 
 // ../runner/dist/index.js
 import { createHash as createHash2, randomUUID as randomUUID3 } from "crypto";
-import { access, mkdir as mkdir3, readFile as readFile4, rename as rename3, rm as rm3 } from "fs/promises";
+import { access, mkdir as mkdir3, readFile as readFile4, rename as rename3, rm as rm3, writeFile as writeFile2 } from "fs/promises";
 import { resolve as resolve3 } from "path";
 var mockRuleSchema = MockRuleSchema;
 var triggerPlanSchema = TriggerPlanSchema;
@@ -153785,9 +153790,6 @@ var BrowserCollector = class {
       return false;
     }
     const timeout2 = 1e4;
-    await this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first().fill(username, { timeout: timeout2 });
-    await this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first().fill(password, { timeout: timeout2 });
-    await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout: timeout2 });
     const passwordLocator = this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const userLocator = this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first();
@@ -154551,6 +154553,111 @@ var BrowserCollector = class {
    * view so the follow-up inspection can batch-capture them. Bounded by
    * design; the caller decides the step count and re-inspects after each.
    */
+  /**
+   * R8 interaction sweep, one target per call: the service clicks, waits for
+   * the transient content (toast/dialog/tab panel), batch-captures, then
+   * dismisses overlays before asking for the next target. Tabs (ARIA role)
+   * come before plain buttons so tab panels are walked first; swept targets
+   * are marked so later rounds advance instead of re-clicking.
+   * Generic by construction: ARIA roles and native buttons, no selectors
+   * tied to any component library.
+   */
+  async interactionSweepStep() {
+    return this.activePage.evaluate(() => {
+      const visible = (el) => el instanceof HTMLElement && el.offsetParent !== null && el.getClientRects().length > 0;
+      const clickable = [
+        ...document.querySelectorAll('[role="tab"]'),
+        ...document.querySelectorAll('button, [role="button"]')
+      ].filter((el) => visible(el) && !el.hasAttribute("data-ci18n-ix-swept") && !el.hasAttribute("disabled") && el.getAttribute("aria-disabled") !== "true");
+      const next = clickable[0];
+      if (!next) return false;
+      next.setAttribute("data-ci18n-ix-swept", "1");
+      next.click();
+      return true;
+    });
+  }
+  /** Close transient overlays (dialogs, popups) opened by the sweep. */
+  async dismissOverlays() {
+    await this.activePage.keyboard.press("Escape").catch(() => void 0);
+    await this.activePage.evaluate(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }).catch(() => void 0);
+  }
+  /** Entries of the runtime evidence mirror (key -> rendered text). */
+  async mirrorEntries() {
+    return this.activePage.evaluate(() => {
+      const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+      if (!mirror) return [];
+      return [...mirror.querySelectorAll("[data-collect-i18n-mirror-key]")].map((entry) => ({
+        key: entry.getAttribute("data-collect-i18n-mirror-key") ?? "",
+        text: entry.textContent ?? ""
+      })).filter((entry) => entry.key && entry.text);
+    });
+  }
+  /**
+   * Screenshot one mirror entry as B-grade evidence. The strip is brought
+   * on-screen only for the capture and restored afterwards, so regular
+   * widget evidence never shows it.
+   */
+  async captureMirrorEvidence(key) {
+    this.assertSameOrigin();
+    const page = this.activePage;
+    const locate = await page.evaluate((k) => {
+      const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+      if (!mirror) return void 0;
+      const entry = mirror.querySelector('[data-collect-i18n-mirror-key="' + CSS.escape(k) + '"]');
+      if (!entry) return void 0;
+      mirror.style.left = "12px";
+      mirror.style.top = "12px";
+      mirror.style.maxWidth = "720px";
+      mirror.style.whiteSpace = "normal";
+      mirror.style.boxShadow = "0 0 0 2px #ddd";
+      return { text: entry.textContent ?? "" };
+    }, key);
+    if (!locate) return void 0;
+    let screenshot;
+    try {
+      const handle = await page.evaluateHandle((k) => {
+        const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+        if (!mirror) return null;
+        return mirror.querySelector('[data-collect-i18n-mirror-key="' + CSS.escape(k) + '"]');
+      }, key);
+      const entry = handle.asElement();
+      if (entry) screenshot = await entry.screenshot({ timeout: 15e3 });
+      await handle.dispose().catch(() => void 0);
+    } finally {
+      await page.evaluate(() => {
+        const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+        if (mirror) {
+          mirror.style.left = "-99999px";
+          mirror.style.top = "0";
+          mirror.style.maxWidth = "";
+          mirror.style.whiteSpace = "nowrap";
+          mirror.style.boxShadow = "";
+        }
+      }).catch(() => void 0);
+    }
+    if (!screenshot) return void 0;
+    const screenshotSha256 = createHash2("sha256").update(screenshot).digest("hex");
+    const screenshotPath = resolve3(this.options.artifactDir, `${safeFilePart(key)}-${screenshotSha256}.png`);
+    await writeFile2(screenshotPath, screenshot);
+    const rawUrl = page.url();
+    const hashIndex = rawUrl.indexOf("#");
+    const route = hashIndex >= 0 ? rawUrl.slice(hashIndex + 1) : new URL(rawUrl).pathname;
+    return {
+      key,
+      text: locate.text,
+      route,
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      evidenceGrade: "B",
+      evidenceProof: "runtime-mirror",
+      screenshotPath,
+      screenshotSha256,
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      source: "agent"
+    };
+  }
   async scrollForCapture(step, totalSteps) {
     this.assertSameOrigin();
     await bounded(
@@ -154711,7 +154818,7 @@ var BrowserCollector = class {
 };
 
 // src/config.ts
-import { access as access2, mkdir as mkdir4, readFile as readFile5, readdir, writeFile as writeFile2 } from "fs/promises";
+import { access as access2, mkdir as mkdir4, readFile as readFile5, readdir, writeFile as writeFile3 } from "fs/promises";
 import { createServer } from "net";
 import { dirname as dirname3, join, resolve as resolve4 } from "path";
 var CONFIG_DIRECTORY = ".collect-i18n";
@@ -154818,7 +154925,7 @@ async function saveConfig(config2) {
   const parsed = ProjectConfigSchema.parse(config2);
   const file2 = configPath(parsed.projectRoot);
   await mkdir4(dirname3(file2), { recursive: true });
-  await writeFile2(file2, `${JSON.stringify(parsed, null, 2)}
+  await writeFile3(file2, `${JSON.stringify(parsed, null, 2)}
 `, "utf8");
   return file2;
 }
@@ -154916,7 +155023,7 @@ async function callService(projectRoot, path6, init) {
 
 // src/service.ts
 import { createHash as createHash5, randomBytes, timingSafeEqual } from "crypto";
-import { mkdir as mkdir6, readFile as readFile7, realpath as realpath2, stat as stat2, writeFile as writeFile3 } from "fs/promises";
+import { mkdir as mkdir6, readFile as readFile7, realpath as realpath2, stat as stat2, writeFile as writeFile4 } from "fs/promises";
 import { createServer as createHttpServer } from "http";
 import { dirname as dirname4, isAbsolute as isAbsolute2, join as join5, normalize, relative as relative2, resolve as resolve8 } from "path";
 import { createRequire } from "module";
@@ -157219,6 +157326,25 @@ var StateStore = class _StateStore {
   latestSession() {
     return this.db.prepare(`SELECT s.*, p.root AS project_root FROM sessions s JOIN projects p ON p.id=s.project_id ORDER BY s.created_at DESC LIMIT 1`).get();
   }
+  /**
+   * Copy verified TriggerPlans from the same project's previous sessions
+   * into this session's tasks, so repeat runs execute known recipes without
+   * re-deriving them. Plans match by key_path; only tasks without a plan
+   * inherit, and the newest plan wins.
+   */
+  inheritPlans(sessionId, projectId) {
+    const result = this.db.prepare(`
+      UPDATE tasks SET plan_json = (
+        SELECT t2.plan_json FROM tasks t2
+        JOIN sessions s2 ON s2.id = t2.session_id
+        WHERE s2.project_id = ? AND s2.id != ? AND t2.key_path = tasks.key_path
+          AND t2.plan_json IS NOT NULL
+        ORDER BY s2.created_at DESC LIMIT 1
+      )
+      WHERE session_id = ? AND plan_json IS NULL
+    `).run(projectId, sessionId, sessionId);
+    return Number(result.changes);
+  }
   status(sessionId) {
     const session = this.session(sessionId);
     if (!session) throw new Error(`\u4F1A\u8BDD\u4E0D\u5B58\u5728\uFF1A${sessionId}`);
@@ -157334,9 +157460,9 @@ var StateStore = class _StateStore {
    *   when every remaining non-saturated route is over budget, so a healthy
    *   route is never left idling.
    */
-  nextAgentTask(sessionId, excludedRoutes = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE) {
+  nextAgentTask(sessionId, excludedRoutes = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE, excludeTaskIds = /* @__PURE__ */ new Set()) {
     const excluded = new Set(excludedRoutes);
-    const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2e3).filter((task) => task.occurrences.length > 0);
+    const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2e3).filter((task) => task.occurrences.length > 0 && !excludeTaskIds.has(task.id));
     const staticCandidates = withOccurrences.filter((task) => task.occurrences.some((occurrence) => !isDynamicOccurrence(occurrence)));
     const tasks = staticCandidates.length > 0 ? staticCandidates : withOccurrences;
     const routeCounts = /* @__PURE__ */ new Map();
@@ -157370,7 +157496,9 @@ var StateStore = class _StateStore {
       const routeActionScore = route ? routeActionScores.get(route) ?? 0 : 0;
       const priority = (route && excluded.has(route) ? -1e6 : 0) + routeFanout * 1e4 + Math.min(routeActionScore, 6e4) + agentTaskPriority(task);
       return { task, index: index2, priority, route };
-    }).filter((item) => allowRoute(item.route)).sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
+    }).filter((item) => allowRoute(item.route)).map((item) => ({ ...item, attempts: item.task?.attempts ?? 0, updated: item.task?.updatedAt ?? "" })).sort(
+      (left, right) => right.priority - left.priority || left.attempts - right.attempts || (left.updated < right.updated ? -1 : left.updated > right.updated ? 1 : 0) || left.index - right.index
+    )[0]?.task;
   }
   agentRouteBatch(sessionId, anchor, limit = 12) {
     const route = preferredAgentRoute(anchor);
@@ -157447,6 +157575,7 @@ var StateStore = class _StateStore {
       routeHints,
       actionHints,
       attempts: Number(row.attempts),
+      updatedAt: typeof row.updated_at === "string" ? row.updated_at : void 0,
       lastError: typeof row.last_error === "string" ? row.last_error : void 0,
       skipReason: typeof row.skip_reason === "string" ? row.skip_reason : null,
       plan: parseJson(row.plan_json, void 0)
@@ -157657,6 +157786,10 @@ var StateStore = class _StateStore {
         // guard routed this unreachable key to manual instead of skip.
         // Flag it so the reviewer can prune it without investigating.
         deadKey: row.task_status === "needs_manual" && Number(row.occurrence_count) === 0,
+        // Human-oriented reason for anything still in the manual queue, so
+        // batch processing can group identical causes (dynamic source,
+        // canvas-rendered text, unreachable key...).
+        manualReason: row.task_status === "needs_manual" ? String(row.skip_reason ?? (Number(row.occurrence_count) === 0 ? "no_source_occurrence" : "manual_fallback")) : void 0,
         relativeFile: row.relative_file,
         targetFile: join4(resolve7(englishRoot), row.relative_file),
         jsonPath: parseJson(row.json_path, row.key_path.split(".")),
@@ -158236,7 +158369,7 @@ var LocalService = class {
     let inspection = await collector.inspectRuntimeSettled(2e3);
     let mountedKeys = new Set(this.inspectionMountedKeys(inspection));
     const groupIds = new Set(group.map((task) => task.id));
-    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
+    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter(
       (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath)
     );
     const candidates = [...group, ...opportunistic];
@@ -158275,6 +158408,12 @@ var LocalService = class {
     }
     if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
       newlyCaptured += await this.captureWidgetSweptVisible(sessionId, collector, group, handledKeys);
+    }
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureInteractionSweptVisible(sessionId, collector, group, handledKeys);
+    }
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureMirrorVisible(sessionId, collector, group, handledKeys);
     }
     let fallbackRemaining = DETERMINISTIC_FALLBACK_BUDGET;
     for (const task of candidates) {
@@ -158357,7 +158496,7 @@ var LocalService = class {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         if (step > 2) break;
         continue;
@@ -158400,7 +158539,7 @@ var LocalService = class {
       if (this.manualActive) return newlyCaptured;
       const outcome = await collector.widgetSweepForCapture(6);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         if (outcome === "exhausted") break;
         continue;
@@ -158422,6 +158561,84 @@ var LocalService = class {
         } else if (result.rejected) {
           if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
         }
+      }
+    }
+    return newlyCaptured;
+  }
+  /**
+   * R8: bounded interaction sweep pass. Each round clicks ONE swept target
+   * (ARIA tab or native button), gives transient content a short window,
+   * batch-captures newly mounted keys (any pool incl. needs_manual), then
+   * dismisses overlays so the next round starts from a clean surface.
+   */
+  async captureInteractionSweptVisible(sessionId, collector, group, handledKeys) {
+    const store = this.store;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxRounds = 10;
+    let newlyCaptured = 0;
+    let idleRounds = 0;
+    for (let round = 1; round <= maxRounds; round += 1) {
+      if (this.manualActive) return newlyCaptured;
+      const clicked = await collector.interactionSweepStep();
+      if (!clicked) break;
+      await new Promise((done) => setTimeout(done, 400));
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(800, 1200, 250)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      await collector.dismissOverlays();
+      if (notYetHandled.length === 0) {
+        idleRounds += 1;
+        if (idleRounds >= 3) break;
+        continue;
+      }
+      idleRounds = 0;
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try {
+            store.addEvidence(task.id, result.evidence);
+            newlyCaptured += 1;
+          } catch (error51) {
+            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51));
+          }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
+  }
+  /**
+   * R9: evidence-mirror capture pass. The instrumentation records every
+   * translation value offscreen at call time, so keys whose final widget is
+   * a canvas, a transient toast or an imperative dialog still yield B-grade
+   * evidence here. needs_manual keys participate: a key that was created
+   * manual because its source is dynamic gets promoted the moment its
+   * rendered value shows up.
+   */
+  async captureMirrorVisible(sessionId, collector, group, handledKeys) {
+    const store = this.store;
+    const groupIds = new Set(group.map((task) => task.id));
+    const entries = await collector.mirrorEntries();
+    if (entries.length === 0) return 0;
+    const mirrorKeys = new Set(entries.map((entry) => entry.key));
+    const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && mirrorKeys.has(task.keyPath)).slice(0, 60);
+    let newlyCaptured = 0;
+    for (const task of notYetHandled) {
+      if (this.manualActive) return newlyCaptured;
+      try {
+        const evidence = await collector.captureMirrorEvidence(task.keyPath);
+        if (!evidence) continue;
+        handledKeys.add(task.keyPath);
+        store.addEvidence(task.id, evidence);
+        newlyCaptured += 1;
+      } catch (error51) {
+        handledKeys.add(task.keyPath);
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51));
       }
     }
     return newlyCaptured;
@@ -158743,7 +158960,7 @@ var LocalService = class {
       const uploadDirectory = join5(roots.projectRoot, ".collect-i18n", "imports");
       await mkdir6(uploadDirectory, { recursive: true });
       const file2 = join5(uploadDirectory, `${Date.now()}-translation-return.xlsx`);
-      await writeFile3(file2, await bodyBuffer(request));
+      await writeFile4(file2, await bodyBuffer(request));
       const catalog = store.localeCatalog(sessionId, roots.englishRoot);
       const result = await importTranslationWorkbook({ workbookPath: file2, catalog, englishRoot: roots.englishRoot, apply: url2.searchParams.get("apply") === "true", backup: true });
       sendJson(response, 200, { ok: true, data: result });
@@ -158875,7 +159092,7 @@ async function retireStaleDescriptor(projectRoot) {
 }
 async function writeDescriptor(projectRoot, descriptor) {
   await mkdir7(dirname5(serviceDescriptorPath(projectRoot)), { recursive: true });
-  await writeFile4(serviceDescriptorPath(projectRoot), `${JSON.stringify(descriptor, null, 2)}
+  await writeFile5(serviceDescriptorPath(projectRoot), `${JSON.stringify(descriptor, null, 2)}
 `, { encoding: "utf8", mode: 384 });
 }
 async function waitForDescriptor(projectRoot, sessionId) {
@@ -158896,18 +159113,19 @@ async function waitForDescriptor(projectRoot, sessionId) {
 }
 async function startBackground(projectRoot, sessionId) {
   const executable = fileURLToPath3(import.meta.url);
-  if (executable.endsWith(".ts")) throw new Error("\u540E\u53F0\u6A21\u5F0F\u9700\u8981\u5148\u6784\u5EFA CLI\uFF1B\u5F00\u53D1\u65F6\u8BF7\u4F7F\u7528 start --foreground");
+  const tsxCli = executable.endsWith(".ts") ? join6(resolve9(dirname5(executable), "..", "..", ".."), "node_modules", "tsx", "dist", "cli.mjs") : void 0;
+  const commandLine = tsxCli ? [process.execPath, tsxCli, executable, "--project", projectRoot, "serve", "--session", sessionId] : [process.execPath, executable, "--project", projectRoot, "serve", "--session", sessionId];
   const logPath = join6(resolveStateRoot(projectRoot), "service.log");
   await mkdir7(dirname5(logPath), { recursive: true });
   const log2 = openSync(logPath, "a");
-  const child = spawn(process.execPath, [executable, "--project", projectRoot, "serve", "--session", sessionId], {
+  const child = spawn(process.execPath, commandLine, {
     cwd: projectRoot,
     detached: true,
-    // The service itself has no inherited stdio, so it does not need a console
-    // window. Keeping the Windows process visible is intentional: a manual
-    // fallback session must be able to show the Playwright-owned browser for
-    // the operator to act in it.
-    windowsHide: false,
+    // The service has no inherited stdio, so no console window is needed.
+    // windowsHide:false would force a new console on Windows, which fails
+    // silently when the parent is a non-console worker (the watcher host);
+    // the Playwright browser still gets its own windows via playwright-core.
+    windowsHide: true,
     stdio: ["ignore", log2, log2]
   });
   closeSync(log2);
@@ -158957,9 +159175,9 @@ async function pathExists(path6) {
     return false;
   }
 }
-async function prepareWorkflow(projectRoot) {
+async function prepareWorkflow(projectRoot, opts = {}) {
   const existing = await descriptorAlive(projectRoot);
-  if (existing) return { descriptor: existing, config: await loadConfig(projectRoot), reused: true };
+  if (existing) return { descriptor: existing, config: await loadConfig(projectRoot), reused: true, foreground: false, sessionId: existing.sessionId };
   await retireStaleDescriptor(projectRoot);
   const doctor = await doctorProject(projectRoot);
   if (!doctor.ready) {
@@ -158974,11 +159192,15 @@ async function prepareWorkflow(projectRoot) {
   try {
     const projectId = store.syncProject(projectRoot, config2, analysis);
     sessionId = store.createSession(projectId, config2.app.baseUrl);
+    store.inheritPlans(sessionId, projectId);
   } finally {
     store.close();
   }
   try {
-    return { descriptor: await startBackground(projectRoot, sessionId), config: config2, reused: false };
+    if (opts.foreground) {
+      return { descriptor: { pid: process.pid, projectRoot, sessionId, startedAt: (/* @__PURE__ */ new Date()).toISOString() }, config: config2, reused: false, foreground: true, sessionId };
+    }
+    return { descriptor: await startBackground(projectRoot, sessionId), config: config2, reused: false, foreground: false, sessionId };
   } catch (error51) {
     const failedStore = await StateStore.open(projectRoot);
     try {
@@ -159029,7 +159251,7 @@ async function waitForDeterministicQueue(projectRoot, sessionId, timeoutMs, onPr
   }
 }
 var program2 = new Command();
-program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.4.0").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
+program2.name("collect-i18n").description("Vue \u56FD\u9645\u5316\u8BCD\u6761\u8FD0\u884C\u65F6\u8BC1\u636E\u91C7\u96C6\u3001\u622A\u56FE\u4E0E\u56DB\u5217 Excel \u5F80\u8FD4\u5DE5\u5177").version("0.5.0").option("--project <path>", "Vue \u9879\u76EE\u6839\u76EE\u5F55", process.cwd()).option("--json", "\u8F93\u51FA\u7A33\u5B9A\u7684 JSON \u534F\u8BAE").option("--non-interactive", "\u7981\u7528\u4EA4\u4E92\u63D0\u793A");
 program2.command("doctor").description("\u68C0\u67E5\u9879\u76EE\u4E0E\u8FD0\u884C\u73AF\u5883\uFF0C\u4E0D\u5199\u5165\u6587\u4EF6").action(async (_options, command) => output(command, "doctor", await doctorProject(projectOf(command))));
 program2.command("init").description("\u521D\u59CB\u5316\u914D\u7F6E\u3001\u626B\u63CF\u8BED\u8A00\u5305\u548C\u6E90\u7801").action(async (_options, command) => {
   const projectRoot = projectOf(command);
@@ -159157,14 +159379,47 @@ program2.command("start").description("\u542F\u52A8\u540E\u53F0\u91C7\u96C6\u670
     throw error51;
   }
 });
-program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F\u52A8\u3001\u7B49\u5F85\u9759\u6001\u91C7\u96C6\u5E76\u751F\u6210\u53EF\u7ACB\u5373\u4EA4\u4ED8\u7684\u8FDB\u5EA6 Excel").option("--output <file>", "Excel \u8F93\u51FA\u8DEF\u5F84").option("--deadline-minutes <minutes>", "\u5B8C\u6574\u5DE5\u4F5C\u6D41\u622A\u6B62\u65F6\u95F4", "120").option("--deterministic-timeout-minutes <minutes>", "\u7B49\u5F85\u9759\u6001\u961F\u5217\u7684\u6700\u957F\u65F6\u95F4(\u9ED8\u8BA4 max(15, ceil(\u8BCD\u6761\u6570/60)) \u81EA\u9002\u5E94)").action(async (options, command) => {
+program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F\u52A8\u3001\u7B49\u5F85\u9759\u6001\u91C7\u96C6\u5E76\u751F\u6210\u53EF\u7ACB\u5373\u4EA4\u4ED8\u7684\u8FDB\u5EA6 Excel").option("--output <file>", "Excel \u8F93\u51FA\u8DEF\u5F84").option("--deadline-minutes <minutes>", "\u5B8C\u6574\u5DE5\u4F5C\u6D41\u622A\u6B62\u65F6\u95F4", "120").option("--deterministic-timeout-minutes <minutes>", "\u7B49\u5F85\u9759\u6001\u961F\u5217\u7684\u6700\u957F\u65F6\u95F4(\u9ED8\u8BA4 max(15, ceil(\u8BCD\u6761\u6570/60)) \u81EA\u9002\u5E94)").option("--foreground", "\u5728\u5F53\u524D\u8FDB\u7A0B\u4E2D\u8FD0\u884C\u91C7\u96C6\u670D\u52A1(\u8C03\u8BD5/\u53D7\u9650\u73AF\u5883\u7528\uFF0C\u66FF\u4EE3\u540E\u53F0\u5B88\u62A4\u8FDB\u7A0B)").action(async (options, command) => {
   const workflowStartedAt = Date.now();
   const projectRoot = projectOf(command);
+  process.chdir(projectRoot);
   const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
   const deadlineAt = new Date(workflowStartedAt + deadlineMinutes * 6e4).toISOString();
   const jsonMode = Boolean(command.optsWithGlobals().json);
   if (!jsonMode) process.stderr.write("[collect-i18n] \u6B63\u5728\u68C0\u67E5\u9879\u76EE\u5E76\u542F\u52A8\u91C7\u96C6\u670D\u52A1\u2026\n");
-  const workflow = await prepareWorkflow(projectRoot);
+  const workflow = await prepareWorkflow(projectRoot, { foreground: options.foreground });
+  let foregroundService;
+  if (workflow.foreground) {
+    const service = new LocalService({
+      config: workflow.config,
+      sessionId: workflow.sessionId,
+      studioDirectory: resolve9(fileURLToPath3(new URL("../../../apps/studio/dist", import.meta.url))),
+      onShutdownRequest: async () => {
+        await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => void 0);
+      }
+    });
+    try {
+      const started = await service.start();
+      workflow.descriptor = {
+        pid: process.pid,
+        projectRoot,
+        sessionId: workflow.sessionId,
+        ...started,
+        startedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      await writeDescriptor(projectRoot, workflow.descriptor);
+      foregroundService = service;
+    } catch (error51) {
+      await service.stop().catch(() => void 0);
+      const failedStore = await StateStore.open(projectRoot);
+      try {
+        failedStore.closeSession(workflow.sessionId, "failed");
+      } finally {
+        failedStore.close();
+      }
+      throw error51;
+    }
+  }
   const deadlineStore = await StateStore.open(projectRoot);
   deadlineStore.setDeadline(workflow.descriptor.sessionId, deadlineAt);
   const sessionStatus = deadlineStore.status(workflow.descriptor.sessionId);
@@ -159185,6 +159440,79 @@ program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F
       );
     }
   );
+  try {
+    const driveStore = await StateStore.open(projectRoot);
+    const sessionId = workflow.descriptor.sessionId;
+    const maxPlans = 120;
+    let executed = 0;
+    let consecutiveFailures = 0;
+    {
+      let calm = 0;
+      for (let probe = 0; probe < 12; probe += 1) {
+        const snapshot = driveStore.status(sessionId);
+        const counts2 = snapshot.counts ?? {};
+        if (Number(counts2.pending ?? 0) === 0 && Number(counts2.running ?? 0) === 0) {
+          calm += 1;
+          if (calm >= 3) break;
+        } else {
+          calm = 0;
+        }
+        await new Promise((done) => setTimeout(done, 2e3));
+      }
+    }
+    const driveAttempted = /* @__PURE__ */ new Set();
+    while (executed < maxPlans) {
+      if (Date.now() > Date.parse(deadlineAt) - 3e4) break;
+      const saturated = driveStore.saturatedRoutes(sessionId);
+      const task = driveStore.nextAgentTask(sessionId, saturated, 48, driveAttempted);
+      if (!task || task.done) break;
+      driveAttempted.add(String(task.id));
+      const planStartedAt = Date.now();
+      const occurrences = task.occurrences ?? [];
+      const hints = occurrences.flatMap((occurrence) => occurrence.routeHints ?? []);
+      const route = hints.find((hint) => hint.source === "router_config")?.path ?? hints[0]?.path ?? "/";
+      const plan = {
+        version: 1,
+        targetKey: String(task.keyPath),
+        route,
+        steps: [
+          { type: "goto", path: route },
+          { type: "wait", milliseconds: 900 },
+          { type: "waitForKey", key: String(task.keyPath), timeoutMs: 4e3 },
+          { type: "capture" }
+        ],
+        rationale: "run auto-drive: router-hint goto + waitForKey + capture"
+      };
+      driveStore.savePlan(String(task.id), plan);
+      try {
+        await callService(projectRoot, "/api/agent/execute", {
+          method: "POST",
+          body: JSON.stringify({ taskId: task.id, plan })
+        });
+        consecutiveFailures = 0;
+      } catch (error51) {
+        if (Date.now() - planStartedAt < 2e3) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= 5) break;
+        }
+        try {
+          driveStore.markTask(String(task.id), "needs_agent", "\u81EA\u52A8\u9A71\u52A8\u672A\u80FD\u6267\u884C\u8BA1\u5212");
+        } catch {
+        }
+        if (!jsonMode) {
+          process.stderr.write(`[collect-i18n] \u8BA1\u5212\u6267\u884C\u5931\u8D25 ${task.keyPath}: ${error51 instanceof Error ? error51.message : String(error51)}
+`);
+        }
+      }
+      executed += 1;
+    }
+    if (executed > 0 && !jsonMode) process.stderr.write(`[collect-i18n] \u81EA\u52A8\u8BA1\u5212\u6267\u884C ${executed} \u4E2A\u3002
+`);
+    driveStore.close();
+  } catch (error51) {
+    if (!jsonMode) process.stderr.write(`[collect-i18n] \u81EA\u52A8\u8BA1\u5212\u9A71\u52A8\u8DF3\u8FC7\uFF1A${error51 instanceof Error ? error51.message : String(error51)}
+`);
+  }
   if (!jsonMode) process.stderr.write("[collect-i18n] \u81EA\u52A8\u5904\u7406\u5DF2\u7ED3\u675F\uFF0C\u6B63\u5728\u751F\u6210 Excel\u2026\n");
   const englishRoot = await findEnglishRoot(workflow.config);
   const store = await StateStore.open(projectRoot);
@@ -159205,6 +159533,16 @@ program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F
     status,
     workbook: exported
   });
+  try {
+    const finalStore = await StateStore.open(projectRoot);
+    finalStore.closeSession(workflow.sessionId, "stopped");
+    finalStore.close();
+  } catch {
+  }
+  if (foregroundService) {
+    await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => void 0);
+    await foregroundService.stop().catch(() => void 0);
+  }
 });
 program2.command("serve", { hidden: true }).requiredOption("--session <id>").action(async (options, command) => {
   const projectRoot = projectOf(command);
