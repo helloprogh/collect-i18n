@@ -150917,6 +150917,17 @@ var ProjectConfigSchema = external_exports.object({
       paginationNextSelector: external_exports.string().min(1).max(300).optional(),
       deepWidgetSelector: external_exports.string().min(1).max(300).optional(),
       closePopperSelector: external_exports.string().min(1).max(300).optional()
+    }).strict().optional(),
+    /**
+     * Interaction-layer DOM hints, appended to the built-in selector
+     * groups (Element Plus + ARIA + Ant Design/naive-ui/Arco classes).
+     * Same append-only contract as loadingSelectors: built-ins never
+     * regress, custom libraries are supported by configuration alone.
+     */
+    controls: external_exports.object({
+      dropdownOptionSelector: external_exports.string().min(1).max(500).optional(),
+      dialogSelector: external_exports.string().min(1).max(500).optional(),
+      toastHostSelector: external_exports.string().min(1).max(500).optional()
     }).strict().optional()
   }).default({
     headless: true,
@@ -153344,15 +153355,59 @@ var LOADING_INDICATOR_SELECTORS = LOADING_INDICATOR_SELECTOR_LIST.join(",");
 var DEFAULT_SWEEP_SELECTORS = {
   treeExpand: ".el-tree-node__expand-icon:not(.is-leaf)",
   paginationNext: ".el-pagination .btn-next",
-  deepWidget: ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor",
+  deepWidget: ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor,.el-sub-menu__title",
   closePopper: ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper"
 };
 function resolveSweepSelectors(sweep = {}) {
   return { ...DEFAULT_SWEEP_SELECTORS, ...sweep };
 }
-function mergedLoadingSelectors(custom2) {
+var DEFAULT_DROPDOWN_OPTION_SELECTORS = [
+  ".el-select-dropdown:visible .el-select-dropdown__item",
+  '[role="option"]:visible',
+  ".ant-select-item-option:visible",
+  ".arco-select-option:visible",
+  ".n-base-select-option:visible"
+];
+var DEFAULT_DIALOG_SELECTORS = [
+  ".el-message-box:visible",
+  '[role="dialog"]:visible',
+  ".ant-modal:visible",
+  ".n-modal:visible",
+  ".arco-modal:visible"
+];
+var DEFAULT_TOAST_HOST_SELECTORS = [
+  ".el-message",
+  ".el-message-box",
+  ".el-notification",
+  '[role="alert"]',
+  '[role="dialog"]',
+  ".el-popconfirm",
+  ".ant-message",
+  ".ant-notification",
+  ".ant-modal",
+  ".arco-message",
+  ".arco-notification",
+  ".arco-modal",
+  ".n-message",
+  ".n-message-container",
+  ".n-notification",
+  ".n-modal"
+];
+function appendSelectors(builtIn, custom2) {
   const extra = (custom2 ?? []).map((selector) => selector.trim()).filter((selector) => selector.length > 0);
-  return [...LOADING_INDICATOR_SELECTOR_LIST, ...extra];
+  return [...builtIn, ...extra];
+}
+function mergedDropdownOptionSelectors(custom2) {
+  return appendSelectors(DEFAULT_DROPDOWN_OPTION_SELECTORS, custom2);
+}
+function mergedDialogSelectors(custom2) {
+  return appendSelectors(DEFAULT_DIALOG_SELECTORS, custom2);
+}
+function mergedToastHostSelectors(custom2) {
+  return appendSelectors(DEFAULT_TOAST_HOST_SELECTORS, custom2);
+}
+function mergedLoadingSelectors(custom2) {
+  return appendSelectors(LOADING_INDICATOR_SELECTOR_LIST, custom2);
 }
 function loadingSamplePoints(rect, viewport) {
   const candidates = rect.width > 0 && rect.height > 0 ? [
@@ -153467,6 +153522,9 @@ var BrowserCollector = class {
     this.loadingSelectors = this.loadingSelectorList.join(",");
     this.loadingCropMarginPx = options.loadingCropMarginPx ?? 48;
     this.loadingClearWaitMs = options.loadingClearWaitMs ?? 5e3;
+    this.dropdownOptionSelectors = mergedDropdownOptionSelectors(options.extraDropdownOptionSelectors).join(", ");
+    this.dialogSelectors = mergedDialogSelectors(options.extraDialogSelectors).join(", ");
+    this.toastHostSelectors = mergedToastHostSelectors(options.extraToastHostSelectors).join(",");
   }
   options;
   context;
@@ -153479,6 +153537,10 @@ var BrowserCollector = class {
   loadingSelectors;
   loadingCropMarginPx;
   loadingClearWaitMs;
+  /** Resolved interaction-layer selectors: built-ins plus browser.controls extras. */
+  dropdownOptionSelectors;
+  dialogSelectors;
+  toastHostSelectors;
   async createFreshPage(restoredPages = []) {
     if (!this.context) throw new Error("Browser collector context is not running");
     try {
@@ -153664,7 +153726,7 @@ var BrowserCollector = class {
     }
     const matchCount = await primary.count().catch(() => 0);
     if (matchCount > 1) {
-      const dialog = page.locator('.el-message-box:visible, [role="dialog"]:visible, .ant-modal:visible, .n-modal:visible, .arco-modal:visible').last();
+      const dialog = page.locator(this.dialogSelectors).last();
       if (await dialog.count().catch(() => 0) > 0) {
         const scoped = this.scopedLocator(dialog, spec);
         if (await scoped.count().catch(() => 0) > 0) {
@@ -153712,14 +153774,10 @@ var BrowserCollector = class {
   async chooseCustomOption(locator, value, timeoutMs) {
     const page = this.activePage;
     await clickResolvedLocator(locator, timeoutMs);
-    const optionSelectors = [
-      ".el-select-dropdown:visible .el-select-dropdown__item",
-      '[role="option"]:visible',
-      ".ant-select-item-option:visible, .arco-select-option:visible, .n-base-select-option:visible"
-    ];
-    let match = page.locator(optionSelectors.map((selector) => `${selector}`).join(", ")).getByText(markerTolerantRegExp(value), { exact: true });
+    const options = page.locator(this.dropdownOptionSelectors);
+    let match = options.getByText(markerTolerantRegExp(value), { exact: true });
     if (await match.count().catch(() => 0) === 0) {
-      match = page.locator(optionSelectors.join(", ")).filter({ hasText: stripInlineMarkers(value) });
+      match = options.filter({ hasText: stripInlineMarkers(value) });
     }
     if (await match.count().catch(() => 0) === 0) {
       const panelOption = page.locator(
@@ -154429,12 +154487,10 @@ var BrowserCollector = class {
     );
     if (registeredTexts.length === 0) return void 0;
     const leafHits = await bounded(
-      page.evaluate(() => {
+      page.evaluate((hostSelectors) => {
         const intersectsViewport = (rect) => rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight && rect.x + rect.width > 0 && rect.y + rect.height > 0;
         const hosts = /* @__PURE__ */ new Set();
-        for (const host of document.querySelectorAll(
-          '.el-message,.el-message-box,.el-notification,[role="alert"],[role="dialog"],.el-popconfirm,.ant-message,.ant-notification,.ant-modal,.arco-message,.arco-notification,.arco-modal,.n-message,.n-message-container,.n-notification,.n-modal'
-        )) {
+        for (const host of document.querySelectorAll(hostSelectors)) {
           let current = host;
           while (current) {
             hosts.add(current);
@@ -154455,7 +154511,7 @@ var BrowserCollector = class {
           hits.push({ needle, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
         }
         return hits;
-      }),
+      }, this.toastHostSelectors),
       2e3,
       "Page became unresponsive while scanning exact-text leaves"
     );
