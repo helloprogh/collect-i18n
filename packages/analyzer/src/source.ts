@@ -173,14 +173,19 @@ function walkAst(
   const astNode = record as AstNode
   visitor(astNode, ancestors)
 
+  // Push/pop instead of copying the ancestor array per child: copying made
+  // every deep tree an O(depth²) allocation storm on large files. Visitors
+  // only read the array synchronously, so sharing it is safe.
+  ancestors.push(astNode)
   for (const [key, child] of Object.entries(record)) {
     if (['loc', 'start', 'end', 'extra', 'leadingComments', 'trailingComments'].includes(key)) {
       continue
     }
     if (child && typeof child === 'object') {
-      walkAst(child, [...ancestors, astNode], visitor)
+      walkAst(child, ancestors, visitor)
     }
   }
+  ancestors.pop()
 }
 
 function escapeRegularExpression(value: string): string {
@@ -740,6 +745,8 @@ interface ScriptScanContext {
   source: string
   baseOffset: number
   aliases: PathAlias[]
+  /** Absolute [start, end) offsets of script comments, used by the quoted-literal fallback. */
+  commentRanges: Array<[number, number]>
   routerMode?: 'hash' | 'history'
   routeHints: RouteHint[]
   componentRouteLinks: ComponentRouteLink[]
@@ -1091,6 +1098,11 @@ function scanScript(
   extractComponentRouteLinks(ast, context)
   extractSourceImports(ast, context)
   const staticBindings = collectStaticBindings(ast)
+  const attachedComments = (ast as { comments?: Array<{ start?: number | null; end?: number | null}> }).comments
+  for (const comment of Array.isArray(attachedComments) ? attachedComments : []) {
+    if (typeof comment?.start !== 'number' || typeof comment?.end !== 'number') continue
+    context.commentRanges.push([context.baseOffset + comment.start, context.baseOffset + comment.end])
+  }
 
   walkAst(ast, [], (node, ancestors) => {
     const route = routeHintFromNode(node, context)
@@ -1279,6 +1291,7 @@ async function scanSourceFile(
   const sourceImports: SourceImportLink[] = []
   const actionHints: ActionHint[] = []
   const diagnostics: AnalysisDiagnostic[] = []
+  const commentRanges: Array<[number, number]> = []
   const filenameRoute = inferFilenameRoute(projectRoot, absoluteFile)
   if (filenameRoute) routeHints.push(filenameRoute)
   let routerMode: 'hash' | 'history' | undefined
@@ -1295,6 +1308,7 @@ async function scanSourceFile(
       source,
       baseOffset,
       aliases,
+      commentRanges,
       routeHints,
       componentRouteLinks,
       sourceImports,
@@ -1344,6 +1358,13 @@ async function scanSourceFile(
     if (parsed.descriptor.template) {
       const template = parsed.descriptor.template
       const templateOffset = template.loc.start.offset
+      // HTML comments carry no rendered meaning; recording their ranges keeps
+      // the quoted-literal fallback from treating commented-out keys as
+      // referenced (which used to block their dead-key classification).
+      const templateComment = /<!--[\s\S]*?-->/gu
+      for (let match = templateComment.exec(template.content); match; match = templateComment.exec(template.content)) {
+        commentRanges.push([templateOffset + match.index, templateOffset + match.index + match[0].length])
+      }
       try {
         const root = baseParse(template.content, {
           comments: false,
@@ -1397,13 +1418,26 @@ async function scanSourceFile(
   )
   if (catalogKeys?.size) {
     const existingKeys = new Set(occurrences.map((occurrence) => occurrence.keyPath))
+    const insideComment = (offset: number): boolean =>
+      commentRanges.some(([start, end]) => offset >= start && offset < end)
     for (const keyPath of catalogKeys) {
       if (existingKeys.has(keyPath)) continue
       const quotedCandidates = [`'${keyPath}'`, `"${keyPath}"`, `\`${keyPath}\``]
-      const offset = quotedCandidates
-        .map((candidate) => source.indexOf(candidate))
-        .filter((candidate) => candidate >= 0)
-        .sort((left, right) => left - right)[0]
+      // Every occurrence of every quoting variant, comment positions excluded:
+      // a key whose literal appears only inside comments is not referenced by
+      // renderable code and must stay classifiable as a dead key.
+      let offset: number | undefined
+      for (const candidate of quotedCandidates) {
+        let at = source.indexOf(candidate)
+        while (at >= 0) {
+          if (!insideComment(at)) {
+            offset = at
+            break
+          }
+          at = source.indexOf(candidate, at + 1)
+        }
+        if (offset !== undefined) break
+      }
       if (offset === undefined) continue
       occurrences.push(
         makeOccurrence({

@@ -842,7 +842,9 @@ export class StateStore {
     // Zero-occurrence keys are confirmed non-renderable and belong to
     // finalize's skippedNoSource; never hand them to an Agent as an anchor.
     // excludedTaskIds lets a caller (run auto-drive) enforce one-shot picks.
-    const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2_000)
+    // The listing is cursor-paginated: a hard 2_000-row cap silently hid the
+    // tail of very large agent queues from anchor selection.
+    const withOccurrences = this.listAllTasks(sessionId, ["needs_agent"])
       .filter((task) => task.occurrences.length > 0 && !excludeTaskIds.has(task.id));
     // Prefer anchors with at least one concrete literal occurrence. Keys that
     // only match dynamic template interpolation are low-confidence and mostly
@@ -906,7 +908,9 @@ export class StateStore {
 
   agentRouteBatch(sessionId: string, anchor: StoredTask, limit = 12): AgentRouteBatch {
     const route = preferredAgentRoute(anchor);
-    const candidates = this.listTasks(sessionId, ["needs_agent"], 2_000)
+    // Cursor-paginated so the route census covers queues beyond the
+    // interactive 2_000-row cap.
+    const candidates = this.listAllTasks(sessionId, ["needs_agent"])
       .filter((task) => task.occurrences.length > 0)
       .filter((task) => route ? preferredAgentRoute(task) === route : task.relativeFile === anchor.relativeFile);
     const selected = representativeRouteTasks(candidates, anchor, limit);

@@ -155,10 +155,11 @@ describe("collector scheduling", () => {
     ];
     const fakeStore = {
       listTasks: () => tasks,
-      // runDeterministicQueue re-enters via executeAgent's finally; it consumes
-      // the paginated variants even though this test drives the agent path.
+      // captureVisibleBatch consumes lightweight summaries; runDeterministicQueue
+      // re-enters via executeAgent's finally and needs the paginated variants.
       listAllTasks: () => [],
-      listTaskSummaries: () => [],
+      listTaskSummaries: () =>
+        tasks.map((task) => ({ id: task.id, keyPath: task.keyPath, status: "needs_agent" as const, chinese: "" })),
       addEvidence: (taskId: string) => {
         added.push(taskId);
         return `evidence_${taskId}`;

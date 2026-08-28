@@ -387,4 +387,30 @@ const routes = [{
     expect(occurrence).toBeDefined()
     expect(occurrence?.routeHints.some((hint) => hint.path === '/users/create' && hint.confidence >= 0.8)).toBe(true)
   })
+
+  it('does not treat keys quoted only inside comments as referenced', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'src', 'views', 'Commented.vue'),
+      `<script setup lang="ts">
+// const disabled = t('commented.scriptOnly')
+/* t('commented.blockOnly') */
+const { t } = useI18n()
+const live = t('commented.live')
+</script>
+<template>
+  <!-- {{ t('commented.templateOnly') }} -->
+  <h1>{{ t('commented.live') }}</h1>
+</template>`,
+    )
+    const result = await scanProjectSources({ projectRoot: root })
+    const byKey = new Map(result.occurrences.map((item) => [item.keyPath, item]))
+    // Live key: present and attributed to the real call site.
+    expect(byKey.get('commented.live')).toBeDefined()
+    // Comment-only keys: no occurrence at all, so finalize can classify them
+    // as dead keys instead of the Agent queue burning attempts on them.
+    expect(byKey.has('commented.scriptOnly')).toBe(false)
+    expect(byKey.has('commented.blockOnly')).toBe(false)
+    expect(byKey.has('commented.templateOnly')).toBe(false)
+  })
 })

@@ -91,12 +91,24 @@ function disposeVNodeScope(identity) {
         dispose();
     vnodeScopeDisposers.delete(identity);
 }
+// activeCausalProbe runs on EVERY rendered translation value; reparsing the
+// same sessionStorage payload per render measurably costs on dense pages. The
+// payload only changes when a new canary session writes a different token, so
+// caching keyed by the raw string is safe.
+let probeCacheRaw;
+let probeCacheParsed;
 function activeCausalProbe(occurrenceId) {
     try {
         const raw = window.sessionStorage.getItem(CAUSAL_PROBE_STORAGE_KEY);
         if (!raw)
             return undefined;
-        const parsed = JSON.parse(raw);
+        if (raw !== probeCacheRaw) {
+            probeCacheRaw = raw;
+            probeCacheParsed = JSON.parse(raw);
+        }
+        const parsed = probeCacheParsed;
+        if (!parsed)
+            return undefined;
         // Batched canary: a map of occurrenceId -> token lets one isolated probe
         // page verify many keys on the same route with a single navigation.
         if (parsed.tokens && typeof parsed.tokens === 'object') {

@@ -1083,7 +1083,9 @@ export class LocalService {
 
     const pendingByKey = new Map(
       store
-        .listTasks(sessionId, ["pending", "needs_agent", "needs_manual"], 2_000)
+        // Lightweight + cursor-paginated: the batch checkpoint pool must cover
+        // queues beyond any interactive row cap.
+        .listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
         .map((task) => [task.keyPath, task]),
     );
     const batchKeys = [...eligibleKeys].slice(0, 250).filter((key) => pendingByKey.has(key));

@@ -808,44 +808,76 @@ export class CollectorRegistry implements CollectorRegistryApi {
   }
 
   #handleMutations(mutations: MutationRecord[]): void {
+    const view = this.#document.defaultView
+    if (!view) return
+    const attributeTargets = new Set<Element>()
+    const removedRoots = new Set<Node>()
+    const scanRoots = new Set<Node>()
     for (const mutation of mutations) {
-      if (
-        mutation.type === 'attributes' &&
-        mutation.target instanceof this.#document.defaultView!.Element
-      ) {
-        this.#registerNativeElement(mutation.target)
+      if (mutation.type === 'attributes' && mutation.target instanceof view.Element) {
+        attributeTargets.add(mutation.target)
       }
       for (const node of Array.from(mutation.removedNodes)) {
-        this.#disposeInlineTransportTree(node)
-        if (node instanceof this.#document.defaultView!.Element) {
-          this.#disposeNativeTree(node)
-          this.#disposeImperativeTree(node)
-        }
+        removedRoots.add(node)
       }
       for (const node of Array.from(mutation.addedNodes)) {
-        this.#scanInlineProvenance(node)
-        if (node instanceof this.#document.defaultView!.Element) {
-          if (this.#options.scanNativeAttributes) this.rescan(node)
-          else this.#scanElementPlus(node)
-        }
+        scanRoots.add(node)
       }
       if (
         mutation.type === 'characterData' &&
-        mutation.target instanceof this.#document.defaultView!.Text
+        mutation.target instanceof view.Text
       ) {
-        this.#scanInlineProvenance(mutation.target)
+        scanRoots.add(mutation.target)
       }
       const mutationElement =
-        mutation.target instanceof this.#document.defaultView!.Element
+        mutation.target instanceof view.Element
           ? mutation.target
           : mutation.target.parentElement
-      if (mutationElement) {
-        this.#scanInlineProvenance(mutationElement)
-        this.#scanElementPlus(mutationElement)
+      if (mutationElement) scanRoots.add(mutationElement)
+    }
+    // Disposals first: bindings of removed subtrees must be gone before any
+    // rescan, so a node removed and re-added in one batch re-registers cleanly.
+    for (const node of removedRoots) {
+      this.#disposeInlineTransportTree(node)
+      if (node instanceof view.Element) {
+        this.#disposeNativeTree(node)
+        this.#disposeImperativeTree(node)
+      }
+    }
+    for (const element of attributeTargets) {
+      this.#registerNativeElement(element)
+    }
+    // One scan per topmost distinct root. A busy batch that touches body and
+    // dozens of descendants used to rescan the whole page once per mutation
+    // record — deep-DOM pages could starve the collector's own page.evaluate
+    // (a regression observed once before the budget guard existed). Scans are
+    // idempotent, so collapsing overlapping roots is behavior-preserving.
+    for (const root of this.#topmostRoots(scanRoots)) {
+      if (root instanceof view.Element && this.#options.scanNativeAttributes) {
+        this.rescan(root)
+      } else {
+        this.#scanInlineProvenance(root)
+        if (root instanceof view.Element) this.#scanElementPlus(root)
       }
     }
     this.#scheduleRenderedResolution()
     this.#refreshOverlay()
+  }
+
+  /** Candidates that no other candidate contains — scanning each once covers every candidate subtree exactly once. */
+  #topmostRoots(candidates: Set<Node>): Node[] {
+    const roots: Node[] = []
+    for (const candidate of candidates) {
+      let covered = false
+      for (const other of candidates) {
+        if (other !== candidate && other.contains(candidate)) {
+          covered = true
+          break
+        }
+      }
+      if (!covered) roots.push(candidate)
+    }
+    return roots
   }
 
   #disposeNativeTree(root: Element): void {

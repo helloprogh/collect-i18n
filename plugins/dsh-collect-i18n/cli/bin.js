@@ -151650,14 +151650,16 @@ function walkAst(node, ancestors, visitor) {
   if (typeof record2.type !== "string") return;
   const astNode = record2;
   visitor(astNode, ancestors);
+  ancestors.push(astNode);
   for (const [key, child] of Object.entries(record2)) {
     if (["loc", "start", "end", "extra", "leadingComments", "trailingComments"].includes(key)) {
       continue;
     }
     if (child && typeof child === "object") {
-      walkAst(child, [...ancestors, astNode], visitor);
+      walkAst(child, ancestors, visitor);
     }
   }
+  ancestors.pop();
 }
 function escapeRegularExpression(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -152318,6 +152320,11 @@ function scanScript(script, context, parserPlugins) {
   extractComponentRouteLinks(ast, context);
   extractSourceImports(ast, context);
   const staticBindings = collectStaticBindings(ast);
+  const attachedComments = ast.comments;
+  for (const comment of Array.isArray(attachedComments) ? attachedComments : []) {
+    if (typeof comment?.start !== "number" || typeof comment?.end !== "number") continue;
+    context.commentRanges.push([context.baseOffset + comment.start, context.baseOffset + comment.end]);
+  }
   walkAst(ast, [], (node, ancestors) => {
     const route = routeHintFromNode(node, context);
     if (route) context.routeHints.push(route);
@@ -152442,6 +152449,7 @@ async function scanSourceFile(projectRoot, absoluteFile, catalogKeys, translatio
   const sourceImports = [];
   const actionHints = [];
   const diagnostics = [];
+  const commentRanges = [];
   const filenameRoute = inferFilenameRoute(projectRoot, absoluteFile);
   if (filenameRoute) routeHints.push(filenameRoute);
   let routerMode;
@@ -152453,6 +152461,7 @@ async function scanSourceFile(projectRoot, absoluteFile, catalogKeys, translatio
       source,
       baseOffset,
       aliases,
+      commentRanges,
       routeHints,
       componentRouteLinks,
       sourceImports,
@@ -152495,6 +152504,10 @@ async function scanSourceFile(projectRoot, absoluteFile, catalogKeys, translatio
     if (parsed.descriptor.template) {
       const template = parsed.descriptor.template;
       const templateOffset = template.loc.start.offset;
+      const templateComment = /<!--[\s\S]*?-->/gu;
+      for (let match = templateComment.exec(template.content); match; match = templateComment.exec(template.content)) {
+        commentRanges.push([templateOffset + match.index, templateOffset + match.index + match[0].length]);
+      }
       try {
         const root = (0, import_compiler_dom.baseParse)(template.content, {
           comments: false
@@ -152545,10 +152558,22 @@ async function scanSourceFile(projectRoot, absoluteFile, catalogKeys, translatio
   );
   if (catalogKeys?.size) {
     const existingKeys = new Set(occurrences.map((occurrence) => occurrence.keyPath));
+    const insideComment = (offset) => commentRanges.some(([start, end]) => offset >= start && offset < end);
     for (const keyPath of catalogKeys) {
       if (existingKeys.has(keyPath)) continue;
       const quotedCandidates = [`'${keyPath}'`, `"${keyPath}"`, `\`${keyPath}\``];
-      const offset = quotedCandidates.map((candidate) => source.indexOf(candidate)).filter((candidate) => candidate >= 0).sort((left, right) => left - right)[0];
+      let offset;
+      for (const candidate of quotedCandidates) {
+        let at = source.indexOf(candidate);
+        while (at >= 0) {
+          if (!insideComment(at)) {
+            offset = at;
+            break;
+          }
+          at = source.indexOf(candidate, at + 1);
+        }
+        if (offset !== void 0) break;
+      }
       if (offset === void 0) continue;
       occurrences.push(
         makeOccurrence({
@@ -157693,7 +157718,7 @@ var StateStore = class _StateStore {
    */
   nextAgentTask(sessionId, excludedRoutes = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE, excludeTaskIds = /* @__PURE__ */ new Set()) {
     const excluded = new Set(excludedRoutes);
-    const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2e3).filter((task) => task.occurrences.length > 0 && !excludeTaskIds.has(task.id));
+    const withOccurrences = this.listAllTasks(sessionId, ["needs_agent"]).filter((task) => task.occurrences.length > 0 && !excludeTaskIds.has(task.id));
     const staticCandidates = withOccurrences.filter((task) => task.occurrences.some((occurrence) => !isDynamicOccurrence(occurrence)));
     const tasks = staticCandidates.length > 0 ? staticCandidates : withOccurrences;
     const routeCounts = /* @__PURE__ */ new Map();
@@ -157733,7 +157758,7 @@ var StateStore = class _StateStore {
   }
   agentRouteBatch(sessionId, anchor, limit = 12) {
     const route = preferredAgentRoute(anchor);
-    const candidates = this.listTasks(sessionId, ["needs_agent"], 2e3).filter((task) => task.occurrences.length > 0).filter((task) => route ? preferredAgentRoute(task) === route : task.relativeFile === anchor.relativeFile);
+    const candidates = this.listAllTasks(sessionId, ["needs_agent"]).filter((task) => task.occurrences.length > 0).filter((task) => route ? preferredAgentRoute(task) === route : task.relativeFile === anchor.relativeFile);
     const selected = representativeRouteTasks(candidates, anchor, limit);
     const sourceFiles = /* @__PURE__ */ new Set();
     const sections = /* @__PURE__ */ new Map();
@@ -159111,7 +159136,7 @@ var LocalService = class {
     );
     if (eligibleKeys.size === 0) return [];
     const pendingByKey = new Map(
-      store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"], 2e3).map((task) => [task.keyPath, task])
+      store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).map((task) => [task.keyPath, task])
     );
     const batchKeys = [...eligibleKeys].slice(0, 250).filter((key) => pendingByKey.has(key));
     if (batchKeys.length === 0) return [];

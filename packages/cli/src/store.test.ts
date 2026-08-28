@@ -521,6 +521,48 @@ describe("StateStore transactions", () => {
     migratedStore.close();
   });
 
+  it("selects agent anchors across queues beyond the interactive 2_000-row cap", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const keyPaths = Array.from({ length: 2_101 }, (_, index) => `agent.key_${String(index).padStart(4, "0")}`);
+    // Occurrences without a high-confidence route hint: each key lands in the
+    // needs_agent queue (stage agent) instead of the deterministic one.
+    const seed = analysis();
+    const keys = keyPaths.map((keyPath, index) => ({
+      ...seed.catalog.keys[0]!,
+      id: `locale_${index}`,
+      keyPath,
+      relativeFile: "agent.json",
+      jsonPath: keyPath.split("."),
+    }));
+    const occurrences = keyPaths.map((keyPath, index) => ({
+      ...seed.source.occurrences[0]!,
+      id: `occ_${index}`,
+      keyPath,
+      routeHints: [],
+    }));
+    const bulkAnalysis: ProjectAnalysis = {
+      ...seed,
+      catalog: { ...seed.catalog, keys },
+      source: { ...seed.source, occurrences },
+      unusedKeys: keys,
+    };
+    const projectId = store.syncProject(projectRoot, {}, bulkAnalysis);
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    expect(store.status(sessionId).counts).toMatchObject({ needs_agent: 2_101 });
+
+    // Completeness proof in one pick: exclude every anchor except the
+    // key_path-order tail. A truncated candidate listing (the old 2_000-row
+    // cap) would never see the tail and return undefined.
+    const all = store.listAllTasks(sessionId, ["needs_agent"]);
+    expect(all).toHaveLength(2_101);
+    const tail = all[2_100]!;
+    const excluded = new Set(all.filter((task) => task.id !== tail.id).map((task) => task.id));
+    const picked = store.nextAgentTask(sessionId, [], 48, excluded);
+    expect(picked?.id).toBe(tail.id);
+    store.close();
+  });
+
   it("guards markTask against clobbering a state another writer already moved", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);
