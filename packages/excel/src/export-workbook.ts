@@ -213,6 +213,13 @@ export async function exportTranslationWorkbook(
       cell.value = "死键";
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
+    } else if (source.manualReason) {
+      // Remaining manual rows: annotate the cause group (dynamic source,
+      // manual fallback...) in the same style so reviewers can batch them.
+      const cell = row.getCell(3);
+      cell.value = source.manualReason === "unresolved_dynamic_source" ? "动态键" : "人工";
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.font = { italic: true, color: { argb: "FF6B7280" } };
     }
   }
 

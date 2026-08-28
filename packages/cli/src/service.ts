@@ -597,7 +597,10 @@ export class LocalService {
     let inspection = await collector.inspectRuntimeSettled(2_000);
     let mountedKeys = new Set(this.inspectionMountedKeys(inspection));
     const groupIds = new Set(group.map((task) => task.id));
-    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent"]).filter(
+    // needs_manual joins the pool: dynamic-prefix keys created as manual can
+    // be promoted automatically the moment their full instance actually
+    // mounts (runtime-observed), and dead keys simply never mount.
+    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter(
       (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
     );
     const candidates = [...group, ...opportunistic];
@@ -648,6 +651,20 @@ export class LocalService {
     // scroll pass — only run while candidates remain unhandled.
     if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
       newlyCaptured += await this.captureWidgetSweptVisible(sessionId, collector, group, handledKeys);
+    }
+    // R8: bounded interaction sweep (tabs, then buttons) — clicks one target
+    // per round, batch-captures whatever mounts (toasts, dialogs, panels),
+    // and dismisses overlays before the next round. Component-agnostic:
+    // driven by ARIA roles and native buttons only.
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureInteractionSweptVisible(sessionId, collector, group, handledKeys);
+    }
+    // R9: runtime evidence mirror — every translation value that flowed
+    // through t() is recorded offscreen by the instrumentation, so canvas
+    // formatters, transient toasts and imperative dialogs yield evidence
+    // even though their final widget never stayed in the DOM.
+    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+      newlyCaptured += await this.captureMirrorVisible(sessionId, collector, group, handledKeys);
     }
     // Final pass: keys the batches never resolved. The per-key fallback is
     // a short waitForKey (1-2s) cadence bounded per visit: a route with
@@ -762,7 +779,7 @@ export class LocalService {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"])
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         // Stability check: nothing new visible and nothing captured on this
@@ -810,7 +827,7 @@ export class LocalService {
       if (this.manualActive) return newlyCaptured;
       const outcome = await collector.widgetSweepForCapture(6);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent"])
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         if (outcome === "exhausted") break;
@@ -829,6 +846,95 @@ export class LocalService {
         } else if (result.rejected) {
           if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
         }
+      }
+    }
+    return newlyCaptured;
+  }
+
+  /**
+   * R8: bounded interaction sweep pass. Each round clicks ONE swept target
+   * (ARIA tab or native button), gives transient content a short window,
+   * batch-captures newly mounted keys (any pool incl. needs_manual), then
+   * dismisses overlays so the next round starts from a clean surface.
+   */
+  private async captureInteractionSweptVisible(
+    sessionId: string,
+    collector: BrowserCollector,
+    group: Array<import("./store.js").StoredTask>,
+    handledKeys: Set<string>,
+  ): Promise<number> {
+    const store = this.store!;
+    const groupIds = new Set(group.map((task) => task.id));
+    const maxRounds = 10;
+    let newlyCaptured = 0;
+    let idleRounds = 0;
+    for (let round = 1; round <= maxRounds; round += 1) {
+      if (this.manualActive) return newlyCaptured;
+      const clicked = await collector.interactionSweepStep();
+      if (!clicked) break;
+      await new Promise((done) => setTimeout(done, 400));
+      const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(800, 1_200, 250)));
+      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
+      await collector.dismissOverlays();
+      if (notYetHandled.length === 0) {
+        idleRounds += 1;
+        if (idleRounds >= 3) break;
+        continue;
+      }
+      idleRounds = 0;
+      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+      const byKey = new Map(results.map((result) => [result.key, result]));
+      for (const task of notYetHandled) {
+        if (this.manualActive) return newlyCaptured;
+        const result = byKey.get(task.keyPath);
+        if (!result) continue;
+        handledKeys.add(task.keyPath);
+        if (result.evidence) {
+          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
+          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error)); }
+        } else if (result.rejected) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected);
+        }
+      }
+    }
+    return newlyCaptured;
+  }
+
+  /**
+   * R9: evidence-mirror capture pass. The instrumentation records every
+   * translation value offscreen at call time, so keys whose final widget is
+   * a canvas, a transient toast or an imperative dialog still yield B-grade
+   * evidence here. needs_manual keys participate: a key that was created
+   * manual because its source is dynamic gets promoted the moment its
+   * rendered value shows up.
+   */
+  private async captureMirrorVisible(
+    sessionId: string,
+    collector: BrowserCollector,
+    group: Array<import("./store.js").StoredTask>,
+    handledKeys: Set<string>,
+  ): Promise<number> {
+    const store = this.store!;
+    const groupIds = new Set(group.map((task) => task.id));
+    const entries = await collector.mirrorEntries();
+    if (entries.length === 0) return 0;
+    const mirrorKeys = new Set(entries.map((entry) => entry.key));
+    const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+      .filter((task) => !handledKeys.has(task.keyPath) && mirrorKeys.has(task.keyPath))
+      .slice(0, 60);
+    let newlyCaptured = 0;
+    for (const task of notYetHandled) {
+      if (this.manualActive) return newlyCaptured;
+      try {
+        const evidence = await collector.captureMirrorEvidence(task.keyPath);
+        if (!evidence) continue;
+        handledKeys.add(task.keyPath);
+        store.addEvidence(task.id, evidence);
+        newlyCaptured += 1;
+      } catch (error) {
+        handledKeys.add(task.keyPath);
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error));
       }
     }
     return newlyCaptured;

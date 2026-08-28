@@ -27,6 +27,51 @@ let imperativeInvocationSequence = 0
 const vnodeScopeDisposers = new WeakMap<object, Array<() => void>>()
 export const CAUSAL_PROBE_STORAGE_KEY = '__collect_i18n_causal_probe_v1'
 
+/**
+ * Library-agnostic evidence mirror. Every translation value that flows through
+ * the instrumentation — canvas formatters, transient toasts, imperative
+ * dialogs — is appended here as rendered text, so the collector can capture
+ * evidence for keys whose final widget never enters the DOM. The strip lives
+ * offscreen; the collector toggles it visible only while screenshotting an
+ * entry. No component-library knowledge involved: this records at the i18n
+ * value layer, which every rendering path passes through.
+ */
+const MIRROR_ELEMENT_ID = '__collect_i18n_evidence_mirror'
+const mirrorEntryByKey = new Map<string, HTMLElement>()
+
+function ensureEvidenceMirror(): HTMLElement | undefined {
+  if (typeof document === 'undefined') return undefined
+  let mirror = document.getElementById(MIRROR_ELEMENT_ID)
+  if (!mirror) {
+    mirror = document.createElement('div')
+    mirror.id = MIRROR_ELEMENT_ID
+    mirror.setAttribute('aria-hidden', 'true')
+    mirror.setAttribute('data-collect-i18n-mirror', 'true')
+    mirror.style.cssText =
+      'position:fixed;left:-99999px;top:0;z-index:2147483647;' +
+      'background:#fff;color:#111;font:14px/1.6 sans-serif;padding:8px;white-space:nowrap;'
+    document.body.appendChild(mirror)
+  }
+  return mirror
+}
+
+function recordEvidenceMirror(key: string, text: string): void {
+  try {
+    const mirror = ensureEvidenceMirror()
+    if (!mirror || !key) return
+    const existing = mirrorEntryByKey.get(key)
+    if (existing && existing.textContent === text) return
+    if (existing) existing.remove()
+    const entry = document.createElement('div')
+    entry.setAttribute('data-collect-i18n-mirror-key', key)
+    entry.textContent = text
+    mirror.appendChild(entry)
+    mirrorEntryByKey.set(key, entry)
+  } catch {
+    /* The mirror must never break application rendering. */
+  }
+}
+
 interface CausalProbe {
   occurrenceId: string
   token: string
@@ -222,6 +267,13 @@ export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey
     (typeof value === 'string' || typeof value === 'number')
   const renderedValue = canSubstitute ? probe.token : value
   registry?.recordRenderedValue(occurrenceId, renderedValue, actualKey)
+  const mirrorKey = actualKey ?? snapshot?.keyExpression
+  if (
+    typeof mirrorKey === 'string' &&
+    (typeof renderedValue === 'string' || typeof renderedValue === 'number')
+  ) {
+    recordEvidenceMirror(mirrorKey, String(renderedValue))
+  }
   const invocation = [...activeImperativeInvocations]
     .reverse()
     .find((candidate) => candidate.occurrenceIds.has(occurrenceId))

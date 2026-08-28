@@ -68,6 +68,8 @@ export interface StoredTask {
   actionHints: unknown[];
   attempts: number;
   lastError?: string;
+  /** ISO datetime of the last task update; used by fair next-task ordering. */
+  updatedAt?: string;
   /** Set when the session pre-classified or finalize classified the task as skipped (no_source_occurrence / non_visual_source_only). */
   skipReason?: string | null;
   plan?: unknown;
@@ -676,6 +678,26 @@ export class StateStore {
     return this.db.prepare(`SELECT s.*, p.root AS project_root FROM sessions s JOIN projects p ON p.id=s.project_id ORDER BY s.created_at DESC LIMIT 1`).get() as Record<string, unknown> | undefined;
   }
 
+  /**
+   * Copy verified TriggerPlans from the same project's previous sessions
+   * into this session's tasks, so repeat runs execute known recipes without
+   * re-deriving them. Plans match by key_path; only tasks without a plan
+   * inherit, and the newest plan wins.
+   */
+  inheritPlans(sessionId: string, projectId: string): number {
+    const result = this.db.prepare(`
+      UPDATE tasks SET plan_json = (
+        SELECT t2.plan_json FROM tasks t2
+        JOIN sessions s2 ON s2.id = t2.session_id
+        WHERE s2.project_id = ? AND s2.id != ? AND t2.key_path = tasks.key_path
+          AND t2.plan_json IS NOT NULL
+        ORDER BY s2.created_at DESC LIMIT 1
+      )
+      WHERE session_id = ? AND plan_json IS NULL
+    `).run(projectId, sessionId, sessionId);
+    return Number(result.changes);
+  }
+
   status(sessionId: string): Record<string, unknown> {
     const session = this.session(sessionId);
     if (!session) throw new Error(`会话不存在：${sessionId}`);
@@ -802,12 +824,13 @@ export class StateStore {
    *   when every remaining non-saturated route is over budget, so a healthy
    *   route is never left idling.
    */
-  nextAgentTask(sessionId: string, excludedRoutes: string[] = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE): StoredTask | undefined {
+  nextAgentTask(sessionId: string, excludedRoutes: string[] = [], maxAnchorsPerRoute = MAX_AGENT_ANCHORS_PER_ROUTE, excludeTaskIds: ReadonlySet<string> = new Set()): StoredTask | undefined {
     const excluded = new Set(excludedRoutes);
     // Zero-occurrence keys are confirmed non-renderable and belong to
     // finalize's skippedNoSource; never hand them to an Agent as an anchor.
+    // excludedTaskIds lets a caller (run auto-drive) enforce one-shot picks.
     const withOccurrences = this.listTasks(sessionId, ["needs_agent"], 2_000)
-      .filter((task) => task.occurrences.length > 0);
+      .filter((task) => task.occurrences.length > 0 && !excludeTaskIds.has(task.id));
     // Prefer anchors with at least one concrete literal occurrence. Keys that
     // only match dynamic template interpolation are low-confidence and mostly
     // non-renderable; they stay in the queue and are anchored on only after
@@ -855,7 +878,17 @@ export class StateStore {
         return { task, index, priority, route };
       })
       .filter((item) => allowRoute(item.route))
-      .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.task;
+      // Stable picker: on priority ties, least-attempted first, then least
+      // recently touched. A just-failed task therefore sinks below un-picked
+      // ones instead of being re-chosen forever (stuck auto-drive / agent).
+      .map((item) => ({ ...item, attempts: item.task?.attempts ?? 0, updated: item.task?.updatedAt ?? "" }))
+      .sort(
+        (left, right) =>
+          right.priority - left.priority ||
+          left.attempts - right.attempts ||
+          (left.updated < right.updated ? -1 : left.updated > right.updated ? 1 : 0) ||
+          left.index - right.index,
+      )[0]?.task;
   }
 
   agentRouteBatch(sessionId: string, anchor: StoredTask, limit = 12): AgentRouteBatch {
@@ -941,6 +974,7 @@ export class StateStore {
       routeHints,
       actionHints,
       attempts: Number(row.attempts),
+      updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined,
       lastError: typeof row.last_error === "string" ? row.last_error : undefined,
       skipReason: typeof row.skip_reason === "string" ? row.skip_reason : null,
       plan: parseJson(row.plan_json, undefined),
@@ -1143,7 +1177,7 @@ export class StateStore {
     if (task) this.addEvent(task.sessionId, "manual.listening", { taskId, keyPath: task.keyPath, stage: "manual", origin: "manual" });
   }
 
-  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean; nonVisual?: boolean; deadKey?: boolean }> {
+  localeCatalog(sessionId: string, englishRoot: string): Array<{ keyPath: string; chinese: string; english?: string; relativeFile: string; targetFile: string; jsonPath: string[]; screenshotPath?: string; screenshotSha256?: string; deprecated?: boolean; nonVisual?: boolean; deadKey?: boolean; manualReason?: string }> {
     const rows = this.db.prepare(`
       SELECT k.*, t.status AS task_status, t.skip_reason, (
         SELECT e.screenshot_path
@@ -1180,6 +1214,12 @@ export class StateStore {
         // guard routed this unreachable key to manual instead of skip.
         // Flag it so the reviewer can prune it without investigating.
         deadKey: row.task_status === "needs_manual" && Number(row.occurrence_count) === 0,
+        // Human-oriented reason for anything still in the manual queue, so
+        // batch processing can group identical causes (dynamic source,
+        // canvas-rendered text, unreachable key...).
+        manualReason: row.task_status === "needs_manual"
+          ? String(row.skip_reason ?? (Number(row.occurrence_count) === 0 ? "no_source_occurrence" : "manual_fallback"))
+          : undefined,
         relativeFile: row.relative_file as string,
         targetFile: join(resolve(englishRoot), row.relative_file as string),
         jsonPath: parseJson<string[]>(row.json_path, (row.key_path as string).split(".")),

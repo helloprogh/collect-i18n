@@ -115,18 +115,25 @@ async function waitForDescriptor(projectRoot: string, sessionId: string): Promis
 
 async function startBackground(projectRoot: string, sessionId: string): Promise<ServiceDescriptor> {
   const executable = fileURLToPath(import.meta.url);
-  if (executable.endsWith(".ts")) throw new Error("后台模式需要先构建 CLI；开发时请使用 start --foreground");
+  // Source checkouts run the CLI through tsx; the background daemon then
+  // boots the same tsx loader so live source edits apply to the service too.
+  const tsxCli = executable.endsWith(".ts")
+    ? join(resolve(dirname(executable), "..", "..", ".."), "node_modules", "tsx", "dist", "cli.mjs")
+    : undefined;
+  const commandLine = tsxCli
+    ? [process.execPath, tsxCli, executable, "--project", projectRoot, "serve", "--session", sessionId]
+    : [process.execPath, executable, "--project", projectRoot, "serve", "--session", sessionId];
   const logPath = join(resolveStateRoot(projectRoot), "service.log");
   await mkdir(dirname(logPath), { recursive: true });
   const log = openSync(logPath, "a");
-  const child = spawn(process.execPath, [executable, "--project", projectRoot, "serve", "--session", sessionId], {
+  const child = spawn(process.execPath, commandLine, {
     cwd: projectRoot,
     detached: true,
-    // The service itself has no inherited stdio, so it does not need a console
-    // window. Keeping the Windows process visible is intentional: a manual
-    // fallback session must be able to show the Playwright-owned browser for
-    // the operator to act in it.
-    windowsHide: false,
+    // The service has no inherited stdio, so no console window is needed.
+    // windowsHide:false would force a new console on Windows, which fails
+    // silently when the parent is a non-console worker (the watcher host);
+    // the Playwright browser still gets its own windows via playwright-core.
+    windowsHide: true,
     stdio: ["ignore", log, log],
   });
   closeSync(log);
@@ -173,9 +180,12 @@ async function pathExists(path: string): Promise<boolean> {
   catch { return false; }
 }
 
-async function prepareWorkflow(projectRoot: string): Promise<{ descriptor: ServiceDescriptor; config: ProjectConfig; reused: boolean }> {
+async function prepareWorkflow(
+  projectRoot: string,
+  opts: { foreground?: boolean } = {},
+): Promise<{ descriptor: ServiceDescriptor; config: ProjectConfig; reused: boolean; foreground: boolean; sessionId: string }> {
   const existing = await descriptorAlive(projectRoot);
-  if (existing) return { descriptor: existing, config: await loadConfig(projectRoot), reused: true };
+  if (existing) return { descriptor: existing, config: await loadConfig(projectRoot), reused: true, foreground: false, sessionId: existing.sessionId };
 
   await retireStaleDescriptor(projectRoot);
   const doctor = await doctorProject(projectRoot);
@@ -194,15 +204,21 @@ async function prepareWorkflow(projectRoot: string): Promise<{ descriptor: Servi
   try {
     const projectId = store.syncProject(projectRoot, config, analysis);
     sessionId = store.createSession(projectId, config.app.baseUrl);
+    store.inheritPlans(sessionId, projectId);
   } finally { store.close(); }
   try {
-    return { descriptor: await startBackground(projectRoot, sessionId), config, reused: false };
-  } catch (error) {
-    const failedStore = await StateStore.open(projectRoot);
-    try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
-    throw error;
+    if (opts.foreground) {
+        // In-process run: the caller boots LocalService itself; return a
+        // placeholder descriptor (urls filled once the service has started).
+        return { descriptor: { pid: process.pid, projectRoot, sessionId, startedAt: new Date().toISOString() } as ServiceDescriptor, config, reused: false, foreground: true, sessionId };
+      }
+      return { descriptor: await startBackground(projectRoot, sessionId), config, reused: false, foreground: false, sessionId };
+    } catch (error) {
+      const failedStore = await StateStore.open(projectRoot);
+      try { failedStore.closeSession(sessionId, "failed"); } finally { failedStore.close(); }
+      throw error;
+    }
   }
-}
 
 interface AutomaticProgress {
   processed: number;
@@ -269,7 +285,7 @@ const program = new Command();
 program
   .name("collect-i18n")
   .description("Vue 国际化词条运行时证据采集、截图与四列 Excel 往返工具")
-  .version("0.4.0")
+  .version("0.5.0")
   .option("--project <path>", "Vue 项目根目录", process.cwd())
   .option("--json", "输出稳定的 JSON 协议")
   .option("--non-interactive", "禁用交互提示");
@@ -409,14 +425,46 @@ program.command("run")
   .option("--output <file>", "Excel 输出路径")
   .option("--deadline-minutes <minutes>", "完整工作流截止时间", "120")
   .option("--deterministic-timeout-minutes <minutes>", "等待静态队列的最长时间(默认 max(15, ceil(词条数/60)) 自适应)")
-  .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes?: string }, command) => {
+  .option("--foreground", "在当前进程中运行采集服务(调试/受限环境用，替代后台守护进程)")
+  .action(async (options: { output?: string; deadlineMinutes: string; deterministicTimeoutMinutes?: string; foreground?: boolean }, command) => {
     const workflowStartedAt = Date.now();
     const projectRoot = projectOf(command);
+    // Mirror startBackground's cwd so a foreground service resolves the
+    // project's vite config (index.html, plugins) from the right directory.
+    process.chdir(projectRoot);
     const deadlineMinutes = Math.max(1, Number(options.deadlineMinutes) || 120);
     const deadlineAt = new Date(workflowStartedAt + deadlineMinutes * 60_000).toISOString();
     const jsonMode = Boolean((command.optsWithGlobals() as GlobalOptions).json);
     if (!jsonMode) process.stderr.write("[collect-i18n] 正在检查项目并启动采集服务…\n");
-    const workflow = await prepareWorkflow(projectRoot);
+    const workflow = await prepareWorkflow(projectRoot, { foreground: options.foreground });
+    let foregroundService: LocalService | undefined;
+    if (workflow.foreground) {
+      const service = new LocalService({
+        config: workflow.config,
+        sessionId: workflow.sessionId,
+        studioDirectory: resolve(fileURLToPath(new URL("../../../apps/studio/dist", import.meta.url))),
+        onShutdownRequest: async () => {
+          await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => undefined);
+        },
+      });
+      try {
+        const started = await service.start();
+        workflow.descriptor = {
+          pid: process.pid,
+          projectRoot,
+          sessionId: workflow.sessionId,
+          ...started,
+          startedAt: new Date().toISOString(),
+        };
+        await writeDescriptor(projectRoot, workflow.descriptor);
+        foregroundService = service;
+      } catch (error) {
+        await service.stop().catch(() => undefined);
+        const failedStore = await StateStore.open(projectRoot);
+        try { failedStore.closeSession(workflow.sessionId, "failed"); } finally { failedStore.close(); }
+        throw error;
+      }
+    }
     const deadlineStore = await StateStore.open(projectRoot);
     deadlineStore.setDeadline(workflow.descriptor.sessionId, deadlineAt);
     // R6: adaptive deterministic window. At the measured 34-87 keys/min a
@@ -443,6 +491,91 @@ program.command("run")
             );
           },
     );
+    // Auto-drive the Agent queue with generated fallback plans (bounded by
+    // the session deadline and route saturation). Plans are deterministic
+    // recipes: router-hint goto + waitForKey + capture; the service executes
+    // them through the same TriggerPlan pipeline as interactive agents.
+    try {
+      const driveStore = await StateStore.open(projectRoot);
+      const sessionId = workflow.descriptor.sessionId;
+      const maxPlans = 120;
+      let executed = 0;
+      let consecutiveFailures = 0;
+      // Settle guard: the deterministic queue dispatches route groups in
+      // bursts; a transient pending/running == 0 gap between groups is not
+      // completion. Three consecutive calm samples (2s apart) confirm the
+      // queue really drained before the auto-drive touches the browser.
+      {
+        let calm = 0;
+        for (let probe = 0; probe < 12; probe += 1) {
+          const snapshot = driveStore.status(sessionId);
+          const counts = (snapshot.counts ?? {}) as Record<string, number>;
+          if (Number(counts.pending ?? 0) === 0 && Number(counts.running ?? 0) === 0) {
+            calm += 1;
+            if (calm >= 3) break;
+          } else {
+            calm = 0;
+          }
+          await new Promise((done) => setTimeout(done, 2_000));
+        }
+      }
+      // The drive is deadline-bounded, so the Anchor route budget (meant for
+      // sustained interactive phases) must not cut it off early; pass a higher
+      // per-route cap and let the deadline be the real limit.
+      const driveAttempted = new Set<string>();
+      while (executed < maxPlans) {
+        if (Date.now() > Date.parse(deadlineAt) - 30_000) break;
+        const saturated = driveStore.saturatedRoutes(sessionId);
+        // one-shot picks: nextAgentTask excludes anything already attempted
+        const task = driveStore.nextAgentTask(sessionId, saturated, 48, driveAttempted);
+        if (!task || (task as { done?: boolean }).done) break;
+        driveAttempted.add(String(task.id));
+        const planStartedAt = Date.now();
+        const occurrences = ((task as { occurrences?: Array<{ routeHints?: Array<{ path?: string; source?: string }> }> }).occurrences ?? []);
+        const hints = occurrences.flatMap((occurrence) => occurrence.routeHints ?? []);
+        const route = hints.find((hint) => hint.source === "router_config")?.path ?? hints[0]?.path ?? "/";
+        const plan = {
+          version: 1 as const,
+          targetKey: String(task.keyPath),
+          route,
+          steps: [
+            { type: "goto" as const, path: route },
+            { type: "wait" as const, milliseconds: 900 },
+            { type: "waitForKey" as const, key: String(task.keyPath), timeoutMs: 4_000 },
+            { type: "capture" as const },
+          ],
+          rationale: "run auto-drive: router-hint goto + waitForKey + capture",
+        };
+        // Persist the plan for cross-session reuse; savePlan keeps the task
+        // needs_agent so the service-side executeAgent can submit (mark
+        // running) exactly once. An earlier pre-submit here left tasks stuck.
+        driveStore.savePlan(String(task.id), plan as never);
+        try {
+          await callService(projectRoot, "/api/agent/execute", {
+            method: "POST",
+            body: JSON.stringify({ taskId: task.id, plan }),
+          });
+          consecutiveFailures = 0;
+        } catch (error) {
+          // A slow execution failure (waits ran, key not found) is data, not
+          // an outage; only fast rejects (connection/route errors) count
+          // against the run as likely service problems.
+          if (Date.now() - planStartedAt < 2_000) {
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= 5) break;
+          }
+          try { driveStore.markTask(String(task.id), "needs_agent", "自动驱动未能执行计划"); } catch { /* best effort */ }
+          if (!jsonMode) {
+            process.stderr.write(`[collect-i18n] 计划执行失败 ${task.keyPath}: ${error instanceof Error ? error.message : String(error)}\n`);
+          }
+        }
+        executed += 1;
+      }
+      if (executed > 0 && !jsonMode) process.stderr.write(`[collect-i18n] 自动计划执行 ${executed} 个。\n`);
+      driveStore.close();
+    } catch (error) {
+      if (!jsonMode) process.stderr.write(`[collect-i18n] 自动计划驱动跳过：${error instanceof Error ? error.message : String(error)}\n`);
+    }
     if (!jsonMode) process.stderr.write("[collect-i18n] 自动处理已结束，正在生成 Excel…\n");
     const englishRoot = await findEnglishRoot(workflow.config);
     const store = await StateStore.open(projectRoot);
@@ -476,6 +609,17 @@ program.command("run")
       status,
       workbook: exported,
     });
+    // The workflow is finished: close the session so leftover tasks do not
+    // linger in a stale "running" state, and release an in-process service.
+    try {
+      const finalStore = await StateStore.open(projectRoot);
+      finalStore.closeSession(workflow.sessionId, "stopped");
+      finalStore.close();
+    } catch { /* best effort */ }
+    if (foregroundService) {
+      await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => undefined);
+      await foregroundService.stop().catch(() => undefined);
+    }
   });
 
 program.command("serve", { hidden: true })

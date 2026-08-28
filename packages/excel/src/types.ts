@@ -37,6 +37,10 @@ export interface WorkbookExportRow extends LocaleCatalogEntry {
    * 「死键」 instead of an empty cell.
    */
   deadKey?: boolean;
+  /** Why the key sits in the manual queue (unresolved_dynamic_source, ...).
+   * Rendered as the 截图 column annotation for manual rows that are not
+   * dead keys, so batch processing can group identical causes. */
+  manualReason?: string;
 }
 
 export type ImportIssueCode =

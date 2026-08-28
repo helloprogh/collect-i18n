@@ -411,6 +411,9 @@ describe("deterministic queue throughput (R1/R2/R3)", () => {
       },
       scrollForCapture: async (step: number) => { handlers.log.scrolls.push(step); },
       widgetSweepForCapture: async () => "exhausted" as const,
+      interactionSweepStep: async () => false,
+      dismissOverlays: async () => undefined,
+      mirrorEntries: async () => [],
       waitForKey: async (key: string) => {
         handlers.log.waitForKeyCalls.push(key);
         if (handlers.waitForKeyImpl) return handlers.waitForKeyImpl(key);

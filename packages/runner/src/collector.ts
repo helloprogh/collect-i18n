@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page, Route } from "playwright-core";
 import { parseTriggerPlan, mockRuleSchema, type MockRule, type ParsedTriggerPlan, type PlanLocator, type TriggerPlan } from "./plan.js";
@@ -1034,9 +1034,10 @@ export class BrowserCollector {
       return false; // Already authenticated: no redirect to the login route.
     }
     const timeout = 10_000;
-    await this.activePage.locator(login.usernameSelector ?? 'input[type="text"], input[name*="user" i]').first().fill(username, { timeout });
-    await this.activePage.locator(login.passwordSelector ?? 'input[type="password"]').first().fill(password, { timeout });
-    await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout });
+    // The first fill runs inside the retry loop below so an app that
+    // auto-authenticates (or bounces the route) mid-fill lands in the
+    // graceful "loginFormPresent=false && !onLoginRoute" path instead of throwing.
+
     // Cold Vite dev servers re-optimize dependencies on the first submit and
     // hard-reload the page, which can swallow the login redirect. Retry the
     // bounded form flow before declaring the login stuck. Success means the
@@ -1962,6 +1963,124 @@ export class BrowserCollector {
    * view so the follow-up inspection can batch-capture them. Bounded by
    * design; the caller decides the step count and re-inspects after each.
    */
+  /**
+   * R8 interaction sweep, one target per call: the service clicks, waits for
+   * the transient content (toast/dialog/tab panel), batch-captures, then
+   * dismisses overlays before asking for the next target. Tabs (ARIA role)
+   * come before plain buttons so tab panels are walked first; swept targets
+   * are marked so later rounds advance instead of re-clicking.
+   * Generic by construction: ARIA roles and native buttons, no selectors
+   * tied to any component library.
+   */
+  async interactionSweepStep(): Promise<boolean> {
+    return this.activePage.evaluate(() => {
+      const visible = (el: Element): el is HTMLElement =>
+        el instanceof HTMLElement &&
+        el.offsetParent !== null &&
+        el.getClientRects().length > 0;
+      const clickable = [
+        ...document.querySelectorAll<HTMLElement>('[role="tab"]'),
+        ...document.querySelectorAll<HTMLElement>('button, [role="button"]'),
+      ].filter((el) =>
+        visible(el) &&
+        !el.hasAttribute("data-ci18n-ix-swept") &&
+        !el.hasAttribute("disabled") &&
+        el.getAttribute("aria-disabled") !== "true");
+      const next = clickable[0];
+      if (!next) return false;
+      next.setAttribute("data-ci18n-ix-swept", "1");
+      next.click();
+      return true;
+    });
+  }
+
+  /** Close transient overlays (dialogs, popups) opened by the sweep. */
+  async dismissOverlays(): Promise<void> {
+    await this.activePage.keyboard.press("Escape").catch(() => undefined);
+    await this.activePage.evaluate(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }).catch(() => undefined);
+  }
+
+  /** Entries of the runtime evidence mirror (key -> rendered text). */
+  async mirrorEntries(): Promise<Array<{ key: string; text: string }>> {
+    return this.activePage.evaluate(() => {
+      const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+      if (!mirror) return [];
+      return [...mirror.querySelectorAll<HTMLElement>("[data-collect-i18n-mirror-key]")]
+        .map((entry) => ({
+          key: entry.getAttribute("data-collect-i18n-mirror-key") ?? "",
+          text: entry.textContent ?? "",
+        }))
+        .filter((entry) => entry.key && entry.text);
+    });
+  }
+
+  /**
+   * Screenshot one mirror entry as B-grade evidence. The strip is brought
+   * on-screen only for the capture and restored afterwards, so regular
+   * widget evidence never shows it.
+   */
+  async captureMirrorEvidence(key: string): Promise<CollectedEvidence | undefined> {
+    this.assertSameOrigin();
+    const page = this.activePage;
+    const locate = await page.evaluate((k) => {
+      const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+      if (!mirror) return undefined;
+      const entry = mirror.querySelector('[data-collect-i18n-mirror-key="' + CSS.escape(k) + '"]');
+      if (!entry) return undefined;
+      mirror.style.left = "12px";
+      mirror.style.top = "12px";
+      mirror.style.maxWidth = "720px";
+      mirror.style.whiteSpace = "normal";
+      mirror.style.boxShadow = "0 0 0 2px #ddd";
+      return { text: entry.textContent ?? "" };
+    }, key);
+    if (!locate) return undefined;
+    let screenshot: Buffer | undefined;
+    try {
+      const handle = await page.evaluateHandle((k) => {
+        const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+        if (!mirror) return null;
+        return mirror.querySelector('[data-collect-i18n-mirror-key="' + CSS.escape(k) + '"]');
+      }, key);
+      const entry = handle.asElement();
+      if (entry) screenshot = await entry.screenshot({ timeout: 15_000 });
+      await handle.dispose().catch(() => undefined);
+    } finally {
+      await page.evaluate(() => {
+        const mirror = document.getElementById("__collect_i18n_evidence_mirror");
+        if (mirror) {
+          mirror.style.left = "-99999px";
+          mirror.style.top = "0";
+          mirror.style.maxWidth = "";
+          mirror.style.whiteSpace = "nowrap";
+          mirror.style.boxShadow = "";
+        }
+      }).catch(() => undefined);
+    }
+    if (!screenshot) return undefined;
+    const screenshotSha256 = createHash("sha256").update(screenshot).digest("hex");
+    const screenshotPath = resolve(this.options.artifactDir, `${safeFilePart(key)}-${screenshotSha256}.png`);
+    await writeFile(screenshotPath, screenshot);
+    const rawUrl = page.url();
+    const hashIndex = rawUrl.indexOf("#");
+    const route = hashIndex >= 0 ? rawUrl.slice(hashIndex + 1) : new URL(rawUrl).pathname;
+    return {
+      key,
+      text: locate.text,
+      route,
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      evidenceGrade: "B",
+      evidenceProof: "runtime-mirror",
+      screenshotPath,
+      screenshotSha256,
+      capturedAt: new Date().toISOString(),
+      source: "agent",
+    };
+  }
+
   async scrollForCapture(step: number, totalSteps: number): Promise<void> {
     this.assertSameOrigin();
     await bounded(
