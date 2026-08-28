@@ -361,4 +361,30 @@ const routes = [{
       result.occurrences.find((item) => item.keyPath === 'v3.title')?.routeHints[0]?.path,
     ).toBe('/v3')
   })
+
+  it('resolves tsconfig path aliases so aliased route components keep their route hints', async () => {
+    const root = await createWorkspace()
+    await writeFile(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@views/*': ['src/views/*'] } },
+      }),
+    )
+    await writeFile(
+      path.join(root, 'src', 'views', 'users', 'Create.vue'),
+      `<script setup lang="ts">\nconst { t } = useI18n()\n</script>\n<template><h1>{{ t('users.create.title') }}</h1></template>`,
+    )
+    await writeFile(
+      path.join(root, 'src', 'router.ts'),
+      `import UsersCreate from '@views/users/Create.vue'\nconst routes = [{ path: '/users/create', component: UsersCreate }]`,
+    )
+
+    const result = await scanProjectSources({ projectRoot: root })
+    // Without alias support the '@views/...' import resolves to no candidate,
+    // the route→component chain breaks, and the occurrence loses its
+    // high-confidence route hint (deterministic eligibility).
+    const occurrence = result.occurrences.find((item) => item.keyPath === 'users.create.title')
+    expect(occurrence).toBeDefined()
+    expect(occurrence?.routeHints.some((hint) => hint.path === '/users/create' && hint.confidence >= 0.8)).toBe(true)
+  })
 })

@@ -184,36 +184,50 @@ export async function exportTranslationWorkbook(
       if (!extension) {
         throw new Error(`Unsupported screenshot format: ${source.screenshotPath}`);
       }
-      const buffer = await readFile(resolve(source.screenshotPath));
-      if (!imageMatchesExtension(buffer, extension)) {
-        throw new Error(`Screenshot content does not match its extension: ${source.screenshotPath}`);
+      // An evidence file recorded in the catalog can disappear from disk
+      // (state-root pruning, manual cleanup). A missing file must degrade to
+      // an empty screenshot cell — the deliverable promise — instead of
+      // failing the entire export. Corruption (wrong magic / hash mismatch)
+      // still aborts: silently exporting unverified pixels would be worse.
+      const buffer = await readFile(resolve(source.screenshotPath))
+        .catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+            console.warn(`[collect-i18n] screenshot missing on disk, exporting an empty cell: ${source.screenshotPath}`);
+            return undefined;
+          }
+          throw error;
+        });
+      if (buffer) {
+        if (!imageMatchesExtension(buffer, extension)) {
+          throw new Error(`Screenshot content does not match its extension: ${source.screenshotPath}`);
+        }
+        if (
+          source.screenshotSha256 &&
+          createHash("sha256").update(buffer).digest("hex") !== source.screenshotSha256
+        ) {
+          throw new Error(`Screenshot integrity check failed for Key Path: ${source.keyPath}`);
+        }
+        const imageId = workbook.addImage({ base64: buffer.toString("base64"), extension });
+        const dimensions = imageDimensions(buffer, extension);
+        if (!dimensions) {
+          throw new Error(`Unable to read screenshot dimensions: ${source.screenshotPath}`);
+        }
+        const columnPixels = Math.round((worksheet.getColumn(3).width ?? 30) * 7 + 5);
+        const displayWidth = Math.max(60, columnPixels - 8);
+        const displayHeight = Math.max(30, Math.round((displayWidth * dimensions.height) / dimensions.width));
+        row.height = displayHeight + 10;
+        // Use a fixed one-cell anchor with an explicit pixel size so the
+        // embedded screenshot keeps its source aspect ratio instead of being
+        // stretched to fill a fixed two-cell span.
+        const imageRange = {
+          tl: { col: 2.1, row: row.number - 0.95 },
+          ext: { width: displayWidth, height: displayHeight },
+          editAs: "oneCell",
+        } as unknown as Parameters<typeof worksheet.addImage>[1];
+        worksheet.addImage(imageId, imageRange);
+        imageCount += 1;
+        stats.captured += 1;
       }
-      if (
-        source.screenshotSha256 &&
-        createHash("sha256").update(buffer).digest("hex") !== source.screenshotSha256
-      ) {
-        throw new Error(`Screenshot integrity check failed for Key Path: ${source.keyPath}`);
-      }
-      const imageId = workbook.addImage({ base64: buffer.toString("base64"), extension });
-      const dimensions = imageDimensions(buffer, extension);
-      if (!dimensions) {
-        throw new Error(`Unable to read screenshot dimensions: ${source.screenshotPath}`);
-      }
-      const columnPixels = Math.round((worksheet.getColumn(3).width ?? 30) * 7 + 5);
-      const displayWidth = Math.max(60, columnPixels - 8);
-      const displayHeight = Math.max(30, Math.round((displayWidth * dimensions.height) / dimensions.width));
-      row.height = displayHeight + 10;
-      // Use a fixed one-cell anchor with an explicit pixel size so the
-      // embedded screenshot keeps its source aspect ratio instead of being
-      // stretched to fill a fixed two-cell span.
-      const imageRange = {
-        tl: { col: 2.1, row: row.number - 0.95 },
-        ext: { width: displayWidth, height: displayHeight },
-        editAs: "oneCell",
-      } as unknown as Parameters<typeof worksheet.addImage>[1];
-      worksheet.addImage(imageId, imageRange);
-      imageCount += 1;
-      stats.captured += 1;
     } else if (source.deprecated) {
       // No screenshot can exist for a deprecated key; annotate the cell
       // instead of leaving it empty so the reviewer knows why.

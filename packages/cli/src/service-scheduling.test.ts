@@ -155,6 +155,10 @@ describe("collector scheduling", () => {
     ];
     const fakeStore = {
       listTasks: () => tasks,
+      // runDeterministicQueue re-enters via executeAgent's finally; it consumes
+      // the paginated variants even though this test drives the agent path.
+      listAllTasks: () => [],
+      listTaskSummaries: () => [],
       addEvidence: (taskId: string) => {
         added.push(taskId);
         return `evidence_${taskId}`;
@@ -361,6 +365,13 @@ describe("deterministic queue throughput (R1/R2/R3)", () => {
     const byId = new Map(tasks.map((task) => [task.id, task]));
     return {
       listTasks: (_sessionId: string, statuses: string[]) => tasks.filter((task) => statuses.includes(task.status)),
+      // The queue uses the paginated variants: route grouping needs full tasks
+      // (route hints), the sweep passes only consume lightweight rows.
+      listAllTasks: (_sessionId: string, statuses: string[]) => tasks.filter((task) => statuses.includes(task.status)),
+      listTaskSummaries: (_sessionId: string, statuses: string[]) =>
+        tasks
+          .filter((task) => statuses.includes(task.status))
+          .map((task) => ({ id: task.id, keyPath: task.keyPath, status: task.status, chinese: task.chinese })),
       task: (id: string) => byId.get(id),
       markTask: (id: string, status: string, error?: string) => {
         const task = byId.get(id);

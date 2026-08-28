@@ -933,6 +933,46 @@ describe("StateStore transactions", () => {
     store.close();
   });
 
+  it("lists every unresolved task beyond the interactive 500-row cap (route grouping and sweep pools)", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const keyPaths = Array.from({ length: 601 }, (_, index) => `bulk.key_${String(index).padStart(4, "0")}`);
+    // Every key carries a high-confidence router hint so the session
+    // pre-classifies it into the deterministic queue instead of skipping it.
+    const seed = analysis();
+    const keys = keyPaths.map((keyPath, index) => ({
+      ...seed.catalog.keys[0]!,
+      id: `locale_${index}`,
+      keyPath,
+      relativeFile: "bulk.json",
+      jsonPath: keyPath.split("."),
+    }));
+    const occurrences = keyPaths.map((keyPath, index) => ({
+      ...seed.source.occurrences[0]!,
+      id: `occ_${index}`,
+      keyPath,
+      routeHints: [{ path: `/route-${index}`, source: "router_config" as const, confidence: 0.99 }],
+    }));
+    const bulkAnalysis: ProjectAnalysis = {
+      ...seed,
+      catalog: { ...seed.catalog, keys },
+      source: { ...seed.source, occurrences },
+      unusedKeys: keys,
+    };
+    const projectId = store.syncProject(projectRoot, {}, bulkAnalysis);
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+
+    const all = store.listAllTasks(sessionId, ["pending"]);
+    expect(all).toHaveLength(601);
+    expect(all.every((task) => task.routeHints.length > 0)).toBe(true);
+
+    const summaries = store.listTaskSummaries(sessionId, ["pending"]);
+    expect(summaries).toHaveLength(601);
+    expect(summaries.every((task) => typeof task.chinese === "string" && task.chinese.length > 0)).toBe(true);
+    expect(store.listTaskSummaries(sessionId, ["captured"])).toHaveLength(0);
+    store.close();
+  });
+
   it("pages events and maps only safe legacy namespaces to an origin", async () => {
     const projectRoot = root();
     const store = await StateStore.open(projectRoot);

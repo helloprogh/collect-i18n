@@ -15,6 +15,12 @@ export interface CollectI18nVuePluginOptions {
   overlay?: boolean
   include?: RegExp | ((id: string) => boolean)
   exclude?: RegExp | ((id: string) => boolean)
+  /**
+   * Configured wrapper callees (config `source.translationCallees`). Must
+   * match the static analyzer's list: a wrapper that is scanned but not
+   * instrumented yields static occurrences with zero runtime evidence.
+   */
+  translationCallees?: string[]
 }
 
 export interface InstrumentedVueSfc {

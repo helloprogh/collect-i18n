@@ -263,21 +263,27 @@ async function waitForDeterministicQueue(
 ): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   let previous = "";
-  for (;;) {
-    const store = await StateStore.open(projectRoot);
-    const status = store.status(sessionId);
-    store.close();
-    const progress = automaticProgress(status);
-    const signature = JSON.stringify(progress);
-    if (signature !== previous) {
-      previous = signature;
-      onProgress?.(progress);
+  // One long-lived store instead of open/migrate/close every 500ms: the full
+  // migration pass runs on every open, so re-opening per poll made the wait
+  // loop burn SQLite cycles without contributing anything.
+  const store = await StateStore.open(projectRoot);
+  try {
+    for (;;) {
+      const status = store.status(sessionId);
+      const progress = automaticProgress(status);
+      const signature = JSON.stringify(progress);
+      if (signature !== previous) {
+        previous = signature;
+        onProgress?.(progress);
+      }
+      const counts = status.counts as Record<string, number>;
+      if (String(status.status) !== "running") return { ...status, serviceInterrupted: true };
+      if (counts.pending === 0 && counts.running === 0) return status;
+      if (Date.now() >= deadline) return { ...status, deterministicWaitTimedOut: true };
+      await new Promise((done) => setTimeout(done, 500));
     }
-    const counts = status.counts as Record<string, number>;
-    if (String(status.status) !== "running") return { ...status, serviceInterrupted: true };
-    if (counts.pending === 0 && counts.running === 0) return status;
-    if (Date.now() >= deadline) return { ...status, deterministicWaitTimedOut: true };
-    await new Promise((done) => setTimeout(done, 500));
+  } finally {
+    store.close();
   }
 }
 

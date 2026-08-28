@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { parse as parseBabel } from '@babel/parser'
 import {
+  dottedCalleeName,
+  isTranslationCalleeName,
   createOccurrenceId,
   type ActionHint,
   type Occurrence,
@@ -13,6 +15,7 @@ import { baseParse, NodeTypes } from '@vue/compiler-dom'
 import { parse as parseSfc } from '@vue/compiler-sfc'
 import fg from 'fast-glob'
 
+import { resolveAliasSpecifier, detectPathAliases, type PathAlias } from './aliases.js'
 import type {
   AnalysisDiagnostic,
   SourceScanResult,
@@ -128,39 +131,7 @@ function propertyName(node: unknown): string | undefined {
 }
 
 function calleeName(node: unknown): string | undefined {
-  if (!node || typeof node !== 'object') return undefined
-  const record = node as AstNode
-  if (record.type === 'Identifier' || record.type === 'JSXIdentifier') {
-    return typeof record.name === 'string' ? record.name : undefined
-  }
-  if (record.type === 'ThisExpression') return 'this'
-  if (
-    record.type === 'MemberExpression' ||
-    record.type === 'OptionalMemberExpression' ||
-    record.type === 'JSXMemberExpression'
-  ) {
-    const object = calleeName(record.object)
-    const property = propertyName(record.property)
-    return object && property ? `${object}.${property}` : property
-  }
-  if (
-    record.type === 'CallExpression' ||
-    record.type === 'OptionalCallExpression'
-  ) {
-    return calleeName(record.callee)
-  }
-  return undefined
-}
-
-function isTranslationCallee(
-  name: string | undefined,
-  configured?: ReadonlySet<string>,
-): boolean {
-  if (!name) return false
-  if (configured?.has(name)) return true
-  if (name === 't' || name === '$t' || name.endsWith('.$t')) return true
-  if (!name.endsWith('.t')) return false
-  return /(?:^|\.)(?:\$?i18n|locale|translator)(?:\.|$)/i.test(name)
+  return dottedCalleeName(node)
 }
 
 function serviceDescriptor(name: string | undefined):
@@ -240,7 +211,7 @@ function translationMatches(
   let match: RegExpExecArray | null
   while ((match = staticCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1], translationCallees)) continue
+    if (!isTranslationCalleeName(match[1], translationCallees)) continue
     if (match[2] === '`' && match[3].includes('${')) continue
     matches.push({
       keyPath: match[3],
@@ -254,7 +225,7 @@ function translationMatches(
   const templateCall = new RegExp(`(?:^|[^\\w$])${calleePattern}\\s*\\(\\s*\u0060([^\u0060]*)\u0060`, 'g')
   while ((match = templateCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1], translationCallees) || !match[2].includes('${')) continue
+    if (!isTranslationCalleeName(match[1], translationCallees) || !match[2].includes('${')) continue
     const quasis = match[2].split(/\$\{[^}]+\}/gu)
     const candidates = catalogTemplateCandidates(quasis, catalogKeys)
     if (candidates.length) {
@@ -280,7 +251,7 @@ function translationMatches(
   const anyCall = new RegExp(`(?:^|[^\\w$])${calleePattern}\\s*\\(`, 'g')
   while ((match = anyCall.exec(expression))) {
     const callOffset = match.index + match[0].indexOf(match[1])
-    if (!isTranslationCallee(match[1], translationCallees)) continue
+    if (!isTranslationCalleeName(match[1], translationCallees)) continue
     if (matches.some((candidate) => candidate.offset === callOffset)) continue
     matches.push({
       expression: match[1],
@@ -768,6 +739,7 @@ interface ScriptScanContext {
   file: string
   source: string
   baseOffset: number
+  aliases: PathAlias[]
   routerMode?: 'hash' | 'history'
   routeHints: RouteHint[]
   componentRouteLinks: ComponentRouteLink[]
@@ -797,11 +769,36 @@ function routePath(parentPath: string, childPath: string): string {
   return joined.replace(/\/+$/, '') || '/'
 }
 
+function extensionCandidates(resolved: string): string[] {
+  return path.extname(resolved)
+    ? [resolved]
+    : [
+        resolved,
+        ...['.vue', '.tsx', '.jsx', '.ts', '.js'].map(
+          (extension) => `${resolved}${extension}`,
+        ),
+        ...['.vue', '.tsx', '.jsx', '.ts', '.js'].map((extension) =>
+          path.join(resolved, `index${extension}`),
+        ),
+      ]
+}
+
 function componentFileCandidates(
   specifier: string,
   context: ScriptScanContext,
 ): string[] {
   const cleanSpecifier = specifier.replace(/[?#].*$/, '')
+  // Project path aliases (tsconfig/jsconfig `paths`) first: a custom alias in
+  // the router would otherwise resolve to zero candidates and silently cut the
+  // route→component→occurrence chain for every key in those components.
+  const aliasTargets = context.aliases.length
+    ? resolveAliasSpecifier(cleanSpecifier, context.aliases)
+    : undefined
+  if (aliasTargets) {
+    return aliasTargets.flatMap((target) => extensionCandidates(target)).map((candidate) =>
+      portable(path.relative(context.projectRoot, candidate)),
+    )
+  }
   let resolved: string
   if (cleanSpecifier.startsWith('@/') || cleanSpecifier.startsWith('~/')) {
     resolved = path.resolve(context.projectRoot, 'src', cleanSpecifier.slice(2))
@@ -813,18 +810,7 @@ function componentFileCandidates(
     return []
   }
 
-  const candidates = path.extname(resolved)
-    ? [resolved]
-    : [
-        resolved,
-        ...['.vue', '.tsx', '.jsx', '.ts', '.js'].map(
-          (extension) => `${resolved}${extension}`,
-        ),
-        ...['.vue', '.tsx', '.jsx', '.ts', '.js'].map((extension) =>
-          path.join(resolved, `index${extension}`),
-        ),
-      ]
-  return candidates.map((candidate) =>
+  return extensionCandidates(resolved).map((candidate) =>
     portable(path.relative(context.projectRoot, candidate)),
   )
 }
@@ -1156,7 +1142,7 @@ function scanScript(
       }
     }
 
-    if (!isTranslationCallee(currentCallee, context.translationCallees)) return
+    if (!isTranslationCalleeName(currentCallee, context.translationCallees)) return
     const firstArgument = Array.isArray(node.arguments) ? node.arguments[0] : undefined
     const staticKeyPath = staticString(firstArgument)
     const resolvedBinding = staticKeyPath === undefined
@@ -1283,6 +1269,7 @@ async function scanSourceFile(
   absoluteFile: string,
   catalogKeys?: ReadonlySet<string>,
   translationCallees?: ReadonlySet<string>,
+  aliases: PathAlias[] = [],
 ): Promise<FileScanResult> {
   const source = await readFile(absoluteFile, 'utf8')
   const file = portable(path.relative(projectRoot, absoluteFile))
@@ -1307,6 +1294,7 @@ async function scanSourceFile(
       file,
       source,
       baseOffset,
+      aliases,
       routeHints,
       componentRouteLinks,
       sourceImports,
@@ -1458,6 +1446,12 @@ export interface ScanProjectSourcesOptions {
   exclude?: string[]
   catalogKeys?: string[]
   translationCallees?: string[]
+  /**
+   * Path aliases for import resolution. Detected automatically from the
+   * project's tsconfig/jsconfig when omitted; override for tests or projects
+   * that declare aliases somewhere a config file cannot express.
+   */
+  pathAliases?: PathAlias[]
 }
 
 export async function scanProjectSources(
@@ -1470,6 +1464,7 @@ export async function scanProjectSources(
   const translationCallees = options.translationCallees?.length
     ? new Set(options.translationCallees)
     : undefined
+  const aliases = options.pathAliases ?? await detectPathAliases(projectRoot)
   const files = await fg(
     options.include?.length
       ? options.include
@@ -1496,6 +1491,7 @@ export async function scanProjectSources(
       path.resolve(file),
       catalogKeys,
       translationCallees,
+      aliases,
     )),
   )
   const actualFileByCandidate = new Map(

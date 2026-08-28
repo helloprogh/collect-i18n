@@ -766,7 +766,10 @@ export class BrowserCollector {
     }
     const matchCount = await primary.count().catch(() => 0);
     if (matchCount > 1) {
-      const dialog = page.locator('.el-message-box:visible, [role="dialog"]:visible').last();
+      // Element Plus message boxes plus the generic dialog role cover the
+      // common teleported modal hosts; class fallbacks catch libraries that
+      // do not set role="dialog" on their modal root.
+      const dialog = page.locator('.el-message-box:visible, [role="dialog"]:visible, .ant-modal:visible, .n-modal:visible, .arco-modal:visible').last();
       if ((await dialog.count().catch(() => 0)) > 0) {
         const scoped = this.scopedLocator(dialog, spec);
         if ((await scoped.count().catch(() => 0)) > 0) {
@@ -819,9 +822,33 @@ export class BrowserCollector {
   private async chooseCustomOption(locator: Locator, value: string, timeoutMs: number): Promise<void> {
     const page = this.activePage;
     await clickResolvedLocator(locator, timeoutMs);
-    const options = page.locator('.el-select-dropdown:visible .el-select-dropdown__item, [role="option"]:visible');
-    let match = options.getByText(markerTolerantRegExp(value), { exact: true });
-    if ((await match.count().catch(() => 0)) === 0) match = options.filter({ hasText: stripInlineMarkers(value) });
+    // Element Plus first (dropdown item), then ARIA option roles, then the
+    // option-item class names other Vue component libraries render, then a
+    // last-resort exact-text search inside any visible floating panel. This
+    // keeps the deterministic select flow working on Ant Design, naive-ui and
+    // Arco projects without per-library configuration.
+    const optionSelectors = [
+      '.el-select-dropdown:visible .el-select-dropdown__item',
+      '[role="option"]:visible',
+      '.ant-select-item-option:visible, .arco-select-option:visible, .n-base-select-option:visible',
+    ];
+    let match = page.locator(optionSelectors.map((selector) => `${selector}`).join(", "))
+      .getByText(markerTolerantRegExp(value), { exact: true });
+    if ((await match.count().catch(() => 0)) === 0) {
+      match = page.locator(optionSelectors.join(", ")).filter({ hasText: stripInlineMarkers(value) });
+    }
+    if ((await match.count().catch(() => 0)) === 0) {
+      // Some libraries render option labels as nested spans that exclude the
+      // container from text filters: match the visible leaf text anywhere
+      // inside floating panels and click its option container.
+      const panelOption = page.locator(
+        '[class*="dropdown"]:visible, [class*="popper"]:visible, [class*="popover"]:visible, [role="listbox"]:visible',
+      ).getByText(stripInlineMarkers(value), { exact: true }).first();
+      if ((await panelOption.count().catch(() => 0)) > 0) {
+        await panelOption.click({ timeout: timeoutMs });
+        return;
+      }
+    }
     await match.first().click({ timeout: timeoutMs });
   }
 
@@ -829,8 +856,8 @@ export class BrowserCollector {
     return resolveProjectUrl(path, this.options);
   }
 
-  private assertSameOrigin(): void {
-    const current = this.activePage.url();
+  private assertSameOrigin(page: Page = this.activePage): void {
+    const current = page.url();
     if (current === "about:blank") return;
     const actual = new URL(current);
     const expected = new URL(this.options.baseUrl);
@@ -843,20 +870,24 @@ export class BrowserCollector {
     }
   }
 
-  private async replaySafeProbePlan(plan: ParsedTriggerPlan | undefined, fallbackRoute: string): Promise<void> {
-    if (plan?.route) await this.open(plan.route);
-    else await this.open(fallbackRoute);
+  private async replaySafeProbePlan(
+    plan: ParsedTriggerPlan | undefined,
+    fallbackRoute: string,
+    page: Page,
+  ): Promise<void> {
+    if (plan?.route) await this.open(plan.route, page);
+    else await this.open(fallbackRoute, page);
     for (const step of plan?.steps ?? []) {
       switch (step.type) {
-        case "goto": await this.open(step.path); break;
-        case "hover": await this.locator(step.locator).hover({ timeout: step.timeoutMs }); break;
-        case "wait": await this.activePage.waitForTimeout(step.milliseconds); break;
-        case "waitForKey": await this.waitForKey(step.key, step.timeoutMs); break;
-        case "waitForText": await this.activePage.getByText(stripInlineMarkers(step.text)).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
-        case "reload": await this.open(this.activePage.url()); break;
+        case "goto": await this.open(step.path, page); break;
+        case "hover": await this.buildLocator(page, step.locator).hover({ timeout: step.timeoutMs }); break;
+        case "wait": await page.waitForTimeout(step.milliseconds); break;
+        case "waitForKey": await this.waitForKey(step.key, step.timeoutMs, "C", page); break;
+        case "waitForText": await page.getByText(stripInlineMarkers(step.text)).first().waitFor({ state: "visible", timeout: step.timeoutMs }); break;
+        case "reload": await this.open(page.url(), page); break;
         default: throw new Error(`Unsafe causal probe step: ${step.type}`);
       }
-      this.assertSameOrigin();
+      this.assertSameOrigin(page);
     }
   }
 
@@ -891,16 +922,22 @@ export class BrowserCollector {
       },
     );
 
-    this.page = probePage;
+    // The probe runs on an explicit page instead of swapping this.page: a
+    // concurrently scheduled operation (plan deadline timer, ensureHealthy)
+    // must never land on the throwaway probe page.
+    const savedRules = [...this.rules.values()];
     try {
       this.setMockRules(plan?.mocks ?? []);
-      await this.replaySafeProbePlan(plan, target.route);
-      const probed = await this.waitForKey(target.key, 15_000, "B");
+      await this.replaySafeProbePlan(plan, target.route, probePage);
+      const probed = await this.waitForKey(target.key, 15_000, "B", probePage);
       return probed.occurrenceId === target.occurrenceId && probed.text === token;
     } catch {
       return false;
     } finally {
-      this.page = originalPage;
+      // Restore the caller's mock rules: the probe would otherwise leave the
+      // plan's (or an empty) rule set behind and silently rewrite the mock
+      // semantics of later requests.
+      this.setMockRules(savedRules);
       await probePage.close().catch(() => undefined);
       await originalPage.bringToFront().catch(() => undefined);
     }
@@ -949,11 +986,11 @@ export class BrowserCollector {
       },
     );
 
-    this.page = probePage;
+    const savedRules = [...this.rules.values()];
     try {
       this.setMockRules([]);
-      await this.replaySafeProbePlan(undefined, probeable[0]!.route);
-      const probed = await this.captureVisibleTargets(probeable.map((target) => target.key), "B");
+      await this.replaySafeProbePlan(undefined, probeable[0]!.route, probePage);
+      const probed = await this.captureVisibleTargets(probeable.map((target) => target.key), "B", probePage);
       for (const probe of probed) {
         const target = probeable.find((candidate) => candidate.key === probe.key);
         if (!target) continue;
@@ -966,7 +1003,7 @@ export class BrowserCollector {
     } catch {
       return verified;
     } finally {
-      this.page = originalPage;
+      this.setMockRules(savedRules);
       await probePage.close().catch(() => undefined);
       await originalPage.bringToFront().catch(() => undefined);
     }
@@ -1012,6 +1049,12 @@ export class BrowserCollector {
       const target = await this.waitForKey(plan.targetKey, 10_000, "B");
       return this.capture(target, source, plan);
     })();
+    // When the deadline wins the race the losing execution keeps running in
+    // the background (Playwright waits cannot be cancelled) and will reject
+    // once the closed page surfaces the loss. Without an observer that
+    // rejection becomes an unhandledRejection and can crash the service
+    // process; the race below still surfaces the error when execution wins.
+    execution.catch(() => undefined);
     try {
       return await Promise.race([
         execution,
@@ -1084,8 +1127,7 @@ export class BrowserCollector {
         // genuinely stuck forms.
         const state = await this.activePage.evaluate(() => ({
           url: location.href,
-          loginFormPresent: !!document.querySelector('.login-form, form[action*="login"], input[type="password"]'),
-          inputs: [...document.querySelectorAll("input")].slice(0, 8).map((el) => ({
+          loginFormPresent: !!document.querySelector('.login-form, form[action*="login"], input[type="password"]'),          inputs: [...document.querySelectorAll("input")].slice(0, 8).map((el) => ({
             id: el.id, disabled: el.disabled, type: el.type,
             placeholder: el.placeholder, form: el.closest("form")?.className ?? null,
           })),
@@ -1102,7 +1144,7 @@ export class BrowserCollector {
         }
         throw error;
       }
-      await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary').first().click({ timeout });
+      await this.activePage.locator(login.submitSelector ?? 'button[type="submit"], .el-button--primary, .ant-btn-primary, .arco-btn-primary, .n-button--primary-type').first().click({ timeout });
       // Bounded wait for the app to leave the login form.
       const startedAt = Date.now();
       while (Date.now() - startedAt < 15_000) {
@@ -1126,13 +1168,13 @@ export class BrowserCollector {
     throw new CollectorError("login_timeout", `Login form still visible after the retry budget`, { url: this.activePage.url() });
   }
 
-  async open(path = "/"): Promise<void> {
+  async open(path = "/", page: Page = this.activePage): Promise<void> {
     // Some apps decide the rendered language from a cookie on every load.
     // Re-apply it on each navigation so a cleared/stale profile cannot switch
     // the UI away from the source locale mid-run.
     await this.applyLocaleCookie();
     const navigationTimeout = Math.max(90_000, (this.options.defaultTimeoutMs ?? 15_000) * 6);
-    await this.activePage.goto(this.sameOriginUrl(path), {
+    await page.goto(this.sameOriginUrl(path), {
       // `domcontentloaded` is allowed to remain pending when a transformed
       // module stalls. Commit first, then perform our own bounded readiness
       // probe so failures are actionable and cannot wedge the service.
@@ -1145,7 +1187,7 @@ export class BrowserCollector {
     const startedAt = Date.now();
     const readinessTimeout = navigationTimeout;
     while (Date.now() - startedAt < readinessTimeout) {
-      const ready = await bounded(this.activePage.evaluate(() => {
+      const ready = await bounded(page.evaluate(() => {
         const view = window as RuntimeWindow;
         return document.readyState !== "loading" && Boolean(view.__COLLECT_I18N__ ?? view.__I18N_COLLECTOR__);
       }), 2_000, "Page became unresponsive during collector readiness check").catch(() => false);
@@ -1154,15 +1196,15 @@ export class BrowserCollector {
         // import(...)). The collector runtime installs at startup while the
         // route chunk is still fetching; give the chunk time to mount and any
         // v-loading/skeleton overlay to clear before the first inspection.
-        await this.settleNavigation();
+        await this.settleNavigation(page);
         return;
       }
       await new Promise((done) => setTimeout(done, 125));
     }
     throw new CollectorError(
       "collector_not_ready",
-      `Collector runtime did not become ready after navigation: ${this.activePage.url()}`,
-      { url: this.activePage.url() },
+      `Collector runtime did not become ready after navigation: ${page.url()}`,
+      { url: page.url() },
     );
   }
 
@@ -1190,14 +1232,14 @@ export class BrowserCollector {
    * Bounded: a permanently animated page yields after the timeout instead of
    * wedging the collector.
    */
-  private async settleNavigation(timeoutMs = 6_000): Promise<void> {
+  private async settleNavigation(page: Page = this.activePage, timeoutMs = 6_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     let previousResourceCount = -1;
     let resourceChangedAt = Date.now();
     let cleanSince = -1;
     while (Date.now() < deadline) {
       const state = await bounded(
-        this.activePage.evaluate((loadingSelectors) => {
+        page.evaluate((loadingSelectors) => {
           const runtimeWindow = window as RuntimeWindow & { __COLLECT_I18N_PENDING__?: unknown[] };
           let loadingCount = 0;
           for (const element of document.querySelectorAll<HTMLElement>(loadingSelectors)) {
@@ -1490,15 +1532,16 @@ export class BrowserCollector {
     key: string,
     timeoutMs = 60_000,
     minimumGrade: RuntimeEvidenceGrade = "C",
+    page: Page = this.activePage,
   ): Promise<RuntimeTargetSnapshot> {
     const startedAt = Date.now();
     let first = true;
     let lastUrl = "";
     while (Date.now() - startedAt < timeoutMs) {
-      this.assertSameOrigin();
-      const currentUrl = this.activePage.url();
+      this.assertSameOrigin(page);
+      const currentUrl = page.url();
       if (currentUrl !== lastUrl) first = true;
-      const evaluation = this.activePage.evaluate(({ targetKey, initialize, minGrade }) => {
+      const evaluation = page.evaluate(({ targetKey, initialize, minGrade }) => {
         const runtimeWindow = window as RuntimeWindow;
         const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
         if (initialize) {
@@ -1588,7 +1631,7 @@ export class BrowserCollector {
         // The exact-text decision runs on the Node side via textMatch — the
         // playwright evaluate boundary serializes callbacks, so bundled
         // module identifiers are unavailable in the page.
-        snapshot = await this.resolveExactTextFallback(key, minimumGrade);
+        snapshot = await this.resolveExactTextFallback(key, minimumGrade, page);
       }
       if (snapshot) return snapshot;
       first = false;
@@ -1610,8 +1653,8 @@ export class BrowserCollector {
   private async resolveExactTextFallback(
     key: string,
     minimumGrade: RuntimeEvidenceGrade,
+    page: Page = this.activePage,
   ): Promise<RuntimeTargetSnapshot | undefined> {
-    const page = this.activePage;
     const registeredTexts = await bounded(
       page.evaluate((targetKey) => {
         const runtimeWindow = window as RuntimeWindow;
@@ -1630,8 +1673,12 @@ export class BrowserCollector {
           rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight &&
           rect.x + rect.width > 0 && rect.y + rect.height > 0;
         const hosts = new Set<HTMLElement>();
+        // Imperative hosts across the common Vue component libraries: their
+        // teleported leaves are preferred over page-body matches.
         for (const host of document.querySelectorAll<HTMLElement>(
-          ".el-message,.el-message-box,.el-notification,[role=\"alert\"],[role=\"dialog\"],.el-popconfirm",
+          ".el-message,.el-message-box,.el-notification,[role=\"alert\"],[role=\"dialog\"],.el-popconfirm,"
+          + ".ant-message,.ant-notification,.ant-modal,.arco-message,.arco-notification,.arco-modal,"
+          + ".n-message,.n-message-container,.n-notification,.n-modal",
         )) {
           let current: HTMLElement | null = host;
           while (current) {
@@ -1738,11 +1785,12 @@ export class BrowserCollector {
   async captureVisibleTargets(
     keys: readonly string[],
     minimumGrade: RuntimeEvidenceGrade = "B",
+    page: Page = this.activePage,
   ): Promise<RuntimeTargetSnapshot[]> {
-    this.assertSameOrigin();
+    this.assertSameOrigin(page);
     const targetKeys = [...new Set(keys)].slice(0, 500);
     if (targetKeys.length === 0) return [];
-    const evaluation = this.activePage.evaluate(({ targetKeys, minGrade }) => {
+    const evaluation = page.evaluate(({ targetKeys, minGrade }) => {
       const runtimeWindow = window as RuntimeWindow;
       const collector = runtimeWindow.__COLLECT_I18N__ ?? runtimeWindow.__I18N_COLLECTOR__;
       const intersectsViewport = (rect: { x: number; y: number; width: number; height: number }): boolean =>

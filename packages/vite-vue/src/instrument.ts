@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { parse as parseExpression } from '@babel/parser'
-import { createOccurrenceId } from '@collect-i18n/core'
+import { createOccurrenceId, isTranslationCalleeNode, translationCalleeSet } from '@collect-i18n/core'
 import {
   ElementTypes,
   NodeTypes,
@@ -50,6 +50,8 @@ interface InstrumentationState {
   templateOffset: number
   magic: MagicStringApi
   occurrences: OccurrenceDescriptor[]
+  /** Configured wrapper callees (config `source.translationCallees`). */
+  configuredCallees?: ReadonlySet<string>
   replacements: Array<{
     start: number
     end: number
@@ -86,14 +88,6 @@ const MagicString = MagicStringDefault as unknown as new (source: string) => Mag
 
 function isBabelNode(value: unknown): value is BabelNode {
   return typeof value === 'object' && value !== null && typeof (value as BabelNode).type === 'string'
-}
-
-function isTranslationCallee(node: BabelNode | undefined): boolean {
-  if (!node) return false
-  if (node.type === 'Identifier') return node.name === 't' || node.name === '$t'
-  if (node.type !== 'MemberExpression' && node.type !== 'OptionalMemberExpression') return false
-  const property = node.property
-  return isBabelNode(property) && property.type === 'Identifier' && (property.name === 't' || property.name === '$t')
 }
 
 function imperativeServiceFromCallee(node: BabelNode | undefined): string | undefined {
@@ -168,7 +162,10 @@ function scriptDisplayContext(
   return inherited
 }
 
-export function findTranslationCalls(expression: string): TranslationCall[] {
+export function findTranslationCalls(
+  expression: string,
+  configured?: ReadonlySet<string>,
+): TranslationCall[] {
   try {
     const ast = parseExpression(`(${expression})`, {
       sourceType: 'module',
@@ -190,7 +187,7 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
           : inheritedInvocation
       if (
         isCall &&
-        isTranslationCallee(callee) &&
+        isTranslationCalleeNode(callee, configured) &&
         typeof node.start === 'number' &&
         typeof node.end === 'number'
       ) {
@@ -235,12 +232,16 @@ export function findTranslationCalls(expression: string): TranslationCall[] {
     }
     visit(ast)
     return calls.sort((left, right) => left.start - right.start)
-  } catch {
+  } catch (error) {
+    // A silent empty result here hides instrumentation loss: an unparseable
+    // expression produces zero occurrences, so the key quietly loses every
+    // deterministic capture path. Surface the reason in the dev-server log.
+    console.warn('[collect-i18n] failed to parse template expression for instrumentation:', error instanceof Error ? error.message : error)
     return []
   }
 }
 
-function findScriptTranslationCalls(script: string): TranslationCall[] {
+function findScriptTranslationCalls(script: string, configured?: ReadonlySet<string>): TranslationCall[] {
   try {
     const ast = parseExpression(script, {
       sourceType: 'module',
@@ -262,7 +263,7 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
           : inheritedInvocation
       if (
         isCall &&
-        isTranslationCallee(callee) &&
+        isTranslationCalleeNode(callee, configured) &&
         typeof node.start === 'number' &&
         typeof node.end === 'number'
       ) {
@@ -307,7 +308,9 @@ function findScriptTranslationCalls(script: string): TranslationCall[] {
     }
     visit(ast)
     return calls.sort((left, right) => left.start - right.start)
-  } catch {
+  } catch (error) {
+    // See findTranslationCalls: silent zero-instrumentation hides coverage loss.
+    console.warn('[collect-i18n] failed to parse script module for instrumentation:', error instanceof Error ? error.message : error)
     return []
   }
 }
@@ -503,7 +506,7 @@ function componentPropUsesInlineTransport(prop?: string): boolean {
 }
 
 function registerExpression(state: InstrumentationState, context: ExpressionContext): void {
-  const calls = findTranslationCalls(context.content)
+  const calls = findTranslationCalls(context.content, state.configuredCallees)
   for (const call of calls) {
     const absoluteStart = context.absoluteOffset + call.start
     const absoluteEnd = context.absoluteOffset + call.end
@@ -735,7 +738,7 @@ function instrumentTemplateAst(state: InstrumentationState, root: RootNode): voi
 function instrumentScriptBlock(state: InstrumentationState, block: SFCBlock | null): void {
   if (!block || block.src) return
   const offset = blockContentOffset(state.source, block)
-  for (const call of findScriptTranslationCalls(block.content)) {
+  for (const call of findScriptTranslationCalls(block.content, state.configuredCallees)) {
     const absoluteStart = offset + call.start
     const absoluteEnd = offset + call.end
     const kind: OccurrenceKind = call.service ? 'imperative-service' : 'virtual'
@@ -850,6 +853,7 @@ export function instrumentVueSfc(
     templateOffset,
     magic,
     occurrences: [],
+    configuredCallees: translationCalleeSet(options.translationCallees),
     replacements: [],
     ownerBindings: new Map(),
   }
@@ -881,7 +885,7 @@ export function instrumentScriptModule(
   if (source.includes('__collectI18nEnqueue(')) return undefined
   const projectRoot = path.resolve(options.projectRoot ?? process.cwd())
   const portableId = portablePath(id, projectRoot)
-  const calls = findScriptTranslationCalls(source)
+  const calls = findScriptTranslationCalls(source, translationCalleeSet(options.translationCallees))
   if (calls.length === 0) return undefined
 
   const occurrences: OccurrenceDescriptor[] = []

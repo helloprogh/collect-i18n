@@ -322,6 +322,15 @@ export function recordRenderedValue<T>(value: T, occurrenceId: string, actualKey
  * arguments. The wrapped call remains synchronous and receives/returns the
  * exact same values as the original expression.
  */
+/**
+ * Upper bound for how long a promise-returning imperative invocation stays
+ * registered when its promise never settles (a swallowed dialog promise, a
+ * hung request). Stale invocations would otherwise match later
+ * recordRenderedValue calls forever. Generous enough that a dialog awaiting a
+ * human decision is not disposed early.
+ */
+const IMPERATIVE_INVOCATION_SAFETY_TIMEOUT_MS = 10 * 60_000
+
 export function runImperativeInvocation<T>(
   service: string,
   occurrenceIds: string[],
@@ -336,7 +345,9 @@ export function runImperativeInvocation<T>(
     invokedAt: Date.now(),
   }
   activeImperativeInvocations.push(invocation)
-  const dispose = () => {
+  const safetyTimer = setTimeout(dispose, IMPERATIVE_INVOCATION_SAFETY_TIMEOUT_MS)
+  function dispose(): void {
+    clearTimeout(safetyTimer)
     const index = activeImperativeInvocations.lastIndexOf(invocation)
     if (index >= 0) activeImperativeInvocations.splice(index, 1)
   }

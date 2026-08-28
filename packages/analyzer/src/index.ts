@@ -2,6 +2,7 @@ import { buildLocaleCatalog, type BuildLocaleCatalogOptions } from './locale.js'
 import { scanProjectSources, type ScanProjectSourcesOptions } from './source.js'
 import type { ProjectAnalysis } from './types.js'
 
+export * from './aliases.js'
 export * from './locale.js'
 export * from './source.js'
 export * from './types.js'

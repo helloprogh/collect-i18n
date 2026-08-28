@@ -255,6 +255,22 @@ describe("four-column translation workbook export", () => {
       item.workbookPath,
     )).rejects.toThrow("Screenshot integrity check failed");
   });
+
+  it("exports an empty screenshot cell when the evidence file is missing on disk", async () => {
+    const item = await fixture();
+    // The catalog references evidence the disk no longer holds (state-root
+    // pruning, manual cleanup). The export must stay deliverable: empty
+    // screenshot cell, no throw, no fabricated pixels.
+    const exported = await exportTranslationWorkbook([
+      { ...item.catalog[0]!, screenshotPath: join(item.root, "gone.png"), screenshotSha256: sha256(ONE_PIXEL_PNG) },
+      item.catalog[1]!,
+    ], item.workbookPath);
+
+    expect(exported.imageCount).toBe(0);
+    expect(exported.stats.captured).toBe(0);
+    const { sheet, rows } = await workbookRows(item.workbookPath);
+    expect(sheet.getCell(rows.get("users.create.title")!, 3).text).toBe("");
+  });
 });
 
 describe("four-column translation workbook import", () => {

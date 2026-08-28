@@ -11,7 +11,14 @@ import { BrowserCollector, collectorErrorCode, isBrowserGoneError, parseTriggerP
 import { exportTranslationWorkbook, importTranslationWorkbook } from "@collect-i18n/excel";
 import type { ProjectConfig } from "@collect-i18n/core";
 import { resolveStateRoot } from "./state-root.js";
-import { preferredAgentRoute, StateStore, type TaskStatus } from "./store.js";
+import { preferredAgentRoute, StateStore, type StoredTask, type TaskStatus } from "./store.js";
+
+/**
+ * Structural task view shared by the deterministic passes. The sweep passes
+ * only join by key path and mark by id, so they consume lightweight store
+ * summaries instead of fully hydrated tasks.
+ */
+type TaskPoolEntry = Pick<StoredTask, "id" | "keyPath" | "status" | "chinese">;
 
 function resolveProjectVite(projectRoot: string): string {
   return createRequire(resolve(projectRoot, "package.json")).resolve("vite");
@@ -279,7 +286,15 @@ export class LocalService {
       // need the same mode their dev script uses; set
       // COLLECT_I18N_VITE_MODE to match it instead of Vite's default.
       mode: process.env.COLLECT_I18N_VITE_MODE || undefined,
-      plugins: [collectI18nVuePlugin({ projectRoot: config.projectRoot, runtimeImport, manifest: true })],
+      plugins: [collectI18nVuePlugin({
+        projectRoot: config.projectRoot,
+        runtimeImport,
+        manifest: true,
+        // Must mirror the static analyzer's callee list: a wrapper that is
+        // scanned but not instrumented produces static occurrences with zero
+        // runtime evidence, dropping every such key into the Agent queue.
+        translationCallees: config.source.translationCallees,
+      })],
       server: {
         host: appUrl.hostname,
         port: Number(appUrl.port || 5173),
@@ -476,7 +491,7 @@ export class LocalService {
         collector = await this.exclusive(async () => this.collector(sessionId));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        for (const task of store.listTasks(sessionId, ["pending"])) {
+        for (const task of store.listTaskSummaries(sessionId, ["pending"])) {
           store.markTask(task.id, "failed", `Collector startup failed: ${message}`);
         }
         console.error("[collect-i18n] collector startup failed", error);
@@ -500,7 +515,7 @@ export class LocalService {
           await collector.performLogin(login);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          for (const task of store.listTasks(sessionId, ["pending"])) {
+          for (const task of store.listTaskSummaries(sessionId, ["pending"])) {
             store.markTask(task.id, "needs_agent", `登录引导失败：${message}`);
           }
           console.error("[collect-i18n] login bootstrap failed; pending keys demoted to the agent queue", error);
@@ -513,7 +528,11 @@ export class LocalService {
       let sweepCaptured = 0;
       for (;;) {
         if (this.manualActive) break;
-        const pending = store.listTasks(sessionId, ["pending"]);
+        // Route grouping needs route hints (derived from occurrences), so this
+        // pass must be complete: use the cursor-paginated listing instead of
+        // the interactive LIMIT caps, which silently dropped the tail beyond
+        // 500 pending keys on large projects.
+        const pending = store.listAllTasks(sessionId, ["pending"]);
         if (pending.length === 0) break;
         // R1: visit routes by pending density instead of the alphabetical
         // key_path order so the window budget is spent on routes with the
@@ -588,7 +607,7 @@ export class LocalService {
     sessionId: string,
     collector: BrowserCollector,
     route: string,
-    group: Array<import("./store.js").StoredTask>,
+    group: readonly TaskPoolEntry[],
   ): Promise<number> {
     const store = this.store!;
     let newlyCaptured = 0;
@@ -600,7 +619,10 @@ export class LocalService {
     // needs_manual joins the pool: dynamic-prefix keys created as manual can
     // be promoted automatically the moment their full instance actually
     // mounts (runtime-observed), and dead keys simply never mount.
-    const opportunistic = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"]).filter(
+    // Summaries keep this pool complete for projects with thousands of
+    // unresolved keys; the default listTasks LIMIT would silently drop the
+    // key_path tail and lose their automatic captures.
+    const opportunistic = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).filter(
       (task) => !groupIds.has(task.id) && mountedKeys.has(task.keyPath),
     );
     const candidates = [...group, ...opportunistic];
@@ -719,7 +741,7 @@ export class LocalService {
    */
   private renderedTextIsNotSourceLocale(
     inspection: { snapshots: Array<{ key?: string; text?: string }> },
-    candidates: Array<import("./store.js").StoredTask>,
+    candidates: readonly TaskPoolEntry[],
   ): boolean {
     const chineseByKey = new Map(candidates.map((task) => [task.keyPath, task.chinese] as const));
     let match = 0;
@@ -766,7 +788,7 @@ export class LocalService {
   private async captureScrolledVisible(
     sessionId: string,
     collector: BrowserCollector,
-    group: Array<import("./store.js").StoredTask>,
+    group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
     const store = this.store!;
@@ -780,7 +802,7 @@ export class LocalService {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         // Stability check: nothing new visible and nothing captured on this
@@ -817,7 +839,7 @@ export class LocalService {
   private async captureWidgetSweptVisible(
     sessionId: string,
     collector: BrowserCollector,
-    group: Array<import("./store.js").StoredTask>,
+    group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
     const store = this.store!;
@@ -836,7 +858,7 @@ export class LocalService {
           }
         : {});
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       if (notYetHandled.length === 0) {
         if (outcome === "exhausted") break;
@@ -869,7 +891,7 @@ export class LocalService {
   private async captureInteractionSweptVisible(
     sessionId: string,
     collector: BrowserCollector,
-    group: Array<import("./store.js").StoredTask>,
+    group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
     const store = this.store!;
@@ -883,7 +905,7 @@ export class LocalService {
       if (!clicked) break;
       await new Promise((done) => setTimeout(done, 400));
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(800, 1_200, 250)));
-      const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
       await collector.dismissOverlays();
       if (notYetHandled.length === 0) {
@@ -921,7 +943,7 @@ export class LocalService {
   private async captureMirrorVisible(
     sessionId: string,
     collector: BrowserCollector,
-    group: Array<import("./store.js").StoredTask>,
+    group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
     const store = this.store!;
@@ -929,7 +951,7 @@ export class LocalService {
     const entries = await collector.mirrorEntries();
     if (entries.length === 0) return 0;
     const mirrorKeys = new Set(entries.map((entry) => entry.key));
-    const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
+    const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
       .filter((task) => !handledKeys.has(task.keyPath) && mirrorKeys.has(task.keyPath))
       .slice(0, 60);
     let newlyCaptured = 0;

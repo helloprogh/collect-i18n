@@ -319,6 +319,10 @@ export class StateStore {
   }
 
   private migrate(): void {
+    // Deliberately unconditional: beyond first-run schema creation this also
+    // repairs databases damaged by crashed pre-release writers (missing
+    // columns, duplicated evidence hashes, backfilled snapshots). Gating it
+    // behind a user_version stamp would skip that repair on reopen.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
@@ -1264,6 +1268,58 @@ export class StateStore {
           WHERE t.session_id=? ORDER BY t.updated_at,t.key_path LIMIT ?
         `).all(sessionId, bounded);
     return this.hydrateTasks(rows as Array<Record<string, unknown>>);
+  }
+
+  /**
+   * Every task with the given statuses, fully hydrated, walked with the
+   * key_path cursor so results are complete regardless of the interactive
+   * LIMIT caps. The route-grouping pass needs route hints (derived from
+   * occurrences), so it must use this instead of the truncated listTasks.
+   */
+  listAllTasks(sessionId: string, statuses?: TaskStatus[]): StoredTask[] {
+    const tasks: StoredTask[] = [];
+    let afterKey: string | undefined;
+    for (;;) {
+      const page = this.taskPage(sessionId, statuses, afterKey, 500);
+      tasks.push(...page.items);
+      if (!page.hasMore) break;
+      afterKey = page.nextAfterKey ?? undefined;
+    }
+    return tasks;
+  }
+
+  /**
+   * Every task with the given statuses as a lightweight row (no occurrence
+   * hydration), walked with the same cursor. The sweep passes only join by
+   * key path and mark by id, so loading occurrences for thousands of tasks
+   * per scroll step would be pure overhead.
+   */
+  listTaskSummaries(sessionId: string, statuses: TaskStatus[]): Array<Pick<StoredTask, "id" | "keyPath" | "status" | "chinese">> {
+    const summaries: Array<Pick<StoredTask, "id" | "keyPath" | "status" | "chinese">> = [];
+    let afterKey: string | undefined;
+    for (;;) {
+      const statusClause = statuses.length ? ` AND t.status IN (${statuses.map(() => "?").join(",")})` : "";
+      const cursorClause = afterKey ? " AND t.key_path>?" : "";
+      const parameters: Array<string | number> = [sessionId, ...statuses];
+      if (afterKey) parameters.push(afterKey);
+      parameters.push(501);
+      const rows = this.db.prepare(`
+        SELECT t.id,t.key_path,t.status,k.chinese
+        FROM tasks t
+        JOIN session_locale_keys k ON k.session_id=t.session_id AND k.key_path=t.key_path
+        WHERE t.session_id=?${statusClause}${cursorClause}
+        ORDER BY t.key_path
+        LIMIT ?
+      `).all(...parameters) as Array<{ id: string; key_path: string; status: string; chinese: string }>;
+      const hasMore = rows.length > 500;
+      const pageRows = hasMore ? rows.slice(0, 500) : rows;
+      for (const row of pageRows) {
+        summaries.push({ id: row.id, keyPath: row.key_path, status: row.status as TaskStatus, chinese: row.chinese });
+      }
+      if (!hasMore) break;
+      afterKey = pageRows.at(-1)?.key_path;
+    }
+    return summaries;
   }
 
   taskPage(sessionId: string, statuses?: TaskStatus[], afterKey?: string, limit = 500): TaskPage {

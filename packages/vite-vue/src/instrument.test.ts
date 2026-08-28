@@ -184,6 +184,30 @@ const notifyFailure = () => ElNotification({ message: t('messages.failed') })
     }
   })
 
+  it('instruments configured wrapper callees and keeps their IDs aligned with static analysis', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'collect-i18n-callee-'))
+    const file = path.join(root, 'src', 'views', 'Wrapped.vue')
+    const source = `<template><h1>{{ translate('wrapped.title') }}</h1></template>`
+    try {
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, source, 'utf8')
+      // Without the configured wrapper nothing is instrumented: the static
+      // analyzer would still record an occurrence, so the key could never
+      // produce runtime evidence and would sink to the Agent queue.
+      expect(instrumentVueSfc(source, file, { projectRoot: root })).toBeUndefined()
+
+      const analyzed = await scanProjectSources({ projectRoot: root, translationCallees: ['translate'] })
+      const instrumented = instrumentVueSfc(source, file, { projectRoot: root, translationCallees: ['translate'] })!
+      expect(instrumented.occurrences.map((item) => item.key)).toEqual(['wrapped.title'])
+      const staticIds = new Map(analyzed.occurrences.map((item) => [item.keyPath, item.id]))
+      for (const occurrence of instrumented.occurrences) {
+        expect(staticIds.get(occurrence.key!)).toBe(occurrence.occurrenceId)
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('uses inline provenance for script-defined display messages outside imperative services', () => {
     const source = `<script setup lang="ts">
 const rules = {

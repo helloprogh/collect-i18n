@@ -650,8 +650,11 @@ export class CollectorRegistry implements CollectorRegistryApi {
 
   rescan(root: ParentNode = this.#document): void {
     if (this.#destroyed) return
+    // The owning view can be null while the page is being torn down;
+    // instanceof against undefined would throw.
+    const view = this.#document.defaultView
     const elements: Element[] = []
-    if (root instanceof this.#document.defaultView!.Element && root.matches(NATIVE_SELECTOR)) {
+    if (view && root instanceof view.Element && root.matches(NATIVE_SELECTOR)) {
       elements.push(root)
     }
     elements.push(...Array.from(root.querySelectorAll(NATIVE_SELECTOR)))
@@ -1298,11 +1301,35 @@ export class CollectorRegistry implements CollectorRegistryApi {
         ? normalized === text
         : normalized === text || Boolean(normalized?.includes(text))
       if (!excluded && matches) {
-        const start = raw.indexOf(text)
         const range = this.#document.createRange()
-        if (start >= 0) range.setStart(current, start)
-        else range.setStart(current, 0)
-        range.setEnd(current, start >= 0 ? start + text.length : raw.length)
+        const direct = raw.indexOf(text)
+        if (direct >= 0) {
+          range.setStart(current, direct)
+          range.setEnd(current, direct + text.length)
+        } else {
+          // The normalized text matched but the raw node contains runs of
+          // whitespace (e.g. newlines in the markup). Map the match back onto
+          // raw with a whitespace-flexible scan so the range hugs the real
+          // text instead of falling back to the whole node, which makes the
+          // capture frame far larger than the translated target.
+          const flexible = new RegExp(
+            text
+              .trim()
+              .split(/\s+/u)
+              .filter(Boolean)
+              .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+              .join('\\s+'),
+            'u',
+          )
+          const match = flexible.exec(raw)
+          if (match) {
+            range.setStart(current, match.index)
+            range.setEnd(current, match.index + match[0].length)
+          } else {
+            range.setStart(current, 0)
+            range.setEnd(current, raw.length)
+          }
+        }
         ranges.push(range)
       }
       current = walker.nextNode()
