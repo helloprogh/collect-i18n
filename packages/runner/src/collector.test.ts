@@ -1,6 +1,6 @@
 import type { Locator } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
-import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, sameRouteUrl, stripInlineMarkers } from "./collector.js";
+import { LOADING_INDICATOR_SELECTORS, LOADING_INDICATOR_SELECTOR_LIST, DEFAULT_SWEEP_SELECTORS, CollectorError, captureMarkerSpec, clickResolvedLocator, collectorErrorCode, computeTargetBlocked, cropClipForTarget, isBrowserGoneError, isCausalProbeSafe, isLoadingElement, loadingSamplePoints, markerTolerantRegExp, mergedLoadingSelectors, resolveProjectUrl, resolveSweepSelectors, sameRouteUrl, stripInlineMarkers } from "./collector.js";
 
 describe("isBrowserGoneError", () => {
   it("detects crashed-browser Playwright errors", () => {
@@ -366,4 +366,38 @@ describe("F5: structured collector errors", () => {
     }
   });
 });
+describe("resolveSweepSelectors", () => {
+  it("returns the Element Plus defaults when no config is given", () => {
+    expect(resolveSweepSelectors()).toEqual(DEFAULT_SWEEP_SELECTORS);
+    expect(resolveSweepSelectors({})).toEqual(DEFAULT_SWEEP_SELECTORS);
+  });
+
+  it("keeps the engine component-library-agnostic: any selector overrides win", () => {
+    const resolved = resolveSweepSelectors({
+      treeExpand: ".mat-tree-node__expand:not(.is-leaf)",
+      paginationNext: ".mat-paginator button.next",
+      deepWidget: ".mat-form-field,.mat-datepicker-toggle",
+      closePopper: ".mat-select-panel,.mat-menu-panel",
+    });
+    expect(resolved.treeExpand).toBe(".mat-tree-node__expand:not(.is-leaf)");
+    expect(resolved.paginationNext).toBe(".mat-paginator button.next");
+    expect(resolved.deepWidget).toBe(".mat-form-field,.mat-datepicker-toggle");
+    expect(resolved.closePopper).toBe(".mat-select-panel,.mat-menu-panel");
+  });
+
+  it("merges partial overrides over the untouched defaults", () => {
+    const resolved = resolveSweepSelectors({ paginationNext: ".ant-pagination-next" });
+    expect(resolved.paginationNext).toBe(".ant-pagination-next");
+    expect(resolved.treeExpand).toBe(DEFAULT_SWEEP_SELECTORS.treeExpand);
+    expect(resolved.deepWidget).toBe(DEFAULT_SWEEP_SELECTORS.deepWidget);
+    expect(resolved.closePopper).toBe(DEFAULT_SWEEP_SELECTORS.closePopper);
+  });
+
+  it("never mutates the shared defaults", () => {
+    const before = { ...DEFAULT_SWEEP_SELECTORS };
+    resolveSweepSelectors({ treeExpand: ".x", paginationNext: ".y" });
+    expect(DEFAULT_SWEEP_SELECTORS).toEqual(before);
+  });
+});
+
 

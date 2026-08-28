@@ -485,8 +485,9 @@ export class LocalService {
       // R-login: gated apps authenticate here, AFTER the login route has had
       // its deterministic pass — the login form itself carries many i18n keys
       // (placeholders, buttons, agreement text) that are only renderable
-      // while unauthenticated. One attempt per session; a failure fails the
-      // run loudly instead of silently collecting only the login page.
+      // while unauthenticated. One attempt per session; a failure demotes the
+      // pending tasks to the agent queue (with the reason) instead of failing
+      // the whole run, so an Agent or a reviewer can retry the login flow.
       const login = this.options.config.browser.login;
       if (login && !this.loginCompleted) {
         this.loginCompleted = true;
@@ -500,10 +501,9 @@ export class LocalService {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           for (const task of store.listTasks(sessionId, ["pending"])) {
-            store.markTask(task.id, "failed", `登录引导失败：${message}`);
+            store.markTask(task.id, "needs_agent", `登录引导失败：${message}`);
           }
-          console.error("[collect-i18n] login bootstrap failed", error);
-          return;
+          console.error("[collect-i18n] login bootstrap failed; pending keys demoted to the agent queue", error);
         }
       }
       // Routes visited in this queue run that produced zero new evidence are

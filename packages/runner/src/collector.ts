@@ -311,6 +311,11 @@ export const DEFAULT_SWEEP_SELECTORS: Required<SweepSelectors> = {
   closePopper: ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper",
 };
 
+/** Merge project-supplied sweep selectors over the built-in Element Plus defaults. */
+export function resolveSweepSelectors(sweep: SweepSelectors = {}): Required<SweepSelectors> {
+  return { ...DEFAULT_SWEEP_SELECTORS, ...sweep };
+}
+
 /**
  * Merge project-supplied loading selectors (F1: configurable selectors) with
  * the built-in list. Custom selectors are appended so built-in detection can
@@ -1927,7 +1932,7 @@ export class BrowserCollector {
     sweep: SweepSelectors = {},
   ): Promise<"advanced" | "exhausted"> {
     this.assertSameOrigin();
-    const cfg: Required<SweepSelectors> = { ...DEFAULT_SWEEP_SELECTORS, ...sweep };
+    const cfg = resolveSweepSelectors(sweep);
     const outcome = await bounded(
       this.activePage.evaluate(({ budget, cfg: c }) => {
         const visible = (el: Element): el is HTMLElement =>

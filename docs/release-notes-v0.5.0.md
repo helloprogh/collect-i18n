@@ -36,4 +36,11 @@
 
 - 无破坏性变更;Excel 四列格式不变。
 - run 新增 --foreground 选项(受限环境/调试)。
+
+## 追加改进(审计收尾批次)
+
+- 登录失败降级:browser.login 引导失败不再把全部待处理任务标 failed 并终止 run,改为降级到 Agent 队列(附失败原因),确定性路由扫描继续,Agent/人工可重试登录。
+- 死键清理报告:finalize 输出 deadKeys 清单(keyPath + 所在 locale 文件),无源码引用的词条可直接从语言包删除。
+- Excel 原因统计:export 返回 stats(captured / deprecated / deadKey / nonVisual / dynamic / manual),支持按原因批量评审与分组外包。
+- widget 扫描配置化回归守护:resolveSweepSelectors 抽为纯函数并新增回归单测(全量 178 测试通过),确保组件库无关承诺不被悄悄回退。
 - 登录引导在自动跳转型应用上不再误报失败(移动首填进重试循环,优雅返回)。

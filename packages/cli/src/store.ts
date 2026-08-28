@@ -225,10 +225,19 @@ export interface EventPage {
   hasMore: boolean;
 }
 
+/** One no-source (dead) key plus the locale file it can be removed from. */
+export interface FinalizeDeadKey {
+  keyPath: string;
+  /** Relative locale file (the Chinese source) containing the key. */
+  file: string;
+}
+
 export interface FinalizeUnresolvedResult {
   skippedNoSource: string[];
   skippedNonVisual: string[];
   needsManual: string[];
+  /** Deletable dead keys: no source occurrence anywhere in the project. */
+  deadKeys: FinalizeDeadKey[];
 }
 
 function stableId(prefix: string, value: string): string {
@@ -1061,6 +1070,7 @@ export class StateStore {
       skippedNoSource: [],
       skippedNonVisual: [],
       needsManual: [],
+      deadKeys: [],
     };
     const hasUnresolvedDynamic = Number(this.session(sessionId)?.has_unresolved_dynamic ?? 0) === 1;
 
@@ -1089,7 +1099,10 @@ export class StateStore {
           task.id,
         );
         if (Number(changed.changes) !== 1) continue;
-        if (reason === "no_source_occurrence") result.skippedNoSource.push(task.keyPath);
+        if (reason === "no_source_occurrence") {
+          result.skippedNoSource.push(task.keyPath);
+          result.deadKeys.push({ keyPath: task.keyPath, file: task.relativeFile });
+        }
         else if (reason === "non_visual_source_only") result.skippedNonVisual.push(task.keyPath);
         else result.needsManual.push(task.keyPath);
         this.addEvent(sessionId, `task.${nextStatus}`, {

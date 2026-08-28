@@ -51,10 +51,20 @@ async function workbookRows(workbookPath: string): Promise<{
 describe("four-column translation workbook export", () => {
   it("exports exactly one visible sheet and always initializes English from Chinese", async () => {
     const item = await fixture();
-    await exportTranslationWorkbook([
+    const exported = await exportTranslationWorkbook([
       { ...item.catalog[0]!, english: "" },
       { ...item.catalog[1]!, english: "Save" },
     ], item.workbookPath);
+
+    expect(exported.stats).toEqual({
+      total: 2,
+      captured: 0,
+      deprecated: 0,
+      deadKey: 0,
+      nonVisual: 0,
+      dynamic: 0,
+      manual: 0,
+    });
 
     const { workbook, sheet, rows } = await workbookRows(item.workbookPath);
     expect(workbook.worksheets).toHaveLength(1);

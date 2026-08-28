@@ -675,7 +675,9 @@ program.command("finalize")
           skippedNoSource: settled.skippedNoSource.length,
           skippedNonVisual: settled.skippedNonVisual.length,
           needsManual: settled.needsManual.length,
+          deadKeys: settled.deadKeys.length,
         },
+        deadKeys: settled.deadKeys,
         keys: settled,
         status: store.status(options.session),
       });

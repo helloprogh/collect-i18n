@@ -97,10 +97,22 @@ function validateRows(rows: WorkbookExportRow[]): void {
   }
 }
 
+export interface WorkbookStats {
+  total: number;
+  captured: number;
+  deprecated: number;
+  deadKey: number;
+  nonVisual: number;
+  /** Manual rows annotated as unresolvable dynamic source keys. */
+  dynamic: number;
+  /** Manual rows awaiting assisted review (everything else). */
+  manual: number;
+}
+
 export async function exportTranslationWorkbook(
   rows: WorkbookExportRow[],
   outputPath: string,
-): Promise<{ outputPath: string; rowCount: number; imageCount: number }> {
+): Promise<{ outputPath: string; rowCount: number; imageCount: number; stats: WorkbookStats }> {
   validateRows(rows);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "";
@@ -146,6 +158,15 @@ export async function exportTranslationWorkbook(
     .sort((a, b) => a.keyPath.localeCompare(b.keyPath, "en"));
   const orderedRows = [...normalRows, ...deadKeyRows, ...deprecatedRows];
   let imageCount = 0;
+  const stats: WorkbookStats = {
+    total: orderedRows.length,
+    captured: 0,
+    deprecated: deprecatedRows.length,
+    deadKey: deadKeyRows.length,
+    nonVisual: 0,
+    dynamic: 0,
+    manual: 0,
+  };
 
   for (const source of orderedRows) {
     const row = worksheet.addRow([
@@ -192,6 +213,7 @@ export async function exportTranslationWorkbook(
       } as unknown as Parameters<typeof worksheet.addImage>[1];
       worksheet.addImage(imageId, imageRange);
       imageCount += 1;
+      stats.captured += 1;
     } else if (source.deprecated) {
       // No screenshot can exist for a deprecated key; annotate the cell
       // instead of leaving it empty so the reviewer knows why.
@@ -200,6 +222,7 @@ export async function exportTranslationWorkbook(
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
     } else if (source.nonVisual) {
+      stats.nonVisual += 1;
       // Non-visual keys (aria-*/native title only) cannot be screenshotted;
       // annotate in place with the same visual style as deprecated rows.
       const cell = row.getCell(3);
@@ -214,6 +237,8 @@ export async function exportTranslationWorkbook(
       cell.alignment = { vertical: "middle", horizontal: "center" };
       cell.font = { italic: true, color: { argb: "FF6B7280" } };
     } else if (source.manualReason) {
+      if (source.manualReason === "unresolved_dynamic_source") stats.dynamic += 1;
+      else stats.manual += 1;
       // Remaining manual rows: annotate the cause group (dynamic source,
       // manual fallback...) in the same style so reviewers can batch them.
       const cell = row.getCell(3);
@@ -234,5 +259,5 @@ export async function exportTranslationWorkbook(
   } finally {
     await rm(temporary, { force: true });
   }
-  return { outputPath: resolvedOutput, rowCount: orderedRows.length, imageCount };
+  return { outputPath: resolvedOutput, rowCount: orderedRows.length, imageCount, stats };
 }

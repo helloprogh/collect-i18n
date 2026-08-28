@@ -705,6 +705,7 @@ describe("StateStore transactions", () => {
       skippedNoSource: ["fixture.unused"],
       skippedNonVisual: ["fixture.accessible", "fixture.nativeTitle"],
       needsManual: ["fixture.visible"],
+      deadKeys: [{ keyPath: "fixture.unused", file: "fixture.json" }],
     });
     expect(store.status(sessionId)).toMatchObject({
       counts: {
@@ -928,6 +929,7 @@ describe("StateStore transactions", () => {
     // No-source keys are pre-classified at session creation, so finalize
     // finds nothing left to classify.
     expect(store.finalizeUnresolved(sessionId).skippedNoSource).toHaveLength(0);
+    expect(store.finalizeUnresolved(sessionId).deadKeys).toHaveLength(0);
     store.close();
   });
 
