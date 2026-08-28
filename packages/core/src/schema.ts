@@ -103,6 +103,23 @@ export const ProjectConfigSchema = z
           })
           .strict()
           .optional(),
+        /**
+         * Deterministic widget sweep (R7) DOM structure hints. The built-in
+         * defaults target Element Plus (collapsed trees, pagination next,
+         * cascader/select/date picker panels); any component library can
+         * override them, or disable the sweep entirely, without touching the
+         * engine. Selectors keep the sweep library-agnostic by configuration.
+         */
+        sweep: z
+          .object({
+            enabled: z.boolean().default(true),
+            treeExpandSelector: z.string().min(1).max(300).optional(),
+            paginationNextSelector: z.string().min(1).max(300).optional(),
+            deepWidgetSelector: z.string().min(1).max(300).optional(),
+            closePopperSelector: z.string().min(1).max(300).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .default({
         headless: true,

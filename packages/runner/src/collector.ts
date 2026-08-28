@@ -289,6 +289,29 @@ export const LOADING_INDICATOR_SELECTOR_LIST = [
 export const LOADING_INDICATOR_SELECTORS = LOADING_INDICATOR_SELECTOR_LIST.join(",");
 
 /**
+ * DOM structure hints for the deterministic widget sweep (R7). Project
+ * configuration may override any of them so the sweep stays agnostic of the
+ * surrounding component library; disable the sweep via config.sweep instead
+ * of deleting selectors here.
+ */
+export interface SweepSelectors {
+  treeExpand?: string
+  paginationNext?: string
+  deepWidget?: string
+  closePopper?: string
+}
+
+/**
+ * Built-in Element Plus structure hints used when config.sweep is absent.
+ */
+export const DEFAULT_SWEEP_SELECTORS: Required<SweepSelectors> = {
+  treeExpand: ".el-tree-node__expand-icon:not(.is-leaf)",
+  paginationNext: ".el-pagination .btn-next",
+  deepWidget: ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor",
+  closePopper: ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper",
+};
+
+/**
  * Merge project-supplied loading selectors (F1: configurable selectors) with
  * the built-in list. Custom selectors are appended so built-in detection can
  * never regress while apps can still mark their own spinners.
@@ -1890,22 +1913,29 @@ export class BrowserCollector {
 
   /**
    * Deterministic widget sweep step (R7): clicks bounded, client-side-only
-   * widgets that keep more translated content mounted — Element Plus tree
+   * widgets that more translated content mounted — collapsed tree
    * expand icons and pagination "next" buttons. Never touches forms or
    * action buttons, so the sweep cannot mutate project data. The caller
    * re-inspects and batch-captures between rounds; the returned outcome
    * tells it whether another round can surface anything new.
+   * Selectors default to Element Plus structure hints but are fully
+   * overridable per project (and the sweep can be disabled), so no
+   * component library is baked into the engine.
    */
-  async widgetSweepForCapture(maxClicks: number): Promise<"advanced" | "exhausted"> {
+  async widgetSweepForCapture(
+    maxClicks: number,
+    sweep: SweepSelectors = {},
+  ): Promise<"advanced" | "exhausted"> {
     this.assertSameOrigin();
+    const cfg: Required<SweepSelectors> = { ...DEFAULT_SWEEP_SELECTORS, ...sweep };
     const outcome = await bounded(
-      this.activePage.evaluate((budget) => {
+      this.activePage.evaluate(({ budget, cfg: c }) => {
         const visible = (el: Element): el is HTMLElement =>
           el instanceof HTMLElement && el.offsetParent !== null;
         // A panel opened by the previous round would block interactions with
         // the widgets under it: close it before advancing.
         for (const panel of document.querySelectorAll<HTMLElement>(
-          ".el-select__popper,.el-cascader__dropdown,.el-picker__popper,.el-popover,.el-tooltip__popper",
+          c.closePopper,
         )) {
           if (visible(panel)) {
             document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -1916,7 +1946,7 @@ export class BrowserCollector {
         let clicks = 0;
         // 1) Collapsed Element Plus tree nodes: expanding is pure client
         // state and reveals child node labels.
-        for (const icon of document.querySelectorAll<HTMLElement>(".el-tree-node__expand-icon:not(.is-leaf)")) {
+        for (const icon of document.querySelectorAll<HTMLElement>(c.treeExpand)) {
           if (clicks >= budget) return "advanced";
           if (!visible(icon) || icon.getAttribute("aria-expanded") === "true") continue;
           icon.click();
@@ -1925,7 +1955,7 @@ export class BrowserCollector {
         // 2) One pagination step per round: linear forward walk of paginated
         // tables. Disabled/absent buttons end the walk.
         for (const next of document.querySelectorAll<HTMLElement>(
-          ".el-pagination .btn-next",
+          c.paginationNext,
         )) {
           if (clicks >= budget) return "advanced";
           if (!visible(next) || next.hasAttribute("disabled") || next.getAttribute("aria-disabled") === "true") continue;
@@ -1937,7 +1967,7 @@ export class BrowserCollector {
         // their option texts in teleported panels that only mount while the
         // widget is open. Mark swept widgets so later rounds advance.
         for (const trigger of document.querySelectorAll<HTMLElement>(
-          ".el-cascader,.el-select,.el-select__wrapper,.el-date-editor",
+          c.deepWidget,
         )) {
           if (!visible(trigger)) continue;
           if (trigger.dataset.collectI18nSwept) continue;
@@ -1947,7 +1977,7 @@ export class BrowserCollector {
           break;
         }
         return clicks > 0 ? "advanced" : "exhausted";
-      }, maxClicks),
+      }, { budget: maxClicks, cfg }),
       5_000,
       "Page became unresponsive during the widget sweep",
     );

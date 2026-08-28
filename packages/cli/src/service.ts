@@ -649,7 +649,8 @@ export class LocalService {
     // R7: bounded widget sweep; paginated tables and collapsed trees keep
     // row/child keys out of the DOM until clicked. Same contract as the
     // scroll pass — only run while candidates remain unhandled.
-    if (candidates.some((task) => !handledKeys.has(task.keyPath))) {
+    const sweepEnabled = this.options.config.browser.sweep?.enabled !== false;
+    if (sweepEnabled && candidates.some((task) => !handledKeys.has(task.keyPath))) {
       newlyCaptured += await this.captureWidgetSweptVisible(sessionId, collector, group, handledKeys);
     }
     // R8: bounded interaction sweep (tabs, then buttons) — clicks one target
@@ -825,7 +826,15 @@ export class LocalService {
     let newlyCaptured = 0;
     for (let round = 1; round <= maxRounds; round += 1) {
       if (this.manualActive) return newlyCaptured;
-      const outcome = await collector.widgetSweepForCapture(6);
+      const sweepCfg = this.options.config.browser.sweep;
+      const outcome = await collector.widgetSweepForCapture(6, sweepCfg
+        ? {
+            treeExpand: sweepCfg.treeExpandSelector,
+            paginationNext: sweepCfg.paginationNextSelector,
+            deepWidget: sweepCfg.deepWidgetSelector,
+            closePopper: sweepCfg.closePopperSelector,
+          }
+        : {});
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
       const notYetHandled = store.listTasks(sessionId, ["pending", "needs_agent", "needs_manual"])
         .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
