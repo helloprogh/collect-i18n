@@ -8,7 +8,7 @@ Collect I18n 是一个以通用 Agent Skill 为入口、本地 CLI 为执行与�
 | --- | --- | --- | --- |
 | 中文原文 | 默认复制中文原文 | 对应界面截图；未采集时为空 | 稳定词条路径 |
 
-当前版本为 `v0.6.0`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
+当前版本为 `v0.7.0`。工具不会为了提高覆盖率向目标项目添加测试页面、预期词条、假路由或强制显示代码。
 
 ## 核心能力
 
@@ -68,7 +68,7 @@ Skill 驱动 Agent 处理剩余交互任务
 
 ## 推荐使用方式：只接入 Skill
 
-从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.6.0.zip`，解压后应形成：
+从 [GitHub Releases](https://github.com/helloprogh/collect-i18n/releases/latest) 下载 `collect-i18n-skill-v0.7.0.zip`，解压后应形成：
 
 ```text
 <skills-directory>/
@@ -317,6 +317,7 @@ examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
 - [架构设计](docs/architecture.md)
 - [CLI 参考](docs/cli-reference.md)
 - [TriggerPlan 规范](skill/collect-i18n/references/trigger-plan.md)
+- [v0.7.0 发布说明](docs/release-notes-v0.7.0.md)
 - [v0.6.0 发布说明](docs/release-notes-v0.6.0.md)
 - [v0.5.0 发布说明](docs/release-notes-v0.5.0.md)
 - [v0.4.0 发布说明](docs/release-notes-v0.4.0.md)
