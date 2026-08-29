@@ -121,6 +121,12 @@ async function waitForDescriptor(projectRoot: string, sessionId: string): Promis
   throw new Error(`后台服务启动超时。${lastError}`);
 }
 
+/**
+ * Build the detached daemon argv for `serve`. Kept in service-command.ts so
+ * it is unit-testable without importing the CLI entry module.
+ */
+import { buildServeCommand } from "./service-command.js";
+
 async function startBackground(projectRoot: string, sessionId: string): Promise<ServiceDescriptor> {
   const executable = fileURLToPath(import.meta.url);
   // Source checkouts run the CLI through tsx; the background daemon then
@@ -128,9 +134,7 @@ async function startBackground(projectRoot: string, sessionId: string): Promise<
   const tsxCli = executable.endsWith(".ts")
     ? join(resolve(dirname(executable), "..", "..", ".."), "node_modules", "tsx", "dist", "cli.mjs")
     : undefined;
-  const commandLine = tsxCli
-    ? [process.execPath, tsxCli, executable, "--project", projectRoot, "serve", "--session", sessionId]
-    : [process.execPath, executable, "--project", projectRoot, "serve", "--session", sessionId];
+  const commandLine = buildServeCommand(executable, projectRoot, sessionId, tsxCli);
   const logPath = join(resolveStateRoot(projectRoot), "service.log");
   await mkdir(dirname(logPath), { recursive: true });
   const log = openSync(logPath, "a");

@@ -159438,6 +159438,11 @@ var LocalService = class {
   }
 };
 
+// src/service-command.ts
+function buildServeCommand(executable, projectRoot, sessionId, tsxCli) {
+  return tsxCli ? [tsxCli, executable, "--project", projectRoot, "serve", "--session", sessionId] : [executable, "--project", projectRoot, "serve", "--session", sessionId];
+}
+
 // src/bin.ts
 function output(command, name, data, warnings = []) {
   const options = command.optsWithGlobals();
@@ -159550,7 +159555,7 @@ async function waitForDescriptor(projectRoot, sessionId) {
 async function startBackground(projectRoot, sessionId) {
   const executable = fileURLToPath3(import.meta.url);
   const tsxCli = executable.endsWith(".ts") ? join7(resolve10(dirname6(executable), "..", "..", ".."), "node_modules", "tsx", "dist", "cli.mjs") : void 0;
-  const commandLine = tsxCli ? [process.execPath, tsxCli, executable, "--project", projectRoot, "serve", "--session", sessionId] : [process.execPath, executable, "--project", projectRoot, "serve", "--session", sessionId];
+  const commandLine = buildServeCommand(executable, projectRoot, sessionId, tsxCli);
   const logPath = join7(resolveStateRoot(projectRoot), "service.log");
   await mkdir7(dirname6(logPath), { recursive: true });
   const log2 = openSync2(logPath, "a");
