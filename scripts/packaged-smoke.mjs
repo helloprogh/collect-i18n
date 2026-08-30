@@ -75,8 +75,8 @@ function run(command, args, { capture = false, timeoutMs = 12 * 60 * 1000, cwd =
 }
 
 /** Run the packaged bootstrap CLI with the stable JSON protocol flags. */
-function bootstrap(extractedRoot, args, { timeoutMs } = {}) {
-  const bootstrapPath = join(extractedRoot, "collect-i18n", "cli", "bootstrap.mjs");
+function bootstrap(cliDirectory, args, { timeoutMs } = {}) {
+  const bootstrapPath = join(cliDirectory, "bootstrap.mjs");
   if (!existsSync(bootstrapPath)) fail(`packaged bootstrap missing: ${bootstrapPath}`);
   const result = spawnSync(process.execPath, [
     bootstrapPath,
@@ -114,19 +114,20 @@ try {
   const zipBytes = statSync(options.zip).size;
   if (zipBytes < 1_000_000) fail(`skill zip suspiciously small (${zipBytes} bytes)`);
   run("unzip", ["-q", options.zip, "-d", extractedZip]);
-  const packagedVersion = JSON.parse(readFileSync(join(extractedZip, "collect-i18n", "cli", "package.json"), "utf8")).version;
+  const zipCliDirectory = join(extractedZip, "collect-i18n", "cli");
+  const packagedVersion = JSON.parse(readFileSync(join(zipCliDirectory, "package.json"), "utf8")).version;
   if (packagedVersion !== expectedVersion) fail(`packaged engine version ${packagedVersion} != repository version ${expectedVersion}`);
   console.log(`[1/6] skill zip installed (${Math.round(zipBytes / 1e6)} MB, engine v${packagedVersion})`);
 
   // ----------------------------------------------------------------- doctor
-  const doctor = bootstrap(extractedZip, ["doctor"]);
+  const doctor = bootstrap(zipCliDirectory, ["doctor"]);
   if (!doctor.data.ready) fail(`doctor reports the target project is not ready: ${JSON.stringify(doctor.data.checks)}`);
   console.log(`[2/6] doctor ready (${doctor.data.checks.filter((c) => c.required && c.ok).length} required checks ok)`);
 
   // ------------------------------------------------------------------- init
   // Fresh config, then force headless: the smoke must drive the real
   // background daemon + Vite + Chrome on a display-less runner.
-  bootstrap(extractedZip, ["init"]);
+  bootstrap(zipCliDirectory, ["init"]);
   const configPath = join(options.projectRoot, ".collect-i18n", "config.json");
   if (!existsSync(configPath)) fail("init did not create .collect-i18n/config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8"));
@@ -137,7 +138,7 @@ try {
   // -------------------------------------------------------------------- run
   // Default background mode on purpose: the daemon spawn path is exactly
   // what in-repo tests never exercised and what v0.5.0 broke silently.
-  const runResult = bootstrap(extractedZip, [
+  const runResult = bootstrap(zipCliDirectory, [
     "run",
     "--output", outputWorkbook,
     "--deadline-minutes", options.deadline,
@@ -171,7 +172,7 @@ try {
   console.log(`[5/6] workbook verified: 1 sheet, exact four-column header, ${embeddedImages} embedded screenshots`);
 
   // -------------------------------------------------------------------- stop
-  const stop = bootstrap(extractedZip, ["stop"]);
+  const stop = bootstrap(zipCliDirectory, ["stop"]);
   if (stop.data.stopped === false && !stop.data.alreadyStopped) fail(`stop did not shut the service down: ${JSON.stringify(stop.data)}`);
   console.log("[6/6] service stopped cleanly");
 
@@ -189,7 +190,7 @@ try {
   run("tar", ["-xzf", join(tgzDir, tgzName), "-C", tgzDir, ...(process.platform === "win32" ? ["--force-local"] : [])]);
   const tgzVersion = JSON.parse(readFileSync(join(extractedTgz, "cli", "package.json"), "utf8")).version;
   if (tgzVersion !== expectedVersion) fail(`tarball engine version ${tgzVersion} != ${expectedVersion}`);
-  const tgzDoctor = bootstrap(extractedTgz, ["doctor"]);
+  const tgzDoctor = bootstrap(join(extractedTgz, "cli"), ["doctor"]);
   if (!tgzDoctor.data.ready) fail("doctor failed from the packed dsh plugin engine");
   console.log(`[packaged-smoke] dsh tarball ${tgzName}: engine v${tgzVersion}, doctor ready`);
 
