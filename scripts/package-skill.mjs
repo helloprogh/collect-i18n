@@ -114,7 +114,11 @@ function centralHeader(name, data, crc, offset) {
   header.writeUInt32LE(data.length, 20);
   header.writeUInt32LE(data.length, 24);
   header.writeUInt16LE(name.length, 28);
-  header.writeUInt32LE(0, 38);
+  // Unix mode in the external attributes: version-made-by declares unix (3),
+  // and Info-ZIP unzip applies a zero mode verbatim, extracting files NOBODY
+  // can read (this broke every Linux install of the release zip; Windows
+  // unzip ignores the bits, which is why local checks never saw it).
+  header.writeUInt32LE(0o100644 * 0x10000, 38);
   header.writeUInt32LE(offset, 42);
   return header;
 }
