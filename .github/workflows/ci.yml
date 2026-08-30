@@ -62,3 +62,36 @@ jobs:
           name: collect-i18n-skill
           path: release/*.zip
           if-no-files-found: error
+
+  packaged-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download packaged skill
+        uses: actions/download-artifact@v4
+        with:
+          name: collect-i18n-skill
+          path: release
+
+      - name: Packaged artifact smoke test
+        run: node scripts/packaged-smoke.mjs release/collect-i18n-skill-*.zip examples/vue-i18n-translation-lab --deadline-minutes 6 --deterministic-timeout-minutes 3

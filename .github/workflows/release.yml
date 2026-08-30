@@ -58,6 +58,9 @@ jobs:
       - name: Package Skill
         run: pnpm package:skill
 
+      - name: Packaged artifact smoke test
+        run: node scripts/packaged-smoke.mjs release/collect-i18n-skill-*.zip examples/vue-i18n-translation-lab --deadline-minutes 6 --deterministic-timeout-minutes 3
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
