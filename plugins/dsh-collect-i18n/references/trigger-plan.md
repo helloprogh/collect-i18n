@@ -75,6 +75,12 @@ Use mocks only to create a source-evidenced API state:
 }
 ```
 
+**Mock `url` matching semantics** (kept exact by the collector):
+
+- A url starting with `/` matches the request **pathname only**, ignoring the query string — for example `/api/users` also intercepts `/api/users?page=2`. Use this for path-anchored endpoints.
+- Any other value is a `*`-glob matched against the **full URL including scheme, host and query** — for example `**/api/users` matches every origin, while `*example.com/api/users*` is host- and query-aware. Sprints that must distinguish query variants (page, status) need the glob form.
+- `method` must match exactly when present (uppercased); `once` consumes the rule after its first hit; rules are evaluated in declaration order and the first match fulfills.
+
 Do not invent UI copy in the mock. Use response shape/value evidence from the project's API client, mock fixtures, or error handling source. If response requirements are unknown, omit the mock and hand the task to manual fallback.
 
 ## Planning patterns

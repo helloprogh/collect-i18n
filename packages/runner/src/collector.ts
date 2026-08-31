@@ -615,13 +615,34 @@ async function bounded<T>(operation: Promise<T>, timeoutMs: number, message: str
  * True when a Playwright operation failed because the browser process or its
  * persistent context died (crash, forced quit, resource exhaustion). These
  * errors are fatal to the current BrowserContext but recoverable by relaunching
- * the persistent profile.
+ * the persistent profile. The phrase list is curated across Playwright
+ * versions: a missed variant turns a healable browser crash into a task
+ * failure, so matching is case-insensitive and tolerant of trailing dots.
  */
+const BROWSER_GONE_PATTERNS = [
+  /browser has been closed/i,
+  /browser has closed/i,
+  /browser is no longer reachable/i,
+  /browser process has been closed/i,
+  /browser process has died|page crashed/i,
+  /target page, context or browser has been closed/i,
+  /browser context has been disposed/i,
+  /browser context closed/i,
+  /browser was closed/i,
+  /browser closed/i,
+  /context was destroyed/i,
+  /target closed|target crashed/i,
+  /page was closed|the page has been closed/i,
+  /connection closed/i,
+  /browser disconnected/i,
+  /the websocket connection was closed/i,
+  /protocol error.*(?:connection lost|browser gone|target crashed)/i,
+];
+
 export function isBrowserGoneError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return /browser has been closed|Target page, context or browser has been closed|Browser has been closed|browser context has been disposed/i.test(
-    error.message,
-  );
+  const message = String(error.message ?? "").replace(/\.+$/u, "");
+  return BROWSER_GONE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export class BrowserCollector {

@@ -9,8 +9,32 @@ describe("isBrowserGoneError", () => {
     expect(isBrowserGoneError(new Error("Browser has been closed"))).toBe(true);
   });
 
+  it("matches the wider set of Playwright gone/crash messages case-insensitively", () => {
+    const gone = [
+      "browser has closed",
+      "Browser process has been closed",
+      "browser process has died",
+      "page crashed",
+      "Browser context has been disposed",
+      "browser context closed.",
+      "context was destroyed",
+      "this page was closed",
+      "target closed",
+      "Target closed",
+      "connection closed",
+      "browser disconnected",
+      "the websocket connection was closed",
+      "Protocol error (Target.setDiscoverTargets): browser is no longer reachable",
+      "Error: Browser closed.",
+    ];
+    for (const message of gone) {
+      expect(isBrowserGoneError(new Error(message))).toBe(true);
+    }
+  });
+
   it("ignores unrelated errors", () => {
     expect(isBrowserGoneError(new Error("Timed out waiting for i18n key: dashboard.title"))).toBe(false);
+    expect(isBrowserGoneError(new Error("Select options must be strings"))).toBe(false);
     expect(isBrowserGoneError(undefined)).toBe(false);
     expect(isBrowserGoneError("browser has been closed")).toBe(false);
   });

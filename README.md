@@ -309,7 +309,7 @@ packages/cli                        CLI、SQLite、本地服务与任务编排
 skill/collect-i18n                  通用 Agent Skill
 plugins/dsh-collect-i18n            DeepSeek Harness 服务端插件（同一引擎的第二个分发出口）
 benchmarks/vue-i18n-1000            1000 词条 OMS 场景的验证与评估脚本
-examples/vue-i18n-translation-lab  601 词条的真实可运行基准项目
+examples/vue-i18n-translation-lab  千词条级真实可运行基准项目
 ```
 
 进一步阅读：

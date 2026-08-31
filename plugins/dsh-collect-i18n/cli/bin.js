@@ -114578,7 +114578,7 @@ var require_graceful_fs = __commonJS({
     function patch(fs3) {
       polyfills(fs3);
       fs3.gracefulify = patch;
-      fs3.createReadStream = createReadStream;
+      fs3.createReadStream = createReadStream2;
       fs3.createWriteStream = createWriteStream;
       var fs$readFile = fs3.readFile;
       fs3.readFile = readFile10;
@@ -114788,7 +114788,7 @@ var require_graceful_fs = __commonJS({
           }
         });
       }
-      function createReadStream(path7, options) {
+      function createReadStream2(path7, options) {
         return new fs3.ReadStream(path7, options);
       }
       function createWriteStream(path7, options) {
@@ -153529,11 +153529,29 @@ async function bounded(operation, timeoutMs, message) {
     if (timer) clearTimeout(timer);
   }
 }
+var BROWSER_GONE_PATTERNS = [
+  /browser has been closed/i,
+  /browser has closed/i,
+  /browser is no longer reachable/i,
+  /browser process has been closed/i,
+  /browser process has died|page crashed/i,
+  /target page, context or browser has been closed/i,
+  /browser context has been disposed/i,
+  /browser context closed/i,
+  /browser was closed/i,
+  /browser closed/i,
+  /context was destroyed/i,
+  /target closed|target crashed/i,
+  /page was closed|the page has been closed/i,
+  /connection closed/i,
+  /browser disconnected/i,
+  /the websocket connection was closed/i,
+  /protocol error.*(?:connection lost|browser gone|target crashed)/i
+];
 function isBrowserGoneError(error51) {
   if (!(error51 instanceof Error)) return false;
-  return /browser has been closed|Target page, context or browser has been closed|Browser has been closed|browser context has been disposed/i.test(
-    error51.message
-  );
+  const message = String(error51.message ?? "").replace(/\.+$/u, "");
+  return BROWSER_GONE_PATTERNS.some((pattern) => pattern.test(message));
 }
 var BrowserCollector = class {
   constructor(options) {
@@ -155281,6 +155299,7 @@ async function callService(projectRoot, path7, init) {
 
 // src/service.ts
 import { createHash as createHash5, randomBytes, randomUUID as randomUUID6, timingSafeEqual } from "crypto";
+import { createReadStream } from "fs";
 import { mkdir as mkdir6, readFile as readFile8, realpath as realpath2, stat as stat2, writeFile as writeFile4 } from "fs/promises";
 import { createServer as createHttpServer } from "http";
 import { dirname as dirname5, isAbsolute as isAbsolute2, join as join6, normalize, relative as relative2, resolve as resolve9 } from "path";
@@ -159377,7 +159396,16 @@ var LocalService = class {
       const output2 = join6(exportDirectory, `${sessionId}.xlsx`);
       await exportTranslationWorkbook(rows, output2);
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="collect-i18n-${sessionId}.xlsx"` });
-      response.end(await readFile8(output2));
+      const stream = createReadStream(output2);
+      stream.on("error", (error51) => {
+        if (!response.headersSent) {
+          response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: false, error: { code: "export_stream_failed", message: error51.message } }));
+        } else {
+          response.destroy(error51);
+        }
+      });
+      stream.pipe(response);
       return;
     }
     if (url2.pathname === "/api/import" && request.method === "POST") {

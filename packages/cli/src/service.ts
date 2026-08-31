@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -1334,7 +1335,20 @@ export class LocalService {
       const output = join(exportDirectory, `${sessionId}.xlsx`);
       await exportTranslationWorkbook(rows, output);
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="collect-i18n-${sessionId}.xlsx"` });
-      response.end(await readFile(output)); return;
+      // Stream instead of buffering the whole workbook: screenshot-heavy
+      // exports run into tens of megabytes, and the server already holds the
+      // SQLite rows during the write.
+      const stream = createReadStream(output);
+      stream.on("error", (error) => {
+        if (!response.headersSent) {
+          response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: false, error: { code: "export_stream_failed", message: error.message } }));
+        } else {
+          response.destroy(error);
+        }
+      });
+      stream.pipe(response);
+      return;
     }
     if (url.pathname === "/api/import" && request.method === "POST") {
       const body = await bodyJson(request);
