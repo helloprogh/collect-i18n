@@ -94,7 +94,12 @@ async function refresh(silent = false) {
       api.events(sessionId.value, eventCursor),
     ]);
     if (nextTasks.length !== nextStatus.counts.total) {
-      throw new Error(`任务列表不完整：服务端报告 ${nextStatus.counts.total} 个，工作台只收到 ${nextTasks.length} 个`);
+      // A page-size mismatch between the counts and the task listing is a
+      // display gap, not a fault: degrading keeps the workbench usable while
+      // the console warning shows exactly what the server did not send.
+      console.warn(
+        `[collect-i18n] 任务列表不完整：服务端报告 ${nextStatus.counts.total} 个，工作台只收到 ${nextTasks.length} 个`,
+      );
     }
     status.value = nextStatus;
     tasks.value = nextTasks;

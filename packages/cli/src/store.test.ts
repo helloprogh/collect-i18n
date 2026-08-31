@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ProjectAnalysis } from "@collect-i18n/analyzer";
 import type { CollectedEvidence } from "@collect-i18n/runner";
+import { EvidenceSchema, SessionCountsSchema, SessionSummarySchema } from "@collect-i18n/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveStateRoot } from "./state-root.js";
 import { agentActionScore, agentTaskPriority, preferredAgentRoute, representativeRouteTasks, StateStore, type StoredTask } from "./store.js";
@@ -560,6 +561,33 @@ describe("StateStore transactions", () => {
     const excluded = new Set(all.filter((task) => task.id !== tail.id).map((task) => task.id));
     const picked = store.nextAgentTask(sessionId, [], 48, excluded);
     expect(picked?.id).toBe(tail.id);
+    store.close();
+  });
+
+  it("keeps status() output and evidence rows valid against the core protocol schemas", async () => {
+    const projectRoot = root();
+    const store = await StateStore.open(projectRoot);
+    const projectId = store.syncProject(projectRoot, {}, analysis());
+    const sessionId = store.createSession(projectId, "http://127.0.0.1:5173");
+    const task = store.nextTask(sessionId, ["needs_agent"]);
+    if (!task) throw new Error("missing fixture task");
+    const evidenceId = store.addEvidence(task.id, evidence("agent"));
+    const status = store.status(sessionId);
+    const row = store.evidence(evidenceId) as { data_json: string };
+
+    // Drift guard: the store output must keep satisfying the shared protocol
+    // contracts. A rename here that the schema does not follow breaks every
+    // JSON consumer (Skill, DSH tools, studio) without this test noticing.
+    expect(SessionCountsSchema.parse(status.counts)).toBeDefined();
+    expect(
+      SessionSummarySchema.parse({
+        id: status.id,
+        project_root: status.project_root,
+        status: status.status,
+        counts: status.counts,
+      }),
+    ).toBeDefined();
+    expect(EvidenceSchema.parse(JSON.parse(row.data_json))).toBeDefined();
     store.close();
   });
 

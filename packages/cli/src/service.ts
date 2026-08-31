@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -490,6 +490,18 @@ export class LocalService {
     this.manualActive = false;
   }
 
+  /**
+   * Re-launch the deterministic queue for an already-running session.
+   * Idempotent while the queue is active (`runDeterministicQueue` guards
+   * itself); failures land in the service log, never in the HTTP response.
+   */
+  private kickDeterministicQueue(sessionId: string): void {
+    if (sessionId !== this.options.sessionId) throw new Error(`服务不管理该采集会话：${sessionId}`);
+    void this.runDeterministicQueue(sessionId).catch((error) => {
+      console.error("[collect-i18n] deterministic queue resume failed", error);
+    });
+  }
+
   private reliableRoute(task: import("./store.js").StoredTask): string | undefined {
     const hinted = task.routeHints
       .filter((hint): hint is { path: string; confidence: number } =>
@@ -507,8 +519,7 @@ export class LocalService {
     return appOccurrence ? "/" : undefined;
   }
 
-  private async runDeterministicQueue(sessionId: string): Promise<void> {
-    if (this.deterministicRunning || this.stopping) return;
+  private async runDeterministicQueue(sessionId: string): Promise<void> {    if (this.deterministicRunning || this.stopping) return;
     this.deterministicRunning = true;
     const store = this.store!;
     try {
@@ -805,6 +816,48 @@ export class LocalService {
   }
 
   /**
+   * Shared tail of the deterministic sweep passes (R3 scroll / R7 widget /
+   * R8 interaction): filter the unresolved pool to keys visible right now,
+   * batch-resolve and screenshot them, and record the outcome. The passes
+   * differ only in HOW they surface keys (scroll / widget clicks / single
+   * interaction steps) and WHEN they give up — those parts stay per-pass.
+   * Returns the newly captured count, how many candidates the filter found,
+   * and whether a manual takeover interrupted the batch (the caller must
+   * return immediately).
+   */
+  private async captureVisibleSummaries(
+    sessionId: string,
+    collector: BrowserCollector,
+    group: readonly TaskPoolEntry[],
+    handledKeys: Set<string>,
+    visibleKeys: Set<string>,
+    beforeBatch?: () => Promise<void>,
+  ): Promise<{ captured: number; candidates: number; aborted: boolean }> {
+    const store = this.store!;
+    const groupIds = new Set(group.map((task) => task.id));
+    const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
+      .filter((task) => !handledKeys.has(task.keyPath) && visibleKeys.has(task.keyPath));
+    let captured = 0;
+    if (notYetHandled.length === 0) return { captured, candidates: 0, aborted: false };
+    if (beforeBatch) await beforeBatch();
+    const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+    const byKey = new Map(results.map((result) => [result.key, result]));
+    for (const task of notYetHandled) {
+      if (this.manualActive) return { captured, candidates: notYetHandled.length, aborted: true };
+      const result = byKey.get(task.keyPath);
+      if (!result) continue;
+      handledKeys.add(task.keyPath);
+      if (result.evidence) {
+        try { store.addEvidence(task.id, result.evidence); captured += 1; }
+        catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
+      } else if (result.rejected) {
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
+      }
+    }
+    return { captured, candidates: notYetHandled.length, aborted: false };
+  }
+
+  /**
    * R3: bounded viewport-stepping scroll pass for a visited route. Each step
    * scrolls down, re-inspects the settled runtime and batch-captures newly
    * visible pending/needs_agent keys, so virtualized and lazily rendered
@@ -817,8 +870,6 @@ export class LocalService {
     group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
-    const store = this.store!;
-    const groupIds = new Set(group.map((task) => task.id));
     // 12 bounded steps with an early exit once a full step surfaces neither
     // newly visible keys nor new evidence: enough to walk long virtualized
     // tables row-page by row-page without burning the whole window.
@@ -828,28 +879,12 @@ export class LocalService {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
-        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) {
-        // Stability check: nothing new visible and nothing captured on this
-        // step means further scrolling is unlikely to surface more keys.
-        if (step > 2) break;
-        continue;
-      }
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
+      const outcome = await this.captureVisibleSummaries(sessionId, collector, group, handledKeys, visibleNow);
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      // Stability check: nothing new visible and nothing captured on this
+      // step means further scrolling is unlikely to surface more keys.
+      if (outcome.candidates === 0 && step > 2) break;
     }
     return newlyCaptured;
   }
@@ -868,14 +903,12 @@ export class LocalService {
     group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
-    const store = this.store!;
-    const groupIds = new Set(group.map((task) => task.id));
     const maxRounds = 8;
     let newlyCaptured = 0;
     for (let round = 1; round <= maxRounds; round += 1) {
       if (this.manualActive) return newlyCaptured;
       const sweepCfg = this.options.config.browser.sweep;
-      const outcome = await collector.widgetSweepForCapture(6, sweepCfg
+      const sweepOutcome = await collector.widgetSweepForCapture(6, sweepCfg
         ? {
             treeExpand: sweepCfg.treeExpandSelector,
             paginationNext: sweepCfg.paginationNextSelector,
@@ -884,26 +917,12 @@ export class LocalService {
           }
         : {});
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1_000, 1_500, 300)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
-        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) {
-        if (outcome === "exhausted") break;
-        continue;
-      }
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
+      const outcome = await this.captureVisibleSummaries(sessionId, collector, group, handledKeys, visibleNow);
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      // The sweep marks clicked widgets, so a round that surfaces nothing and
+      // reports "exhausted" can never advance again on this route.
+      if (outcome.candidates === 0 && sweepOutcome === "exhausted") break;
     }
     return newlyCaptured;
   }
@@ -920,8 +939,6 @@ export class LocalService {
     group: readonly TaskPoolEntry[],
     handledKeys: Set<string>,
   ): Promise<number> {
-    const store = this.store!;
-    const groupIds = new Set(group.map((task) => task.id));
     const maxRounds = 10;
     let newlyCaptured = 0;
     let idleRounds = 0;
@@ -931,29 +948,18 @@ export class LocalService {
       if (!clicked) break;
       await new Promise((done) => setTimeout(done, 400));
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(800, 1_200, 250)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"])
-        .filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      await collector.dismissOverlays();
-      if (notYetHandled.length === 0) {
+      const outcome = await this.captureVisibleSummaries(
+        sessionId, collector, group, handledKeys, visibleNow,
+        () => collector.dismissOverlays(),
+      );
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      if (outcome.candidates === 0) {
         idleRounds += 1;
         if (idleRounds >= 3) break;
         continue;
       }
       idleRounds = 0;
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try { store.addEvidence(task.id, result.evidence); newlyCaptured += 1; }
-          catch (error) { if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error), ["pending", "running"]); }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
     }
     return newlyCaptured;
   }
@@ -1288,6 +1294,25 @@ export class LocalService {
       const body = await bodyJson(request);
       sendJson(response, 200, { ok: true, data: await this.executeAgent(String(body.taskId ?? ""), body.plan) }); return;
     }
+    if (url.pathname === "/api/deterministic/resume" && request.method === "POST") {
+      // run (nextAction deterministic_continue) leaves the session running and
+      // re-kicks the queue so the Skill's "keep polling status" flow observes
+      // progress instead of a wedged idle service. Idempotent: the queue guard
+      // deduplicates concurrent kicks.
+      const sessionId = url.searchParams.get("session") ?? this.options.sessionId;
+      this.kickDeterministicQueue(sessionId);
+      sendJson(response, 202, { ok: true, data: { triggered: true, sessionId } }); return;
+    }
+    if (url.pathname === "/api/session/resume" && request.method === "POST") {
+      // agent execute / manual open against a live service whose session an
+      // older `run` closed: resume it before evidence writes hit the
+      // session-running guard.
+      const body = await bodyJson(request);
+      const sessionId = String(body.sessionId ?? this.options.sessionId);
+      this.store!.resumeSession(sessionId);
+      this.kickDeterministicQueue(sessionId);
+      sendJson(response, 200, { ok: true, data: { resumed: true, sessionId } }); return;
+    }
     if (url.pathname === "/api/manual/open" && request.method === "POST") {
       const body = await bodyJson(request);
       sendJson(response, 200, { ok: true, data: await this.startManual(String(body.sessionId ?? this.options.sessionId), String(body.keyPath ?? ""), typeof body.route === "string" ? body.route : undefined, Array.isArray(body.mocks) ? body.mocks as MockRule[] : []) }); return;
@@ -1325,7 +1350,9 @@ export class LocalService {
       const roots = await this.localeRoots(sessionId);
       const uploadDirectory = join(roots.projectRoot, ".collect-i18n", "imports");
       await mkdir(uploadDirectory, { recursive: true });
-      const file = join(uploadDirectory, `${Date.now()}-translation-return.xlsx`);
+      // Random suffix: two uploads in the same millisecond (or a replayed
+      // request) must not silently overwrite each other's workbook.
+      const file = join(uploadDirectory, `${Date.now()}-${randomUUID().slice(0, 8)}-translation-return.xlsx`);
       await writeFile(file, await bodyBuffer(request));
       const catalog = store.localeCatalog(sessionId, roots.englishRoot);
       const result = await importTranslationWorkbook({ workbookPath: file, catalog, englishRoot: roots.englishRoot, apply: url.searchParams.get("apply") === "true", backup: true });

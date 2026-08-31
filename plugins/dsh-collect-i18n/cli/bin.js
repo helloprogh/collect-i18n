@@ -151084,38 +151084,48 @@ var TriggerPlanSchema = external_exports.object({
   steps: external_exports.array(PlanStepSchema).min(1).max(40),
   rationale: external_exports.string().max(1e3).optional()
 }).strict();
-var EvidenceSchema = external_exports.object({
+var SessionStatusSchema = external_exports.enum([
+  "running",
+  "stopped",
+  "interrupted",
+  "failed"
+]);
+var SessionCountsSchema = external_exports.object({
+  total: external_exports.number().int().nonnegative(),
+  pending: external_exports.number().int().nonnegative(),
+  running: external_exports.number().int().nonnegative(),
+  captured: external_exports.number().int().nonnegative(),
+  needs_agent: external_exports.number().int().nonnegative(),
+  needs_manual: external_exports.number().int().nonnegative(),
+  failed: external_exports.number().int().nonnegative(),
+  skipped: external_exports.number().int().nonnegative()
+}).strict();
+var SessionSummarySchema = external_exports.object({
   id: external_exports.string().min(1),
-  sessionId: external_exports.string().min(1),
-  taskId: external_exports.string().min(1),
-  keyPath: external_exports.string().min(1),
+  project_root: external_exports.string().min(1),
+  status: SessionStatusSchema,
+  counts: SessionCountsSchema
+}).strict();
+var EvidenceSchema = external_exports.object({
+  key: external_exports.string().min(1),
   occurrenceId: external_exports.string().min(1).optional(),
-  screenshotPath: external_exports.string().min(1),
-  screenshotSha256: external_exports.string().regex(/^[a-f0-9]{64}$/i),
+  binding: external_exports.string().min(1).optional(),
   evidenceGrade: external_exports.enum(["A", "B", "C"]),
   evidenceProof: external_exports.string().min(1),
+  text: external_exports.string(),
   route: external_exports.string().min(1),
+  rect: BoundingBoxSchema,
+  screenshotPath: external_exports.string().min(1),
+  screenshotSha256: external_exports.string().regex(/^[a-f0-9]{64}$/i),
   capturedAt: external_exports.string().datetime({ offset: true }),
-  viewport: external_exports.object({
-    width: external_exports.number().int().positive(),
-    height: external_exports.number().int().positive()
-  }).strict(),
-  boundingBox: BoundingBoxSchema.optional(),
-  triggerPlanId: external_exports.string().min(1).optional(),
-  method: external_exports.enum(["static", "agent", "manual"]),
-  confidence: external_exports.number().min(0).max(1),
-  actionTrace: external_exports.array(external_exports.string()).default([])
+  source: external_exports.enum(["deterministic", "agent", "manual"]),
+  plan: external_exports.unknown().optional(),
+  causalProbe: external_exports.object({
+    verified: external_exports.literal(true),
+    originalGrade: external_exports.literal("B"),
+    originalProof: external_exports.string().min(1).optional()
+  }).strict().optional()
 }).strict();
-var SessionStatusSchema = external_exports.enum([
-  "initialized",
-  "running",
-  "waiting_agent",
-  "waiting_manual",
-  "export_ready",
-  "completed",
-  "failed",
-  "stopped"
-]);
 var TaskStatusSchema = external_exports.enum([
   "pending",
   "running",
@@ -151125,21 +151135,6 @@ var TaskStatusSchema = external_exports.enum([
   "failed",
   "skipped"
 ]);
-var SessionSummarySchema = external_exports.object({
-  id: external_exports.string().min(1),
-  projectRoot: external_exports.string().min(1),
-  status: SessionStatusSchema,
-  createdAt: external_exports.string().datetime({ offset: true }),
-  updatedAt: external_exports.string().datetime({ offset: true }),
-  counts: external_exports.object({
-    total: external_exports.number().int().nonnegative(),
-    pending: external_exports.number().int().nonnegative(),
-    captured: external_exports.number().int().nonnegative(),
-    needsAgent: external_exports.number().int().nonnegative(),
-    needsManual: external_exports.number().int().nonnegative(),
-    failed: external_exports.number().int().nonnegative()
-  }).strict()
-}).strict();
 var AgentTaskSchema = external_exports.object({
   id: external_exports.string().min(1),
   sessionId: external_exports.string().min(1),
@@ -155285,7 +155280,7 @@ async function callService(projectRoot, path7, init) {
 }
 
 // src/service.ts
-import { createHash as createHash5, randomBytes, timingSafeEqual } from "crypto";
+import { createHash as createHash5, randomBytes, randomUUID as randomUUID6, timingSafeEqual } from "crypto";
 import { mkdir as mkdir6, readFile as readFile8, realpath as realpath2, stat as stat2, writeFile as writeFile4 } from "fs/promises";
 import { createServer as createHttpServer } from "http";
 import { dirname as dirname5, isAbsolute as isAbsolute2, join as join6, normalize, relative as relative2, resolve as resolve9 } from "path";
@@ -158678,6 +158673,17 @@ var LocalService = class {
     this.manualGeneration += 1;
     this.manualActive = false;
   }
+  /**
+   * Re-launch the deterministic queue for an already-running session.
+   * Idempotent while the queue is active (`runDeterministicQueue` guards
+   * itself); failures land in the service log, never in the HTTP response.
+   */
+  kickDeterministicQueue(sessionId) {
+    if (sessionId !== this.options.sessionId) throw new Error(`\u670D\u52A1\u4E0D\u7BA1\u7406\u8BE5\u91C7\u96C6\u4F1A\u8BDD\uFF1A${sessionId}`);
+    void this.runDeterministicQueue(sessionId).catch((error51) => {
+      console.error("[collect-i18n] deterministic queue resume failed", error51);
+    });
+  }
   reliableRoute(task) {
     const hinted = task.routeHints.filter(
       (hint) => typeof hint === "object" && hint !== null && "path" in hint && typeof hint.path === "string" && "confidence" in hint && Number(hint.confidence) >= 0.8
@@ -158908,6 +158914,43 @@ var LocalService = class {
     );
   }
   /**
+   * Shared tail of the deterministic sweep passes (R3 scroll / R7 widget /
+   * R8 interaction): filter the unresolved pool to keys visible right now,
+   * batch-resolve and screenshot them, and record the outcome. The passes
+   * differ only in HOW they surface keys (scroll / widget clicks / single
+   * interaction steps) and WHEN they give up — those parts stay per-pass.
+   * Returns the newly captured count, how many candidates the filter found,
+   * and whether a manual takeover interrupted the batch (the caller must
+   * return immediately).
+   */
+  async captureVisibleSummaries(sessionId, collector, group, handledKeys, visibleKeys, beforeBatch) {
+    const store = this.store;
+    const groupIds = new Set(group.map((task) => task.id));
+    const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleKeys.has(task.keyPath));
+    let captured = 0;
+    if (notYetHandled.length === 0) return { captured, candidates: 0, aborted: false };
+    if (beforeBatch) await beforeBatch();
+    const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
+    const byKey = new Map(results.map((result) => [result.key, result]));
+    for (const task of notYetHandled) {
+      if (this.manualActive) return { captured, candidates: notYetHandled.length, aborted: true };
+      const result = byKey.get(task.keyPath);
+      if (!result) continue;
+      handledKeys.add(task.keyPath);
+      if (result.evidence) {
+        try {
+          store.addEvidence(task.id, result.evidence);
+          captured += 1;
+        } catch (error51) {
+          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51), ["pending", "running"]);
+        }
+      } else if (result.rejected) {
+        if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
+      }
+    }
+    return { captured, candidates: notYetHandled.length, aborted: false };
+  }
+  /**
    * R3: bounded viewport-stepping scroll pass for a visited route. Each step
    * scrolls down, re-inspects the settled runtime and batch-captures newly
    * visible pending/needs_agent keys, so virtualized and lazily rendered
@@ -158915,37 +158958,16 @@ var LocalService = class {
    * of sinking into the Agent queue.
    */
   async captureScrolledVisible(sessionId, collector, group, handledKeys) {
-    const store = this.store;
-    const groupIds = new Set(group.map((task) => task.id));
     const maxSteps = 12;
     let newlyCaptured = 0;
     for (let step = 1; step <= maxSteps; step += 1) {
       if (this.manualActive) return newlyCaptured;
       await collector.scrollForCapture(step, maxSteps);
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) {
-        if (step > 2) break;
-        continue;
-      }
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try {
-            store.addEvidence(task.id, result.evidence);
-            newlyCaptured += 1;
-          } catch (error51) {
-            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51), ["pending", "running"]);
-          }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
+      const outcome = await this.captureVisibleSummaries(sessionId, collector, group, handledKeys, visibleNow);
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      if (outcome.candidates === 0 && step > 2) break;
     }
     return newlyCaptured;
   }
@@ -158958,43 +158980,22 @@ var LocalService = class {
    * fully swept route pays one probe and no more.
    */
   async captureWidgetSweptVisible(sessionId, collector, group, handledKeys) {
-    const store = this.store;
-    const groupIds = new Set(group.map((task) => task.id));
     const maxRounds = 8;
     let newlyCaptured = 0;
     for (let round = 1; round <= maxRounds; round += 1) {
       if (this.manualActive) return newlyCaptured;
       const sweepCfg = this.options.config.browser.sweep;
-      const outcome = await collector.widgetSweepForCapture(6, sweepCfg ? {
+      const sweepOutcome = await collector.widgetSweepForCapture(6, sweepCfg ? {
         treeExpand: sweepCfg.treeExpandSelector,
         paginationNext: sweepCfg.paginationNextSelector,
         deepWidget: sweepCfg.deepWidgetSelector,
         closePopper: sweepCfg.closePopperSelector
       } : {});
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(1e3, 1500, 300)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      if (notYetHandled.length === 0) {
-        if (outcome === "exhausted") break;
-        continue;
-      }
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try {
-            store.addEvidence(task.id, result.evidence);
-            newlyCaptured += 1;
-          } catch (error51) {
-            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51), ["pending", "running"]);
-          }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
+      const outcome = await this.captureVisibleSummaries(sessionId, collector, group, handledKeys, visibleNow);
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      if (outcome.candidates === 0 && sweepOutcome === "exhausted") break;
     }
     return newlyCaptured;
   }
@@ -159005,8 +159006,6 @@ var LocalService = class {
    * dismisses overlays so the next round starts from a clean surface.
    */
   async captureInteractionSweptVisible(sessionId, collector, group, handledKeys) {
-    const store = this.store;
-    const groupIds = new Set(group.map((task) => task.id));
     const maxRounds = 10;
     let newlyCaptured = 0;
     let idleRounds = 0;
@@ -159016,32 +159015,22 @@ var LocalService = class {
       if (!clicked) break;
       await new Promise((done) => setTimeout(done, 400));
       const visibleNow = new Set(this.inspectionMountedKeys(await collector.inspectRuntimeSettled(800, 1200, 250)));
-      const notYetHandled = store.listTaskSummaries(sessionId, ["pending", "needs_agent", "needs_manual"]).filter((task) => !handledKeys.has(task.keyPath) && visibleNow.has(task.keyPath));
-      await collector.dismissOverlays();
-      if (notYetHandled.length === 0) {
+      const outcome = await this.captureVisibleSummaries(
+        sessionId,
+        collector,
+        group,
+        handledKeys,
+        visibleNow,
+        () => collector.dismissOverlays()
+      );
+      newlyCaptured += outcome.captured;
+      if (outcome.aborted) return newlyCaptured;
+      if (outcome.candidates === 0) {
         idleRounds += 1;
         if (idleRounds >= 3) break;
         continue;
       }
       idleRounds = 0;
-      const results = await collector.captureDeterministicBatch(notYetHandled.map((task) => task.keyPath));
-      const byKey = new Map(results.map((result) => [result.key, result]));
-      for (const task of notYetHandled) {
-        if (this.manualActive) return newlyCaptured;
-        const result = byKey.get(task.keyPath);
-        if (!result) continue;
-        handledKeys.add(task.keyPath);
-        if (result.evidence) {
-          try {
-            store.addEvidence(task.id, result.evidence);
-            newlyCaptured += 1;
-          } catch (error51) {
-            if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", describeFailure(error51), ["pending", "running"]);
-          }
-        } else if (result.rejected) {
-          if (groupIds.has(task.id)) store.markTask(task.id, "needs_agent", result.rejected, ["pending", "running"]);
-        }
-      }
     }
     return newlyCaptured;
   }
@@ -159351,6 +159340,20 @@ var LocalService = class {
       sendJson(response, 200, { ok: true, data: await this.executeAgent(String(body.taskId ?? ""), body.plan) });
       return;
     }
+    if (url2.pathname === "/api/deterministic/resume" && request.method === "POST") {
+      const sessionId = url2.searchParams.get("session") ?? this.options.sessionId;
+      this.kickDeterministicQueue(sessionId);
+      sendJson(response, 202, { ok: true, data: { triggered: true, sessionId } });
+      return;
+    }
+    if (url2.pathname === "/api/session/resume" && request.method === "POST") {
+      const body = await bodyJson(request);
+      const sessionId = String(body.sessionId ?? this.options.sessionId);
+      this.store.resumeSession(sessionId);
+      this.kickDeterministicQueue(sessionId);
+      sendJson(response, 200, { ok: true, data: { resumed: true, sessionId } });
+      return;
+    }
     if (url2.pathname === "/api/manual/open" && request.method === "POST") {
       const body = await bodyJson(request);
       sendJson(response, 200, { ok: true, data: await this.startManual(String(body.sessionId ?? this.options.sessionId), String(body.keyPath ?? ""), typeof body.route === "string" ? body.route : void 0, Array.isArray(body.mocks) ? body.mocks : []) });
@@ -159392,7 +159395,7 @@ var LocalService = class {
       const roots = await this.localeRoots(sessionId);
       const uploadDirectory = join6(roots.projectRoot, ".collect-i18n", "imports");
       await mkdir6(uploadDirectory, { recursive: true });
-      const file2 = join6(uploadDirectory, `${Date.now()}-translation-return.xlsx`);
+      const file2 = join6(uploadDirectory, `${Date.now()}-${randomUUID6().slice(0, 8)}-translation-return.xlsx`);
       await writeFile4(file2, await bodyBuffer(request));
       const catalog = store.localeCatalog(sessionId, roots.englishRoot);
       const result = await importTranslationWorkbook({ workbookPath: file2, catalog, englishRoot: roots.englishRoot, apply: url2.searchParams.get("apply") === "true", backup: true });
@@ -159591,6 +159594,21 @@ async function ensureSessionService(projectRoot, sessionId) {
   if (existing) {
     if (existing.sessionId !== sessionId) {
       throw new Error(`\u5F53\u524D\u670D\u52A1\u6B63\u5728\u7BA1\u7406\u53E6\u4E00\u91C7\u96C6\u4F1A\u8BDD\uFF1A${existing.sessionId}`);
+    }
+    const store = await StateStore.open(projectRoot);
+    let sessionStatus;
+    try {
+      const session = store.session(sessionId);
+      sessionStatus = session ? String(session.status) : void 0;
+    } finally {
+      store.close();
+    }
+    if (sessionStatus !== void 0 && sessionStatus !== "running") {
+      await callService(projectRoot, "/api/session/resume", {
+        method: "POST",
+        body: JSON.stringify({ sessionId }),
+        signal: AbortSignal.timeout(1e4)
+      });
     }
     return existing;
   }
@@ -159980,11 +159998,26 @@ program2.command("run").description("\u4E3A Skill \u521D\u59CB\u5316\u3001\u542F
     status,
     workbook: exported
   });
-  try {
-    const finalStore = await StateStore.open(projectRoot);
-    finalStore.closeSession(workflow.sessionId, "stopped");
-    finalStore.close();
-  } catch {
+  if (nextAction === "deterministic_continue" || nextAction === "agent" || nextAction === "manual") {
+    if (!workflow.foreground && nextAction === "deterministic_continue") {
+      try {
+        await callService(projectRoot, `/api/deterministic/resume?session=${encodeURIComponent(workflow.sessionId)}`, {
+          method: "POST",
+          body: "{}",
+          signal: AbortSignal.timeout(5e3)
+        });
+      } catch (error51) {
+        if (!jsonMode) process.stderr.write(`[collect-i18n] \u786E\u5B9A\u6027\u961F\u5217\u7EED\u8DD1\u89E6\u53D1\u5931\u8D25\uFF1A${error51 instanceof Error ? error51.message : String(error51)}
+`);
+      }
+    }
+  } else {
+    try {
+      const finalStore = await StateStore.open(projectRoot);
+      finalStore.closeSession(workflow.sessionId, "stopped");
+      finalStore.close();
+    } catch {
+    }
   }
   if (foregroundService) {
     await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => void 0);

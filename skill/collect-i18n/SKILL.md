@@ -75,7 +75,7 @@ For each returned task:
 
 `agent next` prioritizes the unresolved route with the largest fan-out, then an actionable anchor inside that route. Process one route plan at a time so browser state and failure evidence remain attributable. If the same route remains, make one focused follow-up plan only for states the first route plan missed; do not restart source analysis. Never alter source code to make an Agent plan succeed.
 
-`agent execute` automatically restores its own stopped/interrupted session when no service is alive. If it reports that another session is active, stop and report the conflicting session ID; never create or switch to another session behind the user's back.
+`agent execute` automatically restores its own stopped/interrupted session — both when no service is alive (resume + service boot re-drives the deterministic queue) and when the live service still owns that session in a stopped state (session resume through the service). If it reports that another session is active, stop and report the conflicting session ID; never create or switch to another session behind the user's back.
 
 ### 3. Finalize, deliver on time, and hand off the irreducible remainder
 

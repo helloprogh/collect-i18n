@@ -173,6 +173,23 @@ async function ensureSessionService(projectRoot: string, sessionId: string): Pro
     if (existing.sessionId !== sessionId) {
       throw new Error(`当前服务正在管理另一采集会话：${existing.sessionId}`);
     }
+    // A live service can still own a stopped session (e.g. closed by an older
+    // `run` before the Skill continued). agent/manual evidence writes require
+    // a running session, so resume it through the service before proceeding —
+    // the same restoration `start --session` performs when no service is alive.
+    const store = await StateStore.open(projectRoot);
+    let sessionStatus: string | undefined;
+    try {
+      const session = store.session(sessionId);
+      sessionStatus = session ? String(session.status) : undefined;
+    } finally { store.close(); }
+    if (sessionStatus !== undefined && sessionStatus !== "running") {
+      await callService(projectRoot, "/api/session/resume", {
+        method: "POST",
+        body: JSON.stringify({ sessionId }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    }
     return existing;
   }
 
@@ -640,13 +657,35 @@ program.command("run")
       status,
       workbook: exported,
     });
-    // The workflow is finished: close the session so leftover tasks do not
-    // linger in a stale "running" state, and release an in-process service.
-    try {
-      const finalStore = await StateStore.open(projectRoot);
-      finalStore.closeSession(workflow.sessionId, "stopped");
-      finalStore.close();
-    } catch { /* best effort */ }
+    // Settle the session lifecycle to match the Skill protocol. When work
+    // remains and the background service is alive (deterministic_continue /
+    // agent / manual), the session MUST stay running: the Skill keeps polling
+    // `status` on it, and agent/manual evidence writes require a running
+    // session (v0.7.0 and earlier closed it here, wedging every documented
+    // post-run flow). Only a finished workflow closes it.
+    if (nextAction === "deterministic_continue" || nextAction === "agent" || nextAction === "manual") {
+      if (!workflow.foreground && nextAction === "deterministic_continue") {
+        // The run's own queue pass consumed its window; re-kick it on the live
+        // service so polling observes continuous progress. Foreground runs
+        // exit this process — the Skill's `start --session` resume path
+        // re-drives the queue at service boot instead.
+        try {
+          await callService(projectRoot, `/api/deterministic/resume?session=${encodeURIComponent(workflow.sessionId)}`, {
+            method: "POST",
+            body: "{}",
+            signal: AbortSignal.timeout(5_000),
+          });
+        } catch (error) {
+          if (!jsonMode) process.stderr.write(`[collect-i18n] 确定性队列续跑触发失败：${error instanceof Error ? error.message : String(error)}\n`);
+        }
+      }
+    } else {
+      try {
+        const finalStore = await StateStore.open(projectRoot);
+        finalStore.closeSession(workflow.sessionId, "stopped");
+        finalStore.close();
+      } catch { /* best effort */ }
+    }
     if (foregroundService) {
       await removeDescriptorIfMatches(projectRoot, workflow.descriptor).catch(() => undefined);
       await foregroundService.stop().catch(() => undefined);

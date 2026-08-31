@@ -351,45 +351,77 @@ export const TriggerPlanSchema = z.object({
 export type TriggerPlan = z.input<typeof TriggerPlanSchema>
 export type ParsedTriggerPlan = z.output<typeof TriggerPlanSchema>
 
-export const EvidenceSchema = z
+/**
+ * Session lifecycle as the store actually persists it (closeSession /
+ * resumeSession / interruptProjectSessions). The previous enum listed
+ * aspirational phases (initialized / waiting_agent / ...) that no writer ever
+ * produced — task stage carries that information instead.
+ */
+export const SessionStatusSchema = z.enum([
+  'running',
+  'stopped',
+  'interrupted',
+  'failed',
+])
+
+/** Exact per-status task counts as returned by StateStore.status(). */
+export const SessionCountsSchema = z
   .object({
-    id: z.string().min(1),
-    sessionId: z.string().min(1),
-    taskId: z.string().min(1),
-    keyPath: z.string().min(1),
-    occurrenceId: z.string().min(1).optional(),
-    screenshotPath: z.string().min(1),
-    screenshotSha256: z.string().regex(/^[a-f0-9]{64}$/i),
-    evidenceGrade: z.enum(['A', 'B', 'C']),
-    evidenceProof: z.string().min(1),
-    route: z.string().min(1),
-    capturedAt: z.string().datetime({ offset: true }),
-    viewport: z
-      .object({
-        width: z.number().int().positive(),
-        height: z.number().int().positive(),
-      })
-      .strict(),
-    boundingBox: BoundingBoxSchema.optional(),
-    triggerPlanId: z.string().min(1).optional(),
-    method: z.enum(['static', 'agent', 'manual']),
-    confidence: z.number().min(0).max(1),
-    actionTrace: z.array(z.string()).default([]),
+    total: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    running: z.number().int().nonnegative(),
+    captured: z.number().int().nonnegative(),
+    needs_agent: z.number().int().nonnegative(),
+    needs_manual: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
   })
   .strict()
 
-export type Evidence = z.infer<typeof EvidenceSchema>
+/**
+ * The session-level subset of StateStore.status() output. Kept strict so a
+ * store-side rename fails the drift-guard test in cli instead of silently
+ * diverging from the JSON protocol.
+ */
+export const SessionSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    project_root: z.string().min(1),
+    status: SessionStatusSchema,
+    counts: SessionCountsSchema,
+  })
+  .strict()
 
-export const SessionStatusSchema = z.enum([
-  'initialized',
-  'running',
-  'waiting_agent',
-  'waiting_manual',
-  'export_ready',
-  'completed',
-  'failed',
-  'stopped',
-])
+/**
+ * Evidence row as persisted in the evidence table's data_json (a
+ * CollectedEvidence from the runner). The previous shape described an
+ * aspirational record that no writer ever produced.
+ */
+export const EvidenceSchema = z
+  .object({
+    key: z.string().min(1),
+    occurrenceId: z.string().min(1).optional(),
+    binding: z.string().min(1).optional(),
+    evidenceGrade: z.enum(['A', 'B', 'C']),
+    evidenceProof: z.string().min(1),
+    text: z.string(),
+    route: z.string().min(1),
+    rect: BoundingBoxSchema,
+    screenshotPath: z.string().min(1),
+    screenshotSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    capturedAt: z.string().datetime({ offset: true }),
+    source: z.enum(['deterministic', 'agent', 'manual']),
+    plan: z.unknown().optional(),
+    causalProbe: z
+      .object({
+        verified: z.literal(true),
+        originalGrade: z.literal('B'),
+        originalProof: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 
 export const TaskStatusSchema = z.enum([
   'pending',
@@ -401,29 +433,10 @@ export const TaskStatusSchema = z.enum([
   'skipped',
 ])
 
-export type SessionStatus = z.infer<typeof SessionStatusSchema>
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 
-export const SessionSummarySchema = z
-  .object({
-    id: z.string().min(1),
-    projectRoot: z.string().min(1),
-    status: SessionStatusSchema,
-    createdAt: z.string().datetime({ offset: true }),
-    updatedAt: z.string().datetime({ offset: true }),
-    counts: z
-      .object({
-        total: z.number().int().nonnegative(),
-        pending: z.number().int().nonnegative(),
-        captured: z.number().int().nonnegative(),
-        needsAgent: z.number().int().nonnegative(),
-        needsManual: z.number().int().nonnegative(),
-        failed: z.number().int().nonnegative(),
-      })
-      .strict(),
-  })
-  .strict()
-
+export type SessionStatus = z.infer<typeof SessionStatusSchema>
+export type SessionCounts = z.infer<typeof SessionCountsSchema>
 export type SessionSummary = z.infer<typeof SessionSummarySchema>
 
 export const AgentTaskSchema = z
